@@ -7,6 +7,8 @@ API Router cho dịch và lồng tiếng video trọn gói:
 - Hỗ trợ chế độ 2-bước tương tác (Duyệt/sửa phụ đề dịch trước khi render video)
 """
 
+from typing import Any
+import time
 import json
 import uuid
 import shutil
@@ -57,6 +59,12 @@ async def warmup_whisper():
         return {"status": "error", "message": str(e)}
 
 
+def _form_val(val: Any, default: Any = None) -> Any:
+    if hasattr(val, "default"):
+        return val.default
+    return val if val is not None else default
+
+
 @router.post("/start")
 async def start_video_translation(
     video: UploadFile = File(..., description="File video MP4 / MKV / MOV cần dịch"),
@@ -82,8 +90,27 @@ async def start_video_translation(
     Tiếp nhận video tải lên và kích hoạt Pipeline dịch & lồng tiếng tự động chạy ngầm.
     Trả về ngay task_id để client theo dõi tiến trình.
     """
-    if translation_provider.lower() in ["gemini", "google_ai_studio", "google-ai-studio"]:
-        effective_key = translation_api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_STUDIO_API_KEY")
+    s_lang = str(_form_val(source_lang, "auto"))
+    t_lang = str(_form_val(target_lang, "vi"))
+    v_id = str(_form_val(voice_id, "vi-VN-HoaiMyNeural"))
+    eng = str(_form_val(engine, "edge-tts"))
+    v_rate = str(_form_val(voice_rate, "+0%"))
+    v_pitch = str(_form_val(voice_pitch, "+0Hz"))
+    v_vol = float(_form_val(voice_volume, 1.0))
+    p_bgm = bool(_form_val(preserve_bgm, True))
+    bgm_vol = float(_form_val(bgm_volume, 0.25))
+    sub_mode = str(_form_val(subtitle_mode, "hard_target"))
+    max_speed = float(_form_val(max_speed_rate, 1.35))
+    trans_provider = str(_form_val(translation_provider, "google"))
+    raw_key = _form_val(translation_api_key, None)
+    trans_key = str(raw_key).strip() if raw_key else None
+    trans_style = str(_form_val(translation_style, "auto"))
+    trans_model = str(_form_val(translation_model, "gemini-2.5-flash"))
+    trans_temp = float(_form_val(translation_temperature, 0.2))
+    w_model = str(_form_val(whisper_model, "large-v3"))
+
+    if trans_provider.lower() in ["gemini", "google_ai_studio", "google-ai-studio"]:
+        effective_key = trans_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_STUDIO_API_KEY")
         if not effective_key or not effective_key.strip():
             raise HTTPException(
                 status_code=400,
@@ -94,7 +121,8 @@ async def start_video_translation(
     task_dir = TRANSLATE_OUTPUT_DIR / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
-    input_video_path = task_dir / f"input_{video.filename}"
+    safe_filename = video.filename or f"upload_{task_id}.mp4"
+    input_video_path = task_dir / f"input_{safe_filename}"
 
     # Lưu file qua thread riêng để không block asyncio loop
     def _save_uploaded_video():
@@ -111,8 +139,8 @@ async def start_video_translation(
         "progress": 3,
         "current_step": "extracting",
         "message": "Đang tiếp nhận video và khởi tạo pipeline xử lý...",
-        "source_lang": source_lang,
-        "target_lang": target_lang,
+        "source_lang": s_lang,
+        "target_lang": t_lang,
         "total_segments": 0,
         "video_url": None,
         "audio_url": None,
@@ -130,23 +158,23 @@ async def start_video_translation(
         VideoTranslationPipeline.run_pipeline(
             task_id=task_id,
             video_path=input_video_path,
-            source_lang=source_lang,
-            target_lang=target_lang,
-            voice_id=voice_id,
-            engine=engine,
-            voice_rate=voice_rate,
-            voice_pitch=voice_pitch,
-            voice_volume=voice_volume,
-            preserve_bgm=preserve_bgm,
-            bgm_volume=bgm_volume,
-            subtitle_mode=subtitle_mode,
-            max_speed_rate=max_speed_rate,
-            translation_provider=translation_provider,
-            translation_api_key=translation_api_key,
-            translation_style=translation_style,
-            translation_model=translation_model,
-            translation_temperature=translation_temperature,
-            whisper_model=whisper_model,
+            source_lang=s_lang,
+            target_lang=t_lang,
+            voice_id=v_id,
+            engine=eng,
+            voice_rate=v_rate,
+            voice_pitch=v_pitch,
+            voice_volume=v_vol,
+            preserve_bgm=p_bgm,
+            bgm_volume=bgm_vol,
+            subtitle_mode=sub_mode,
+            max_speed_rate=max_speed,
+            translation_provider=trans_provider,
+            translation_api_key=trans_key,
+            translation_style=trans_style,
+            translation_model=trans_model,
+            translation_temperature=trans_temp,
+            whisper_model=w_model,
         )
     )
     _BACKGROUND_TASKS.add(bg_task)

@@ -107,7 +107,7 @@ class VideoTranslationPipeline:
             try:
                 meta_file = task_dir / "task_meta.json"
                 with open(meta_file, "w", encoding="utf-8") as f:
-                    json.dump(_TASK_STORE[task_id], f, ensure_ascii=False, indent=2)
+                    json.dump(_TASK_STORE[task_id], f, ensure_ascii=False, indent=2, default=str)
             except Exception as e:
                 logger.warning(f"Không thể lưu task_meta.json: {e}")
 

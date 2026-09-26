@@ -15,3 +15,13 @@ foreach ($port in $ports) {
         # Bỏ qua lỗi
     }
 }
+
+# Dọn dẹp triệt để bất kỳ tiến trình uvicorn / python chạy ngầm cũ của self-tts
+try {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -like "*uvicorn main:app*" -or $_.CommandLine -like "*self-tts\backend*"
+    } | ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+} catch {}
+
