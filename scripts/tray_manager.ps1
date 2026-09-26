@@ -195,10 +195,10 @@ $script:ExitApplication = {
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
 
-    # 1. Đóng Backend và Frontend theo port (8000 & 5173)
-    $ports = @(8000, 5173)
+    # 1. Đóng Backend và Frontend theo port (8000 & 5173 & 5174)
+    $ports = @(8000, 5173, 5174)
     foreach ($port in $ports) {
-        $pids = (Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+        $pids = (Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Where-Object { $_.OwningProcess -gt 4 } | Select-Object -ExpandProperty OwningProcess -Unique)
         foreach ($p in $pids) {
             Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
         }

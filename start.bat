@@ -16,10 +16,8 @@ echo Trinh duyet se TU DONG MO khi he thong san sang!
 echo Nhan Ctrl+C de dung toan bo he thong.
 echo ===================================================
 
-:: Tu dong don dep port cu bi treo neu co
-powershell -NoProfile -Command "Stop-Process -Id (Get-NetTCPConnection -LocalPort 8000,5173 -ErrorAction SilentlyContinue).OwningProcess -Force -ErrorAction SilentlyContinue" >nul 2>&1
-
-:: Tu dong tat tien trinh tray manager cu neu co
+:: Tu dong don dep port cu bi treo va tray manager cu
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\kill_ports.ps1" >nul 2>&1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*tray_manager.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
 :: Tu dong tao Shortcut ngoai Desktop neu chua co

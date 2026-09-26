@@ -75,9 +75,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from pathlib import Path
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
+
 # ─── Static Files ─────────────────────────────────────────────────────────────
 app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
 app.mount("/presets", StaticFiles(directory=str(PRESETS_DIR)), name="presets")
 
 # ─── Include API Routers ──────────────────────────────────────────────────────
 app.include_router(api_router)
+
+# ─── Frontend SPA Static Files (Hỗ trợ truy cập trực tiếp http://localhost:8000) ─
+FRONTEND_DIST = (Path(__file__).resolve().parent / ".." / "frontend" / "dist").resolve()
+if FRONTEND_DIST.exists():
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend_assets")
+
+    @app.get("/", include_in_schema=False)
+    async def serve_root():
+        index_file = FRONTEND_DIST / "index.html"
+        if index_file.is_file():
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        if not full_path or full_path == "/":
+            index_file = FRONTEND_DIST / "index.html"
+            if index_file.is_file():
+                return FileResponse(index_file)
+        if full_path.startswith(("api/", "outputs/", "presets/", "docs", "openapi.json", "health")):
+            raise HTTPException(status_code=404, detail="Not Found")
+        target_file = FRONTEND_DIST / full_path
+        if target_file.is_file():
+            return FileResponse(target_file)
+        index_file = FRONTEND_DIST / "index.html"
+        if index_file.is_file():
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Not Found")
+
