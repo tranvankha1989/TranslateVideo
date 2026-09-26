@@ -1,8 +1,8 @@
 # scripts/push_github.ps1
-# Script tu dong Commit va Day toan bo ma nguon len GitHub tranvankha1989/VoxCPM-TTS
+# Script tu dong Commit va Day toan bo ma nguon len GitHub tranvankha1989/TranslateVideo
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$Host.UI.RawUI.WindowTitle = "Day code len GitHub (tranvankha1989/VoxCPM-TTS)"
+$Host.UI.RawUI.WindowTitle = "Day code len GitHub (tranvankha1989/TranslateVideo)"
 
 $projectDir = (Get-Item $PSScriptRoot).Parent.FullName
 Set-Location -Path $projectDir
@@ -10,7 +10,7 @@ Set-Location -Path $projectDir
 Write-Host ""
 Write-Host "===================================================================" -ForegroundColor Cyan
 Write-Host "  DANG DONG BO VA DAY MA NGUON LEN GITHUB CUA BAN" -ForegroundColor Cyan
-Write-Host "  Repository: https://github.com/tranvankha1989/VoxCPM-TTS.git" -ForegroundColor Gray
+Write-Host "  Repository: https://github.com/tranvankha1989/TranslateVideo.git" -ForegroundColor Gray
 Write-Host "===================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -33,10 +33,10 @@ if ($currentBranch -ne "main") {
 
 # 3. Kiem tra remote origin
 $originUrl = (git remote get-url origin 2>&1).Trim()
-if ($originUrl -notlike "*tranvankha1989/VoxCPM-TTS*") {
-    Write-Host "[*] Dang cau hinh lai remote origin -> https://github.com/tranvankha1989/VoxCPM-TTS.git" -ForegroundColor Yellow
+if ($originUrl -notlike "*tranvankha1989/TranslateVideo*") {
+    Write-Host "[*] Dang cau hinh lai remote origin -> https://github.com/tranvankha1989/TranslateVideo.git" -ForegroundColor Yellow
     git remote remove origin 2>&1 | Out-Null
-    git remote add origin https://github.com/tranvankha1989/VoxCPM-TTS.git
+    git remote add origin https://github.com/tranvankha1989/TranslateVideo.git
 }
 
 # 4. Them toan bo file thay doi vao Git Staging
@@ -75,7 +75,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "===================================================================" -ForegroundColor Green
     Write-Host "  [OK] THANH CONG 100%!" -ForegroundColor Green
     Write-Host "  Toan bo ma nguon da duoc day va cap nhat tren GitHub cua ban:" -ForegroundColor Green
-    Write-Host "  -> https://github.com/tranvankha1989/VoxCPM-TTS" -ForegroundColor Cyan
+    Write-Host "  -> https://github.com/tranvankha1989/TranslateVideo" -ForegroundColor Cyan
     Write-Host "===================================================================" -ForegroundColor Green
     Write-Host ""
 } else {
@@ -83,7 +83,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "===================================================================" -ForegroundColor Red
     Write-Host "  [X] CO LOI XAY RA KHI DAY LEN GITHUB:" -ForegroundColor Red
     Write-Host "  1. Hay kiem tra ket noi mang Internet cua ban." -ForegroundColor Yellow
-    Write-Host "  2. Hay kiem tra xem repository 'VoxCPM-TTS' da duoc tao tren tai khoan:" -ForegroundColor Yellow
+    Write-Host "  2. Hay kiem tra xem repository 'TranslateVideo' da duoc tao tren tai khoan:" -ForegroundColor Yellow
     Write-Host "     https://github.com/tranvankha1989 chua." -ForegroundColor Yellow
     Write-Host "  3. Xac nhan dang nhap tren trinh duyet neu duoc hoi." -ForegroundColor Yellow
     Write-Host "===================================================================" -ForegroundColor Red
