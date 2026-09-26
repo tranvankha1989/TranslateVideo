@@ -30,6 +30,8 @@ import {
   Brain,
   ListChecks,
   ArrowRight,
+  Mic,
+  Volume2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
@@ -38,6 +40,7 @@ import {
   useVideoTranslateStore,
   type VoiceOption,
   type TranslationProgress,
+  type StudioSegment,
 } from "@/store/useVideoTranslateStore";
 
 const STEP_LABELS: Record<string, { label: string; icon: string }> = {
@@ -146,12 +149,34 @@ export default function VideoTranslate() {
     setSrtText,
     setIsLoadingSrt,
     setIsSavingSrt,
+    studioSegments,
+    activeStudioSegmentId,
+    isLoadingStudioSegments,
+    isRemuxingStudioVideo,
+    studioRemuxMessage,
+    setStudioSegments,
+    updateStudioSegmentText,
+    setStudioSegmentRedubbing,
+    updateSingleStudioSegment,
+    setActiveStudioSegmentId,
+    setIsLoadingStudioSegments,
+    setIsRemuxingStudioVideo,
+    setStudioRemuxMessage,
     setTaskId,
     setTaskStatus,
     setElapsedSeconds,
     resetAll,
     fetchActiveTask,
   } = useVideoTranslateStore();
+
+  const [studioSearch, setStudioSearch] = React.useState("");
+  const [playingAudioSegId, setPlayingAudioSegId] = React.useState<number | null>(null);
+
+  const filteredStudioSegments = studioSegments.filter((s) => {
+    if (!studioSearch.trim()) return true;
+    const q = studioSearch.toLowerCase();
+    return s.text.toLowerCase().includes(q) || (s.original_text && s.original_text.toLowerCase().includes(q));
+  });
 
   // Bộ đếm thời gian thực (wall-clock) chống lag/đứng giờ khi chuyển tab hoặc render video lâu
   const taskStartTimeRef = useRef<number | null>(null);
@@ -709,6 +734,150 @@ export default function VideoTranslate() {
       setIsContinuing(false);
     }
   };
+
+  // ── STUDIO REALTIME SYNC & SELECTIVE REDUB HANDLERS ─────────────────────
+  const fetchStudioSegments = async (tId: string) => {
+    setIsLoadingStudioSegments(true);
+    try {
+      const res = await fetch(`http://localhost:8000/api/video-translate/studio-segments/${tId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.segments) {
+          setStudioSegments(data.segments);
+        }
+      }
+    } catch (e) {
+      console.error("Lỗi tải studio segments:", e);
+    } finally {
+      setIsLoadingStudioSegments(false);
+    }
+  };
+
+  // Tự động nạp segments khi tác vụ hoàn thành
+  useEffect(() => {
+    if (taskStatus?.status === "completed" && taskStatus?.task_id) {
+      fetchStudioSegments(taskStatus.task_id);
+    }
+  }, [taskStatus?.status, taskStatus?.task_id]);
+
+  // Đồng bộ thời gian thực: Video chạy đến đâu, câu thoại tự sáng & cuộn tới đó
+  const handleVideoTimeUpdate = () => {
+    if (!resultVideoRef.current || studioSegments.length === 0) return;
+    const cur = resultVideoRef.current.currentTime;
+    const found = studioSegments.find((s) => s.start <= cur && cur <= s.end + 0.35);
+    if (found && found.id !== activeStudioSegmentId) {
+      setActiveStudioSegmentId(found.id);
+      const el = document.getElementById(`studio-seg-${found.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+  };
+
+  // Tua video trực tiếp tới câu đang chọn
+  const handleSeekToSegment = (seg: StudioSegment) => {
+    if (!resultVideoRef.current) return;
+    resultVideoRef.current.currentTime = seg.start;
+    resultVideoRef.current.play().catch(() => {});
+    setActiveStudioSegmentId(seg.id);
+  };
+
+  // Thuyết minh lại CỤC BỘ đúng 1 câu duy nhất (chỉ mất ~0.5s)
+  const handleRedubSingleSegment = async (seg: StudioSegment) => {
+    const currentId = taskStatus?.task_id || taskId;
+    if (!currentId) return;
+
+    setStudioSegmentRedubbing(seg.id, true);
+    try {
+      const res = await fetch(`http://localhost:8000/api/video-translate/studio-redub-segment/${currentId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          segment_id: seg.id,
+          text: seg.text,
+          voice_id: selectedVoice,
+          engine: selectedEngine,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Không thể thu lại câu này");
+      }
+      const data = await res.json();
+      updateSingleStudioSegment(seg.id, {
+        ...data.segment,
+        isRedubbing: false,
+      });
+      toast.success(`🎙️ Đã thu lại câu #${seg.id} thành công!`);
+
+      // Tự động phát âm thanh vừa thu lại để người dùng nghe thử ngay lập tức
+      if (data.audio_url) {
+        const audio = new Audio(`http://localhost:8000${data.audio_url}`);
+        setPlayingAudioSegId(seg.id);
+        audio.onended = () => setPlayingAudioSegId(null);
+        audio.onerror = () => setPlayingAudioSegId(null);
+        audio.play().catch(() => setPlayingAudioSegId(null));
+      }
+    } catch (err: any) {
+      toast.error("Lỗi khi thu lại: " + err.message);
+      setStudioSegmentRedubbing(seg.id, false);
+    }
+  };
+
+  // Nghe thử file âm thanh riêng của một câu thoại
+  const handlePlaySegmentAudio = (segId: number, audioUrl: string | null | undefined) => {
+    if (!audioUrl) {
+      toast.error("Chưa có file âm thanh cho câu này");
+      return;
+    }
+    const fullUrl = audioUrl.startsWith("http") ? audioUrl : `http://localhost:8000${audioUrl}`;
+    const audio = new Audio(fullUrl);
+    setPlayingAudioSegId(segId);
+    audio.onended = () => setPlayingAudioSegId(null);
+    audio.onerror = () => setPlayingAudioSegId(null);
+    audio.play().catch(() => setPlayingAudioSegId(null));
+  };
+
+  // Trộn lại audio & mux video siêu tốc (chỉ 2-5s)
+  const handleQuickRemux = async () => {
+    const currentId = taskStatus?.task_id || taskId;
+    if (!currentId) return;
+
+    setIsRemuxingStudioVideo(true);
+    setStudioRemuxMessage(null);
+    try {
+      const res = await fetch(`http://localhost:8000/api/video-translate/studio-quick-remux/${currentId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subtitle_mode: subtitleMode,
+          preserve_bgm: preserveBgm,
+          bgm_volume: bgmVolume,
+          voice_volume: 1.0,
+          max_speed_rate: maxSpeedRate,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Lỗi khi cập nhật video");
+      }
+      const data = await res.json();
+      setStudioRemuxMessage("🎉 Đã cập nhật video thành phẩm mới với các câu vừa thuyết minh lại!");
+      toast.success("✅ Cập nhật video thành công!");
+
+      // Tải lại video thành phẩm trên trình duyệt với cache-buster
+      if (resultVideoRef.current && data.video_url) {
+        resultVideoRef.current.src = `http://localhost:8000${data.video_url}`;
+        resultVideoRef.current.load();
+        resultVideoRef.current.play().catch(() => {});
+      }
+    } catch (err: any) {
+      toast.error("Lỗi khi cập nhật video: " + err.message);
+    } finally {
+      setIsRemuxingStudioVideo(false);
+    }
+  };
+
 
   // 6. Xử lý tải video/phụ đề trực tiếp và mượt mà bằng trình duyệt (Không tốn RAM)
   const handleDownloadFile = (id: string, fileType: "video" | "srt" | "srt_original", defaultFilename: string) => {
@@ -1433,6 +1602,7 @@ export default function VideoTranslate() {
                   controls
                   playsInline
                   autoPlay
+                  onTimeUpdate={handleVideoTimeUpdate}
                   className="w-full h-full object-contain"
                 />
               ) : videoPreviewUrl ? (
@@ -1519,7 +1689,211 @@ export default function VideoTranslate() {
                   <span>📁 Mở Thư Mục Chứa Video Trên Máy Tính</span>
                 </button>
 
-                {/* 2. Khối chức năng mở Notepad & Lồng tiếng lại */}
+                {/* 2. Studio Xem Lại & Thuyết Minh Thời Gian Thực (Interactive Timeline & In-Place Redub) */}
+                <div className="p-4 rounded-3xl bg-surface/90 border-2 border-primary/40 space-y-4 shadow-xl animate-fadeIn">
+                  {/* Studio Header */}
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-white/10">
+                    <div className="flex items-center gap-2.5">
+                      <span className="p-2 rounded-xl bg-primary/20 text-primary">
+                        <Sparkles className="w-5 h-5" />
+                      </span>
+                      <div>
+                        <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
+                          <span>Studio Xem Lại & Thuyết Minh Từng Đoạn</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
+                            Real-time Sync
+                          </span>
+                        </h3>
+                        <p className="text-[11px] text-on-surface-variant">
+                          Video chạy tới đâu câu thoại tự sáng tới đó. Sửa trực tiếp từng câu và bấm thu lại siêu tốc (0.5s)!
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Quick Remux CTA */}
+                    <button
+                      type="button"
+                      onClick={handleQuickRemux}
+                      disabled={isRemuxingStudioVideo}
+                      className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-primary to-amber-400 text-black font-bold text-xs flex items-center gap-1.5 hover:opacity-95 shadow-md shadow-primary/20 cursor-pointer disabled:opacity-50 transition-all active:scale-[0.98]"
+                      title="Trộn âm thanh câu vừa sửa vào video thành phẩm (chỉ mất 2-5 giây)"
+                    >
+                      {isRemuxingStudioVideo ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-black" />
+                          <span>Đang cập nhật video...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Film className="w-4 h-4 text-black" />
+                          <span>⚡ Cập Nhật Video Thành Phẩm (3-5s)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Status Banner */}
+                  {studioRemuxMessage && (
+                    <div className="p-2.5 rounded-xl bg-green-500/10 border border-green-500/30 text-green-300 text-xs flex items-center justify-between animate-fadeIn">
+                      <span>{studioRemuxMessage}</span>
+                      <button
+                        type="button"
+                        onClick={() => setStudioRemuxMessage(null)}
+                        className="text-green-400 hover:text-white text-xs font-bold px-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Search Bar & Refresh */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={studioSearch}
+                      onChange={(e) => setStudioSearch(e.target.value)}
+                      placeholder="🔍 Tìm kiếm nhanh câu thoại..."
+                      className="w-full text-xs bg-surface-variant/40 border border-white/10 rounded-xl px-3 py-2 text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary"
+                    />
+                    {taskStatus?.task_id && (
+                      <button
+                        type="button"
+                        onClick={() => fetchStudioSegments(taskStatus.task_id)}
+                        disabled={isLoadingStudioSegments}
+                        className="px-2.5 py-2 rounded-xl bg-surface-variant/60 hover:bg-surface-variant text-on-surface text-xs flex items-center gap-1 border border-white/10 cursor-pointer shrink-0 disabled:opacity-50"
+                        title="Tải lại danh sách câu thoại"
+                      >
+                        {isLoadingStudioSegments ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-3.5 h-3.5 text-primary" />
+                        )}
+                        <span>Nạp lại</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Danh sách câu thoại đồng bộ thời gian thực */}
+                  {isLoadingStudioSegments && studioSegments.length === 0 ? (
+                    <div className="py-8 flex flex-col items-center justify-center gap-2 text-on-surface-variant text-xs">
+                      <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                      <span>Đang nạp dữ liệu timeline studio...</span>
+                    </div>
+                  ) : studioSegments.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-on-surface-variant">
+                      Chưa có dữ liệu câu thoại cho video này.
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+                      {filteredStudioSegments.map((seg) => {
+                        const isActive = activeStudioSegmentId === seg.id;
+                        const isPlayingAudio = playingAudioSegId === seg.id;
+                        return (
+                          <div
+                            key={seg.id}
+                            id={`studio-seg-${seg.id}`}
+                            className={cn(
+                              "p-3 rounded-2xl border transition-all duration-200 space-y-2",
+                              isActive
+                                ? "bg-primary/10 border-primary shadow-md shadow-primary/15 ring-1 ring-primary/40"
+                                : "bg-surface-variant/25 border-white/5 hover:border-white/15"
+                            )}
+                          >
+                            {/* Top row: ID, Time, Actions */}
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={cn(
+                                    "text-[10px] font-mono font-bold px-2 py-0.5 rounded-md",
+                                    isActive ? "bg-primary text-black" : "bg-white/10 text-on-surface-variant"
+                                  )}
+                                >
+                                  #{seg.id}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSeekToSegment(seg)}
+                                  className="text-[11px] font-mono text-primary hover:underline flex items-center gap-1 cursor-pointer font-semibold"
+                                  title="Tua video đến đúng mốc này"
+                                >
+                                  <Play className="w-3 h-3 text-primary fill-primary" />
+                                  <span>{formatSrtTime(seg.start)} ➔ {formatSrtTime(seg.end)}</span>
+                                </button>
+                                {seg.audio_duration ? (
+                                  <span className="text-[10px] text-on-surface-variant/70 font-mono">
+                                    ({seg.audio_duration.toFixed(1)}s)
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                {/* Nghe thử âm thanh câu này */}
+                                {seg.audio_url && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePlaySegmentAudio(seg.id, seg.audio_url)}
+                                    className={cn(
+                                      "px-2.5 py-1 rounded-lg text-xs flex items-center gap-1 border transition-all cursor-pointer",
+                                      isPlayingAudio
+                                        ? "bg-primary text-black border-primary animate-pulse font-bold"
+                                        : "bg-white/5 hover:bg-white/10 text-on-surface border-white/10"
+                                    )}
+                                    title="Nghe thử file âm thanh lồng tiếng riêng của câu này"
+                                  >
+                                    <Volume2 className="w-3 h-3 text-primary" />
+                                    <span>{isPlayingAudio ? "Đang phát..." : "Nghe thử"}</span>
+                                  </button>
+                                )}
+
+                                {/* Thu lại câu này */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRedubSingleSegment(seg)}
+                                  disabled={seg.isRedubbing}
+                                  className="px-2.5 py-1 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                  title="Chỉ thu lại duy nhất câu này bằng giọng đọc AI (chỉ mất ~0.5s)"
+                                >
+                                  {seg.isRedubbing ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                                      <span>Đang thu...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Mic className="w-3 h-3 text-primary" />
+                                      <span>Thu lại câu này</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Câu gốc tiếng Trung (nếu có) */}
+                            {seg.original_text && (
+                              <div className="text-[11px] font-mono text-amber-300/80 bg-black/30 px-2.5 py-1 rounded-lg border border-amber-500/10">
+                                <span className="text-amber-400 font-medium">Gốc: </span>
+                                {seg.original_text}
+                              </div>
+                            )}
+
+                            {/* Ô nhập câu dịch tiếng Việt có thể sửa trực tiếp */}
+                            <div className="relative">
+                              <textarea
+                                value={seg.text}
+                                onChange={(e) => updateStudioSegmentText(seg.id, e.target.value)}
+                                rows={2}
+                                className="w-full text-xs bg-black/60 border border-white/10 rounded-xl p-2.5 text-on-surface focus:outline-none focus:border-primary resize-y leading-relaxed font-sans"
+                                placeholder="Nhập câu thoại tiếng Việt..."
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Khối chức năng mở Notepad & Lồng tiếng lại */}
                 <div className="p-3.5 rounded-2xl bg-surface-variant/30 border border-primary/20 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-on-surface flex items-center gap-1.5">

@@ -361,6 +361,10 @@ class VideoTranslationPipeline:
                 temperature=translation_temperature,
             )
 
+            for i, ts in enumerate(translated_segments):
+                if i < len(original_segments):
+                    ts["original_text"] = original_segments[i].get("text", "")
+
             # ── BƯỚC 4: LỒNG TIẾNG TỰ ĐỘNG (55% -> 75%) ───────────────────
             cls.update_task(
                 task_id,
@@ -377,6 +381,30 @@ class VideoTranslationPipeline:
                 pitch=voice_pitch,
                 session_id=task_id,
             )
+
+            # Lưu checkpoint dữ liệu câu thoại & cấu hình để phục vụ Studio chỉnh sửa theo thời gian thực
+            task_meta = {
+                "task_id": task_id,
+                "video_path": str(video_path),
+                "video_duration": video_duration,
+                "voice_id": voice_id,
+                "engine": engine,
+                "voice_rate": voice_rate,
+                "voice_pitch": voice_pitch,
+                "voice_volume": voice_volume,
+                "preserve_bgm": preserve_bgm,
+                "bgm_volume": bgm_volume,
+                "bgm_path": str(bgm_path) if bgm_path else None,
+                "subtitle_mode": subtitle_mode,
+                "max_speed_rate": max_speed_rate,
+                "detected_source_lang": detected_source_lang,
+                "target_lang": target_lang,
+            }
+            try:
+                (task_dir / "task_meta.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+                (task_dir / "dubbed_segments.json").write_text(json.dumps(dub_res["dubbed_segments"], ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Lỗi ghi task_meta/dubbed_segments: {e}")
 
             # ── BƯỚC 5: CÂN CHỈNH TỐC ĐỘ VÀ RÁP NỐI TIMELINE (75% -> 85%) ───
             cls.update_task(
@@ -601,6 +629,10 @@ class VideoTranslationPipeline:
                     temperature=translation_temperature,
                 )
 
+            for i, ts in enumerate(translated_segments):
+                if i < len(original_segments):
+                    ts["original_text"] = original_segments[i].get("text", "")
+
             # ── BƯỚC 4: LỒNG TIẾNG TỰ ĐỘNG (55% -> 75%) ───────────────────
             cls.update_task(
                 task_id,
@@ -617,6 +649,30 @@ class VideoTranslationPipeline:
                 pitch=voice_pitch,
                 session_id=task_id,
             )
+
+            # Lưu checkpoint dữ liệu câu thoại & cấu hình để phục vụ Studio chỉnh sửa theo thời gian thực
+            task_meta = {
+                "task_id": task_id,
+                "video_path": str(video_path),
+                "video_duration": video_duration,
+                "voice_id": voice_id,
+                "engine": engine,
+                "voice_rate": voice_rate,
+                "voice_pitch": voice_pitch,
+                "voice_volume": voice_volume,
+                "preserve_bgm": preserve_bgm,
+                "bgm_volume": bgm_volume,
+                "bgm_path": str(bgm_path) if bgm_path else None,
+                "subtitle_mode": subtitle_mode,
+                "max_speed_rate": max_speed_rate,
+                "detected_source_lang": detected_source_lang,
+                "target_lang": target_lang,
+            }
+            try:
+                (task_dir / "task_meta.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+                (task_dir / "dubbed_segments.json").write_text(json.dumps(dub_res["dubbed_segments"], ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Lỗi ghi task_meta/dubbed_segments: {e}")
 
             # ── BƯỚC 5: CÂN CHỈNH TỐC ĐỘ VÀ RÁP NỐI TIMELINE (75% -> 85%) ───
             cls.update_task(
@@ -855,6 +911,27 @@ class VideoTranslationPipeline:
                 session_id=task_id,
             )
 
+            # Lưu checkpoint dữ liệu câu thoại & cấu hình sau khi redub
+            task_meta = {
+                "task_id": task_id,
+                "video_path": str(video_path),
+                "video_duration": video_duration,
+                "voice_id": v_id,
+                "engine": eng,
+                "voice_rate": v_rate,
+                "voice_pitch": v_pitch,
+                "voice_volume": v_vol,
+                "preserve_bgm": p_bgm,
+                "bgm_volume": b_vol,
+                "subtitle_mode": sub_mode,
+                "max_speed_rate": max_speed,
+            }
+            try:
+                (task_dir / "task_meta.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+                (task_dir / "dubbed_segments.json").write_text(json.dumps(dub_res["dubbed_segments"], ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Lỗi ghi task_meta/dubbed_segments trong redub: {e}")
+
             # 2. Cân chỉnh tốc độ & hòa âm thuyết minh
             cls.update_task(
                 task_id,
@@ -964,3 +1041,286 @@ class VideoTranslationPipeline:
                 message=f"Lỗi khi lồng tiếng lại: {str(e)}",
                 error=str(e),
             )
+
+    @classmethod
+    def get_studio_segments(cls, task_id: str) -> dict[str, Any]:
+        """
+        Lấy danh sách các câu thoại kèm file âm thanh và mốc thời gian phục vụ Studio Editor (Real-time Timeline Review).
+        Nếu file dubbed_segments.json chưa có (ví dụ task chạy trước đó), tự động tái tạo từ subtitles.srt.
+        """
+        task_dir = TRANSLATE_OUTPUT_DIR / task_id
+        if not task_dir.exists():
+            raise RuntimeError(f"Không tìm thấy thư mục của tác vụ {task_id}")
+
+        dubbed_file = task_dir / "dubbed_segments.json"
+        segments = []
+        if dubbed_file.exists():
+            try:
+                segments = json.loads(dubbed_file.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"Lỗi đọc dubbed_segments.json: {e}")
+
+        if not segments:
+            # Tái tạo từ subtitles.srt và subtitles_original.srt
+            srt_path = task_dir / "subtitles.srt"
+            parsed_sub = cls.parse_srt_file(srt_path) if srt_path.exists() else []
+            orig_sub = cls.parse_srt_file(task_dir / "subtitles_original.srt") if (task_dir / "subtitles_original.srt").exists() else []
+            orig_map = {item.get("id"): item.get("text", "") for item in orig_sub}
+
+            dubbing_dir = DUBBING_OUTPUT_DIR / task_id
+            for s in parsed_sub:
+                s_id = s.get("id", 1)
+                audio_file = dubbing_dir / f"seg_{s_id:04d}.mp3"
+                audio_url = f"/outputs/dubbing/{task_id}/{audio_file.name}" if audio_file.exists() else None
+                audio_dur = get_audio_duration(audio_file) if audio_file.exists() else 0.0
+                segments.append({
+                    "id": s_id,
+                    "start": s.get("start", 0.0),
+                    "end": s.get("end", 0.0),
+                    "text": s.get("text", ""),
+                    "original_text": orig_map.get(s_id, ""),
+                    "audio_path": str(audio_file) if audio_file.exists() else None,
+                    "audio_url": audio_url,
+                    "audio_duration": audio_dur,
+                    "target_duration": max(0.1, s.get("end", 0.0) - s.get("start", 0.0)),
+                })
+
+        meta_file = task_dir / "task_meta.json"
+        task_meta = {}
+        if meta_file.exists():
+            try:
+                task_meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        task = cls.get_task(task_id) or {}
+        return {
+            "task_id": task_id,
+            "video_url": f"/api/video-translate/stream/{task_id}",
+            "audio_url": task.get("audio_url"),
+            "segments": segments,
+            "meta": {
+                "voice_id": task_meta.get("voice_id") or task.get("voice_id", "vi-VN-HoaiMyNeural"),
+                "engine": task_meta.get("engine") or task.get("engine", "edge-tts"),
+                "preserve_bgm": task_meta.get("preserve_bgm", task.get("preserve_bgm", True)),
+                "bgm_volume": task_meta.get("bgm_volume", task.get("bgm_volume", 0.25)),
+                "voice_volume": task_meta.get("voice_volume", task.get("voice_volume", 1.0)),
+                "subtitle_mode": task_meta.get("subtitle_mode", task.get("subtitle_mode", "hard_target")),
+                "max_speed_rate": task_meta.get("max_speed_rate", task.get("max_speed_rate", 1.35)),
+            },
+        }
+
+    @classmethod
+    async def redub_single_segment(
+        cls,
+        task_id: str,
+        segment_id: int,
+        new_text: str,
+        voice_id: str | None = None,
+        engine: str | None = None,
+        rate: str | None = None,
+        pitch: str | None = None,
+        volume: float | None = None,
+    ) -> dict[str, Any]:
+        """
+        Thuyết minh lại CỤC BỘ cho duy nhất 1 câu thoại (In-place Single Segment Re-dubbing).
+        Cực kỳ nhanh (chỉ mất ~0.5s - 1s).
+        """
+        task_dir = TRANSLATE_OUTPUT_DIR / task_id
+        if not task_dir.exists():
+            raise RuntimeError(f"Tác vụ {task_id} không tồn tại.")
+
+        dubbed_file = task_dir / "dubbed_segments.json"
+        studio_data = cls.get_studio_segments(task_id)
+        segments = studio_data["segments"]
+        task_meta = studio_data.get("meta", {})
+
+        target_seg = next((s for s in segments if s.get("id") == segment_id), None)
+        if not target_seg:
+            raise RuntimeError(f"Không tìm thấy câu thoại ID {segment_id}")
+
+        clean_text = new_text.strip()
+        if not clean_text:
+            raise RuntimeError("Nội dung câu nói không được để trống.")
+
+        # Lấy cấu hình giọng
+        v_id = voice_id or task_meta.get("voice_id", "vi-VN-HoaiMyNeural")
+        eng = engine or task_meta.get("engine", "edge-tts")
+        v_rate = rate or "+0%"
+        v_pitch = pitch or "+0Hz"
+        v_vol = f"+{int(volume*100)}%" if volume is not None else "+0%"
+
+        session_dir = DUBBING_OUTPUT_DIR / task_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        seg_file = session_dir / f"seg_{segment_id:04d}.mp3"
+
+        start = float(target_seg.get("start", 0.0))
+        end = float(target_seg.get("end", 0.0))
+        target_duration = max(0.1, end - start)
+
+        # Gọi synthesize_single cho duy nhất câu này
+        res = await DubbingService.synthesize_single(
+            text=clean_text,
+            voice_id=v_id,
+            engine=eng,
+            rate=v_rate,
+            pitch=v_pitch,
+            volume=v_vol,
+            output_path=seg_file,
+            target_duration=target_duration,
+        )
+
+        # Cập nhật thông tin segment
+        target_seg["text"] = clean_text
+        target_seg["audio_path"] = str(seg_file)
+        # Gắn cache-buster để trình duyệt luôn phát âm thanh mới
+        ts = int(time.time() * 1000)
+        target_seg["audio_url"] = f"/outputs/dubbing/{task_id}/{seg_file.name}?t={ts}"
+        target_seg["audio_duration"] = res["duration"]
+        target_seg["target_duration"] = target_duration
+        target_seg["rate_ratio"] = res["rate_ratio"]
+
+        # Lưu lại dubbed_segments.json
+        dubbed_file.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Cập nhật luôn file phụ đề subtitles.srt
+        srt_file = task_dir / "subtitles.srt"
+        generate_srt_file(segments, srt_file, mode=task_meta.get("subtitle_mode", "hard_target"))
+
+        logger.info(f"🎙️ [Studio Redub] Thu lại câu #{segment_id} thành công ({res['duration']}s): '{clean_text}'")
+        return {
+            "status": "ok",
+            "segment_id": segment_id,
+            "segment": target_seg,
+            "audio_url": target_seg["audio_url"],
+            "message": f"Đã thu lại câu #{segment_id} thành công!",
+        }
+
+    @classmethod
+    async def quick_remux_video(
+        cls,
+        task_id: str,
+        subtitle_mode: str | None = None,
+        preserve_bgm: bool | None = None,
+        bgm_volume: float | None = None,
+        voice_volume: float | None = None,
+        max_speed_rate: float | None = None,
+    ) -> dict[str, Any]:
+        """
+        Trộn lại âm thanh và ghép video siêu tốc (chỉ 2-5 giây) sau khi người dùng sửa câu trong Studio.
+        Không cần chạy lại TTS toàn bộ, tận dụng các file audio đã có.
+        """
+        task_dir = TRANSLATE_OUTPUT_DIR / task_id
+        if not task_dir.exists():
+            raise RuntimeError(f"Tác vụ {task_id} không tồn tại.")
+
+        studio_data = cls.get_studio_segments(task_id)
+        segments = studio_data["segments"]
+        task_meta = studio_data.get("meta", {})
+
+        # Tìm video gốc
+        video_path = None
+        task = cls.get_task(task_id) or {}
+        if task.get("video_path") and Path(task.get("video_path")).exists():
+            video_path = Path(task.get("video_path"))
+        else:
+            for f in task_dir.glob("input_*.*"):
+                if f.is_file():
+                    video_path = f
+                    break
+
+        if not video_path or not video_path.exists():
+            raise RuntimeError("Không tìm thấy video gốc để ráp nối.")
+
+        raw_audio_path = task_dir / "raw_audio.wav"
+        if raw_audio_path.exists():
+            video_duration = get_audio_duration(raw_audio_path)
+        else:
+            video_duration = get_audio_duration(video_path)
+
+        sub_mode = subtitle_mode or task_meta.get("subtitle_mode", "hard_target")
+        p_bgm = preserve_bgm if preserve_bgm is not None else task_meta.get("preserve_bgm", True)
+        b_vol = bgm_volume if bgm_volume is not None else float(task_meta.get("bgm_volume", 0.25))
+        v_vol = voice_volume if voice_volume is not None else float(task_meta.get("voice_volume", 1.0))
+        max_speed = max_speed_rate if max_speed_rate is not None else float(task_meta.get("max_speed_rate", 1.35))
+
+        bgm_path = DUBBING_OUTPUT_DIR / task_id / "bgm.wav"
+        if not bgm_path.exists() and p_bgm:
+            vocal_res = await asyncio.to_thread(DubbingService.separate_vocal_bgm, video_path, session_id=task_id)
+            bgm_path = Path(vocal_res.get("bgm_audio", ""))
+
+        # 1. Ráp timeline audio siêu nhanh từ các file seg_xxxx.mp3 đã có
+        timeline_res = AlignmentService.build_full_timeline(
+            segments=segments,
+            total_video_duration=video_duration,
+            max_speed_rate=max_speed,
+            bgm_path=str(bgm_path) if (p_bgm and bgm_path.exists()) else None,
+            bgm_volume=b_vol,
+            voice_volume=v_vol,
+            session_id=task_id,
+        )
+        final_audio_path = Path(timeline_res["final_audio_path"])
+
+        # 2. Cập nhật lại file phụ đề subtitles.srt
+        srt_file = task_dir / "subtitles.srt"
+        generate_srt_file(segments, srt_file, mode=sub_mode)
+
+        # 3. FFmpeg ghép nhanh
+        output_video_path = task_dir / "final_translated.mp4"
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(final_audio_path),
+        ]
+
+        if sub_mode in ["hard_target", "hard_dual"]:
+            srt_escaped = str(srt_file).replace("\\", "/").replace(":", "\\:")
+            style_str = "FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=30"
+            ffmpeg_cmd.extend(["-vf", f"subtitles='{srt_escaped}':force_style='{style_str}'"])
+            ffmpeg_cmd.extend([
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-preset", "ultrafast",
+                "-crf", "20",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                "-movflags", "+faststart",
+                str(output_video_path),
+            ])
+        else:
+            ffmpeg_cmd.extend([
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                "-movflags", "+faststart",
+                str(output_video_path),
+            ])
+
+        logger.info(f"[Studio Remux] FFmpeg cmd: {' '.join(ffmpeg_cmd)}")
+        res = await asyncio.to_thread(subprocess.run, ffmpeg_cmd, capture_output=True, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(f"FFmpeg remux thất bại: {res.stderr}")
+
+        ts = int(time.time() * 1000)
+        rel_video_url = f"/api/video-translate/stream/{task_id}?t={ts}"
+        rel_audio_url = f"/outputs/alignment/{task_id}/{final_audio_path.name}?t={ts}"
+        cls.update_task(
+            task_id,
+            video_url=rel_video_url,
+            audio_url=rel_audio_url,
+            message="🎉 Đã cập nhật video thành phẩm mới với các câu vừa thuyết minh lại!",
+        )
+
+        return {
+            "status": "completed",
+            "video_url": rel_video_url,
+            "audio_url": rel_audio_url,
+            "message": "Cập nhật video thành công!",
+        }
+

@@ -78,3 +78,22 @@ class RedubTaskRequest(BaseModel):
     max_speed_rate: float | None = Field(None, description="Tốc độ tăng tối đa")
 
 
+class StudioRedubSegmentRequest(BaseModel):
+    segment_id: int = Field(..., description="ID của câu thoại (1, 2, 3...)")
+    text: str = Field(..., description="Nội dung câu nói mới đã chỉnh sửa")
+    voice_id: str | None = Field(None, description="Mã giọng đọc (nếu muốn đổi giọng riêng cho câu này)")
+    engine: str | None = Field(None, description="edge-tts hoặc omnivoice")
+    voice_rate: str | None = Field(None, description="Tốc độ đọc (+0%, +10%...)")
+    voice_pitch: str | None = Field(None, description="Cao độ (+0Hz, +5Hz...)")
+    voice_volume: float | None = Field(None, description="Âm lượng giọng đọc")
+
+
+class StudioRemuxRequest(BaseModel):
+    subtitle_mode: str | None = Field(None, description="Chế độ phụ đề: none, hard_target, hard_dual")
+    preserve_bgm: bool | None = Field(None, description="Giữ nhạc nền BGM")
+    bgm_volume: float | None = Field(None, description="Âm lượng BGM")
+    voice_volume: float | None = Field(None, description="Âm lượng giọng đọc")
+    max_speed_rate: float | None = Field(None, description="Tốc độ co giãn tối đa")
+
+
+

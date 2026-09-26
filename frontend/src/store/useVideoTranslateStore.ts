@@ -24,6 +24,20 @@ export interface BilingualSegment {
   target_text: string;
 }
 
+export interface StudioSegment {
+  id: number;
+  start: number;
+  end: number;
+  text: string;
+  original_text?: string;
+  speaker?: string;
+  audio_url?: string | null;
+  audio_duration?: number;
+  target_duration?: number;
+  rate_ratio?: number;
+  isRedubbing?: boolean;
+}
+
 export interface TranslationProgress {
   task_id: string;
   status: "queued" | "processing" | "paused_for_review" | "completed" | "failed";
@@ -140,6 +154,22 @@ interface VideoTranslateState {
   setIsSavingOriginalSrt: (val: boolean) => void;
   setIsContinuing: (val: boolean) => void;
 
+  // Studio Realtime Review & Selective Redub
+  studioSegments: StudioSegment[];
+  activeStudioSegmentId: number | null;
+  isLoadingStudioSegments: boolean;
+  isRemuxingStudioVideo: boolean;
+  studioRemuxMessage: string | null;
+
+  setStudioSegments: (segments: StudioSegment[]) => void;
+  updateStudioSegmentText: (id: number, text: string) => void;
+  setStudioSegmentRedubbing: (id: number, isRedubbing: boolean) => void;
+  updateSingleStudioSegment: (id: number, patch: Partial<StudioSegment>) => void;
+  setActiveStudioSegmentId: (id: number | null) => void;
+  setIsLoadingStudioSegments: (val: boolean) => void;
+  setIsRemuxingStudioVideo: (val: boolean) => void;
+  setStudioRemuxMessage: (msg: string | null) => void;
+
   setTaskId: (taskId: string | null) => void;
   setTaskStatus: (status: TranslationProgress | null) => void;
   setElapsedSeconds: (valueOrFn: number | ((prev: number) => number)) => void;
@@ -250,6 +280,30 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setIsLoadingOriginalSrt: (isLoadingOriginalSrt) => set({ isLoadingOriginalSrt }),
       setIsSavingOriginalSrt: (isSavingOriginalSrt) => set({ isSavingOriginalSrt }),
       setIsContinuing: (isContinuing) => set({ isContinuing }),
+
+      studioSegments: [],
+      activeStudioSegmentId: null,
+      isLoadingStudioSegments: false,
+      isRemuxingStudioVideo: false,
+      studioRemuxMessage: null,
+
+      setStudioSegments: (studioSegments) => set({ studioSegments }),
+      updateStudioSegmentText: (id, text) =>
+        set((state) => ({
+          studioSegments: state.studioSegments.map((s) => (s.id === id ? { ...s, text } : s)),
+        })),
+      setStudioSegmentRedubbing: (id, isRedubbing) =>
+        set((state) => ({
+          studioSegments: state.studioSegments.map((s) => (s.id === id ? { ...s, isRedubbing } : s)),
+        })),
+      updateSingleStudioSegment: (id, patch) =>
+        set((state) => ({
+          studioSegments: state.studioSegments.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+        })),
+      setActiveStudioSegmentId: (activeStudioSegmentId) => set({ activeStudioSegmentId }),
+      setIsLoadingStudioSegments: (isLoadingStudioSegments) => set({ isLoadingStudioSegments }),
+      setIsRemuxingStudioVideo: (isRemuxingStudioVideo) => set({ isRemuxingStudioVideo }),
+      setStudioRemuxMessage: (studioRemuxMessage) => set({ studioRemuxMessage }),
 
       setTaskId: (taskId) => set({ taskId }),
       setTaskStatus: (taskStatus) => set({ taskStatus }),

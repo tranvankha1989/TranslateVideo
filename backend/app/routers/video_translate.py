@@ -25,6 +25,8 @@ from app.schemas.video_translate import (
     ContinueTranslationRequest,
     SaveBilingualRequest,
     BilingualSegmentItem,
+    StudioRedubSegmentRequest,
+    StudioRemuxRequest,
 )
 from app.services.translator_service import GoogleAIStudioTranslator, GoogleTranslator
 from app.services.translation_memory_service import TranslationMemoryService
@@ -959,3 +961,55 @@ async def get_social_share_info_endpoint(task_id: str):
             "facebook": "https://www.facebook.com/login",
         },
     }
+
+
+@router.get("/studio-segments/{task_id}")
+async def get_studio_segments_endpoint(task_id: str):
+    """
+    Lấy danh sách các câu thoại kèm âm thanh và mốc thời gian để phát real-time đồng bộ với video.
+    """
+    try:
+        return VideoTranslationPipeline.get_studio_segments(task_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/studio-redub-segment/{task_id}")
+async def studio_redub_segment_endpoint(task_id: str, req: StudioRedubSegmentRequest):
+    """
+    Thuyết minh lại CỤC BỘ cho duy nhất 1 câu thoại (In-place Single Segment Re-dubbing).
+    Chỉ mất ~0.5s - 1s, cập nhật ngay file âm thanh câu đó.
+    """
+    try:
+        return await VideoTranslationPipeline.redub_single_segment(
+            task_id=task_id,
+            segment_id=req.segment_id,
+            new_text=req.text,
+            voice_id=req.voice_id,
+            engine=req.engine,
+            rate=req.voice_rate,
+            pitch=req.voice_pitch,
+            volume=req.voice_volume,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/studio-quick-remux/{task_id}")
+async def studio_quick_remux_endpoint(task_id: str, req: StudioRemuxRequest | None = None):
+    """
+    Ráp lại dải âm thanh và mux lại vào video siêu tốc (chỉ 2-5 giây) sau khi người dùng sửa câu trong Studio.
+    """
+    try:
+        req_data = req.model_dump() if req else {}
+        return await VideoTranslationPipeline.quick_remux_video(
+            task_id=task_id,
+            subtitle_mode=req_data.get("subtitle_mode"),
+            preserve_bgm=req_data.get("preserve_bgm"),
+            bgm_volume=req_data.get("bgm_volume"),
+            voice_volume=req_data.get("voice_volume"),
+            max_speed_rate=req_data.get("max_speed_rate"),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
