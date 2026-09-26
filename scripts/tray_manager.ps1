@@ -255,12 +255,12 @@ $timer.add_Tick({
         if (-not $script:browserOpened) {
             try {
                 $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 2 -ErrorAction Stop
-                if ($r.status -eq 'ok' -and $r.model_loaded -eq $true) {
+                if ($r.status -eq 'ok') {
                     # Đánh dấu đã mở NGAY LẬP TỨC để tránh bất kỳ event timer nào gọi trùng lặp
                     $script:browserOpened = $true
-                    Write-Host "AI Model da san sang! Dang mo trinh duyet..." -ForegroundColor Green
+                    Write-Host "VoiceSync AI da san sang! Dang mo trinh duyet..." -ForegroundColor Green
                     Start-Process "http://localhost:5173"
-                    $notifyIcon.Text = "OmniVoice TTS (Đang hoạt động)"
+                    $notifyIcon.Text = "VoiceSync AI (Đang hoạt động)"
                 }
             } catch {}
         }
