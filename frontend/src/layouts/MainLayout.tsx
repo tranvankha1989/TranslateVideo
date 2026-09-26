@@ -10,9 +10,10 @@ import { APP_VERSION } from "@/constants/version";
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },
-  { path: "/library", label: "Thư viện", icon: "folder_open" },
-  { path: "/cloning-voice", label: "Tạo giọng mới", icon: "record_voice_over" },
+  { path: "/video-translate", label: "Dịch Video", icon: "translate" },
   { path: "/autocaption", label: "Auto Caption", icon: "subtitles" },
+  { path: "/cloning-voice", label: "Tạo giọng mới", icon: "record_voice_over" },
+  { path: "/library", label: "Thư viện", icon: "folder_open" },
   { path: "/projects", label: "Dự án", icon: "folder_shared" },
 ];
 
@@ -56,7 +57,7 @@ export function MainLayout() {
               className="w-11 h-11 rounded-2xl flex items-center justify-center relative group cursor-pointer shrink-0 transition-all duration-200"
               aria-label="Mở thanh bên"
             >
-              {/* Trạng thái bình thường: Logo OmniVoice */}
+              {/* Trạng thái bình thường: Logo VoiceSync AI */}
               <div className="w-11 h-11 rounded-2xl bg-surface-variant flex items-center justify-center text-primary border border-white/10 shadow-sm transition-all duration-200 group-hover:opacity-0 group-hover:scale-90 absolute inset-0">
                 <span className="material-symbols-outlined text-2xl text-primary">
                     diamond
@@ -87,10 +88,10 @@ export function MainLayout() {
                 </div>
                 <div className="flex flex-col overflow-hidden whitespace-nowrap">
                   <h2 className="font-headline-lg text-lg font-bold text-on-surface leading-tight tracking-tight">
-                    OmniVoice
+                    VoiceSync AI
                   </h2>
                   <p className="text-[11px] text-on-surface-variant font-mono-data">
-                    Phòng thu Pro v{APP_VERSION}
+                    Studio Pro v{APP_VERSION}
                   </p>
                 </div>
               </Link>

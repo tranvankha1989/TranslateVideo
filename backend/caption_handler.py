@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 _whisper_model: WhisperModel | None = None
 _current_model_size: str | None = None
 
-# Đọc cấu hình Whisper từ .env
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base").strip().lower()
+# Đọc cấu hình Whisper từ .env (Kích hoạt large-v3 làm mô hình chuẩn cao cấp)
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3").strip().lower()
 
 
 def get_whisper_model(model_size: str | None = None) -> WhisperModel:
@@ -59,9 +59,13 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
     cmd = [
         "ffmpeg",
         "-y",
+        "-threads",
+        "0",
         "-i",
         str(video_path),
         "-vn",
+        "-sn",
+        "-dn",
         "-acodec",
         "pcm_s16le",
         "-ar",

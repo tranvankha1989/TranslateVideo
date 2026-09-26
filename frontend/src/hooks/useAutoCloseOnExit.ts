@@ -45,12 +45,20 @@ export function useAutoCloseOnExit() {
     // 1. Gửi heartbeat ngay khi tab mở
     sendHeartbeat("heartbeat");
 
-    // 2. Gửi định kỳ mỗi 2 giây
+    // 2. Gửi định kỳ mỗi 3 giây (tiết kiệm CPU)
     const intervalId = setInterval(() => {
       sendHeartbeat("heartbeat");
-    }, 2000);
+    }, 3000);
 
-    // 3. Bắt sự kiện khi tab/trình duyệt đóng
+    // 3. Đánh thức nhịp tim ngay lập tức khi người dùng quay lại tab (chống trình duyệt cho tab ngủ)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        sendHeartbeat("heartbeat");
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // 4. Bắt sự kiện khi tab/trình duyệt đóng
     const handleUnload = () => {
       sendHeartbeat("close");
     };
@@ -60,6 +68,7 @@ export function useAutoCloseOnExit() {
 
     return () => {
       clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("beforeunload", handleUnload);
       window.removeEventListener("pagehide", handleUnload);
       handleUnload();

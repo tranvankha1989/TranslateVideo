@@ -1,0 +1,274 @@
+"""
+app/services/alignment_service.py
+─────────────────────────────────
+Dịch vụ cân chỉnh tốc độ âm thanh và khớp trục thời gian (Speed Alignment):
+- Tự động co giãn tốc độ câu lồng tiếng bằng FFmpeg 'atempo' (SpeedRate) để vừa khít mốc thời gian.
+- Ghép nối chính xác từng mili-giây lên trục thời gian của toàn bộ video.
+- Hòa trộn dải giọng đọc với nhạc nền gốc (BGM) theo tỷ lệ mong muốn.
+"""
+
+import os
+import uuid
+import math
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+from pydub import AudioSegment
+import soundfile as sf
+
+from app.core.config import OUTPUTS_DIR, logger
+from app.services.dubbing_service import get_audio_duration
+
+ALIGNMENT_OUTPUT_DIR = OUTPUTS_DIR / "alignment"
+ALIGNMENT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class AlignmentService:
+    """Xử lý co giãn tốc độ giọng đọc và tạo dải âm thanh khớp timeline."""
+
+    @classmethod
+    def adjust_speed(
+        cls,
+        audio_path: str | Path,
+        target_duration: float,
+        max_speed_rate: float = 1.35,
+        min_speed_rate: float = 0.85,
+        output_path: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """
+        Co giãn tốc độ của file âm thanh để khớp với target_duration bằng FFmpeg atempo filter.
+        Giữ nguyên cao độ giọng nói (pitch-preserving time stretch).
+        """
+        src = Path(audio_path)
+        if not src.exists():
+            raise FileNotFoundError(f"Không tìm thấy file: {src}")
+
+        orig_dur = get_audio_duration(src)
+        if orig_dur <= 0 or target_duration <= 0:
+            return {
+                "original_duration": orig_dur,
+                "target_duration": target_duration,
+                "final_duration": orig_dur,
+                "applied_speed": 1.0,
+                "output_audio_path": str(src),
+                "output_audio_url": f"/outputs/{src.name}",
+            }
+
+        # Tính tỷ lệ tốc độ cần thiết S = T_orig / T_target
+        calc_speed = orig_dur / target_duration
+
+        # NGUYÊN TẮC VÀNG TRÁNH GIỌNG "LÚC NHANH LÚC CHẬM":
+        # 1. Tuyệt đối KHÔNG BAO GIỜ làm chậm giọng đọc dưới 1.0x (tránh giọng bị rề rà, kéo dài nhân tạo)
+        #    Nếu câu đọc ngắn hơn thời lượng cảnh quay, hãy để câu nói phát tự nhiên ở 1.0x và giữ khoảng lặng tự nhiên.
+        # 2. Khi câu nói dài hơn, chỉ tăng tốc nhẹ nhàng nếu thực sự cần thiết, kẹp tối đa max_speed_rate.
+        if calc_speed <= 1.03:
+            applied_speed = 1.0
+        else:
+            applied_speed = min(max_speed_rate, calc_speed)
+
+        if output_path is None:
+            filename = f"aligned_{src.stem}_{uuid.uuid4().hex[:6]}.wav"
+            output_path = ALIGNMENT_OUTPUT_DIR / filename
+        else:
+            output_path = Path(output_path)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Nếu độ lệch thời gian không đáng kể (dưới 3%), giữ nguyên
+        if abs(applied_speed - 1.0) < 0.03:
+            shutil.copyfile(src, output_path)
+            final_dur = orig_dur
+            applied_speed = 1.0
+        else:
+            # Xây dựng filter atempo cho FFmpeg (hỗ trợ nhiều cấp độ nếu speed > 2.0 hoặc < 0.5)
+            filters = []
+            s = applied_speed
+            while s > 2.0:
+                filters.append("atempo=2.0")
+                s /= 2.0
+            while s < 0.5:
+                filters.append("atempo=0.5")
+                s /= 0.5
+            filters.append(f"atempo={s:.4f}")
+
+            filter_str = ",".join(filters)
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", str(src),
+                "-filter:a", filter_str,
+                "-ar", "44100",
+                "-ac", "2",
+                str(output_path),
+            ]
+            try:
+                subprocess.run(cmd, capture_output=True, check=True)
+                final_dur = get_audio_duration(output_path)
+            except Exception as e:
+                logger.error(f"[AlignmentService] Lỗi FFmpeg atempo: {e}. Dùng file gốc.")
+                shutil.copyfile(src, output_path)
+                final_dur = orig_dur
+                applied_speed = 1.0
+
+        rel_url = f"/outputs/alignment/{output_path.name}" if output_path.parent.name == "alignment" else f"/outputs/dubbing/{output_path.parent.name}/{output_path.name}"
+
+        return {
+            "original_duration": round(orig_dur, 3),
+            "target_duration": round(target_duration, 3),
+            "final_duration": round(final_dur, 3),
+            "applied_speed": round(applied_speed, 3),
+            "output_audio_path": str(output_path),
+            "output_audio_url": rel_url,
+        }
+
+    @classmethod
+    def build_full_timeline(
+        cls,
+        segments: list[dict[str, Any]],
+        total_video_duration: float,
+        max_speed_rate: float = 1.35,
+        bgm_path: str | Path | None = None,
+        bgm_volume: float = 0.25,
+        voice_volume: float = 1.0,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Ráp nối toàn bộ các câu audio lồng tiếng vào đúng mốc mili-giây (start) trên trục timeline,
+        đồng thời hòa âm cùng nhạc nền gốc BGM.
+        """
+        if not session_id:
+            session_id = uuid.uuid4().hex[:12]
+
+        session_dir = ALIGNMENT_OUTPUT_DIR / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        total_ms = int(max(1.0, total_video_duration) * 1000)
+
+        # 1. Khởi tạo dải âm thanh im lặng (silent audio canvas)
+        full_voice = AudioSegment.silent(duration=total_ms, frame_rate=44100)
+
+        adjusted_segments = []
+        current_playhead_ms = 0
+
+        for i, seg in enumerate(segments):
+            audio_path = seg.get("audio_path")
+            if not audio_path or not Path(audio_path).exists():
+                continue
+
+            start = float(seg.get("start", 0.0))
+            end = float(seg.get("end", 0.0))
+            seg_dur = max(0.1, end - start)
+
+            # Khung thời lượng tối đa cho phép trước khi nhân vật kế tiếp mở miệng nói
+            if i + 1 < len(segments):
+                next_start = float(segments[i + 1].get("start", end))
+                if next_start > start:
+                    # Giữ 50ms khoảng đệm tự nhiên trước khi câu sau cất lời
+                    available_dur = max(0.3, next_start - start - 0.05)
+                else:
+                    available_dur = max(0.3, seg_dur)
+            else:
+                available_dur = max(0.3, total_video_duration - start)
+
+            actual_dur = get_audio_duration(audio_path)
+
+            # Nếu âm thanh thực tế vừa vặn trong khoảng khả dụng (hoặc lệch nhẹ <= 5%), giữ nguyên 1.0x tự nhiên 100%!
+            if actual_dur <= available_dur * 1.05:
+                target_dur = actual_dur
+            else:
+                target_dur = available_dur
+
+            # KHÓA CHẶT MỐC THỜI GIAN THEO LỜI THOẠI NHÂN VẬT (Lip-Sync Lock):
+            # Tuyệt đối cố định start_ms theo đúng thời điểm nhân vật mở miệng trong video.
+            # Không dời mốc của câu sau, tránh tích tụ độ trễ lệch hình!
+            start_ms = max(0, int(start * 1000))
+
+            # Co giãn tốc độ mượt mà
+            adj_file = session_dir / f"aligned_{Path(audio_path).stem}.wav"
+            adj_res = cls.adjust_speed(
+                audio_path=audio_path,
+                target_duration=target_dur,
+                max_speed_rate=max_speed_rate,
+                output_path=adj_file,
+            )
+
+            # Nạp câu audio đã cân chỉnh
+            try:
+                clip = AudioSegment.from_file(adj_res["output_audio_path"])
+                # Điều chỉnh âm lượng giọng nếu có yêu cầu
+                if voice_volume != 1.0 and voice_volume > 0:
+                    gain_db = 20 * math.log10(voice_volume)
+                    clip = clip.apply_gain(gain_db)
+
+                # Giới hạn độ dài clip để tuyệt đối không tràn sang câu thoại tiếp theo của nhân vật khác
+                max_clip_ms = int(available_dur * 1000)
+                if len(clip) > max_clip_ms and max_clip_ms > 200:
+                    fade_ms = min(50, max(15, max_clip_ms // 10))
+                    clip = clip[:max_clip_ms].fade_out(fade_ms)
+
+                # Đặt câu audio vào timeline chính xác
+                full_voice = full_voice.overlay(clip, position=start_ms)
+
+                # Cập nhật đầu đọc thời gian hiện tại
+                clip_dur_ms = len(clip)
+                current_playhead_ms = start_ms + clip_dur_ms
+
+                seg_copy = dict(seg)
+                seg_copy["aligned_audio_path"] = adj_res["output_audio_path"]
+                seg_copy["applied_speed"] = adj_res["applied_speed"]
+                seg_copy["final_duration"] = adj_res["final_duration"]
+                adjusted_segments.append(seg_copy)
+
+            except Exception as e:
+                logger.error(f"[Alignment Timeline] Lỗi ghép câu {seg.get('id')}: {e}")
+
+        # Chuẩn hóa dải giọng đọc sang 44100Hz Stereo
+        if full_voice.channels != 2:
+            full_voice = full_voice.set_channels(2)
+        full_voice = full_voice.set_frame_rate(44100)
+
+        # 2. Hòa âm chuẩn thuyết minh phim (Ducking voice-over):
+        # Giữ lại trọn vẹn âm thanh gốc (nhạc nền, tiếng động, giọng gốc) ở mức âm lượng vừa phải
+        # để giọng thuyết minh AI nổi bật rõ ràng phía trước.
+        final_audio = full_voice
+        if bgm_path and Path(bgm_path).exists():
+            try:
+                bgm = AudioSegment.from_file(str(bgm_path))
+                if bgm.channels != 2:
+                    bgm = bgm.set_channels(2)
+                bgm = bgm.set_frame_rate(44100)
+
+                # Cắt hoặc lặp lại BGM cho đúng thời lượng video
+                if len(bgm) < total_ms:
+                    loop_count = int(math.ceil(total_ms / len(bgm)))
+                    bgm = (bgm * loop_count)[:total_ms]
+                else:
+                    bgm = bgm[:total_ms]
+
+                # Nếu âm thanh gốc có âm lượng quá nhỏ (dưới -26 dBFS), chuẩn hóa nhẹ trước
+                if bgm.dBFS < -26.0:
+                    bgm = bgm.apply_gain(-20.0 - bgm.dBFS)
+
+                # Cân chỉnh âm lượng âm thanh gốc theo tỷ lệ thuyết minh (mặc định 20% - 30%)
+                bgm_gain_db = 20 * math.log10(max(0.01, bgm_volume))
+                ducked_bgm = bgm.apply_gain(bgm_gain_db)
+
+                # Hòa trộn: Âm thanh nền ducking + Giọng thuyết minh AI
+                final_audio = ducked_bgm.overlay(full_voice)
+                logger.info(f"Đã hòa âm thuyết minh thành công với âm lượng nền {bgm_volume*100:.0f}% (gain: {bgm_gain_db:.1f}dB)")
+            except Exception as e:
+                logger.warning(f"Lỗi khi hòa âm BGM: {e}. Sử dụng dải giọng đọc thuần túy.")
+
+        # 3. Xuất file âm thanh tổng thể cuối cùng
+        output_file = session_dir / "final_dubbed_audio.wav"
+        final_audio.export(str(output_file), format="wav")
+        final_duration = get_audio_duration(output_file)
+
+        return {
+            "session_id": session_id,
+            "final_audio_path": str(output_file),
+            "final_audio_url": f"/outputs/alignment/{session_id}/final_dubbed_audio.wav",
+            "total_duration": round(final_duration, 3),
+            "adjusted_segments": adjusted_segments,
+        }

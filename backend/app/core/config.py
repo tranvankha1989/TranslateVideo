@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-APP_VERSION: str = "2.6.0"
+APP_VERSION: str = "2.8.3"
 
 # Đường dẫn thư mục gốc backend (thư mục chứa main.py)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent

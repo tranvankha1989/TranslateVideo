@@ -14,8 +14,9 @@ motor>=3.6.0
 boto3>=1.34.0
 
 
-# --- 2. TTS AI Model (OmniVoice & HuggingFace) ---
+# --- 2. TTS AI Model (OmniVoice, Edge-TTS & HuggingFace) ---
 omnivoice>=0.2.1
+edge-tts>=7.0.0
 accelerate>=0.34.0
 webdataset>=0.2.86
 safetensors>=0.4.0

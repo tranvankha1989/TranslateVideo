@@ -23,14 +23,28 @@ import asyncio
 from app.routers.health import monitor_browser_lifetime
 
 
+async def _prewarm_whisper():
+    """Tải trước mô hình Faster-Whisper vào VRAM/RAM để khi người dùng dịch video không phải chờ 30-40s."""
+    try:
+        from caption_handler import get_whisper_model
+        logger.info("🎙️ [Pre-warm] Đang tải trước Faster-Whisper vào GPU/RAM...")
+        await asyncio.to_thread(get_whisper_model)
+        logger.info("✅ [Pre-warm] Faster-Whisper đã sẵn sàng phục vụ dịch video tức thì.")
+    except Exception as e:
+        logger.warning(f"⚠️ [Pre-warm] Không thể tải trước Faster-Whisper: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load mô hình OmniVoice và kết nối cơ sở dữ liệu nếu có cấu hình."""
     logger.info("🚀 Server đang khởi động — nạp mô hình OmniVoice (24kHz) …")
     load_model()
     await connect_db()
+    # Khởi động nạp trước Faster-Whisper trong nền (không chặn khởi động server)
+    whisper_warm_task = asyncio.create_task(_prewarm_whisper())
     monitor_task = asyncio.create_task(monitor_browser_lifetime())
     yield
+    whisper_warm_task.cancel()
     monitor_task.cancel()
     await close_db()
     logger.info("🛑 Server đang tắt.")

@@ -1,6 +1,15 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# Đảm bảo chỉ có DUY NHẤT một tiến trình Tray Manager hoạt động trên hệ thống
+$mutexName = "Global\VoiceSyncAI_TrayManager_SingleInstance"
+$createdNew = $false
+$script:singleInstanceMutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$createdNew)
+if (-not $createdNew) {
+    Write-Host "⚡ Đã có một tiến trình Tray Manager đang chạy ngầm. Bỏ qua để tránh xung đột!" -ForegroundColor Yellow
+    exit 0
+}
+
 $cSource = @"
 using System;
 using System.Runtime.InteropServices;
@@ -64,12 +73,15 @@ if (Test-Path $envFile) {
 
 # 1. Tìm Handle của cửa sổ Terminal
 function Get-TerminalHWnd {
-    $proc = Get-Process | Where-Object { $_.MainWindowTitle -like '*OmniVoice Launcher*' } | Select-Object -First 1
+    $proc = Get-Process | Where-Object { $_.MainWindowTitle -like '*VoiceSync AI Launcher*' -or $_.MainWindowTitle -like '*OmniVoice Launcher*' } | Select-Object -First 1
     if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {
         return $proc.MainWindowHandle
     }
     
-    $h = [Win32Tray]::FindWindow($null, "OmniVoice Launcher (TTS 24kHz)")
+    $h = [Win32Tray]::FindWindow($null, "VoiceSync AI Launcher")
+    if ($h -eq [IntPtr]::Zero) {
+        $h = [Win32Tray]::FindWindow($null, "OmniVoice Launcher (TTS 24kHz)")
+    }
     if ($h -ne [IntPtr]::Zero) {
         $root = [Win32Tray]::GetAncestor($h, 2)
         if ($root -ne [IntPtr]::Zero) { return $root }
@@ -228,41 +240,53 @@ $menuExit.add_Click({
 
 $notifyIcon.ContextMenuStrip = $contextMenu
 
-# 4. Timer kiểm tra trạng thái
+# 4. Timer kiểm tra trạng thái (3000ms = 3 giây/lần giúp giảm tải CPU hệ thống)
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 1000
+$timer.Interval = 3000
 
 $script:browserOpened = $false
+$script:isTickRunning = $false
+$script:backendDeadSeconds = 0
 
 $timer.add_Tick({
-    if (-not $script:browserOpened) {
-        try {
-            $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 1 -ErrorAction Stop
-            if ($r.status -eq 'ok' -and $r.model_loaded -eq $true) {
-                Write-Host "AI Model da san sang! Dang mo trinh duyet..." -ForegroundColor Green
-                Start-Process "http://localhost:5173"
-                $notifyIcon.Text = "OmniVoice TTS (Đang hoạt động)"
-                $script:browserOpened = $true
-            }
-        } catch {}
-    }
+    if ($script:isTickRunning) { return }
+    $script:isTickRunning = $true
+    try {
+        if (-not $script:browserOpened) {
+            try {
+                $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 2 -ErrorAction Stop
+                if ($r.status -eq 'ok' -and $r.model_loaded -eq $true) {
+                    # Đánh dấu đã mở NGAY LẬP TỨC để tránh bất kỳ event timer nào gọi trùng lặp
+                    $script:browserOpened = $true
+                    Write-Host "AI Model da san sang! Dang mo trinh duyet..." -ForegroundColor Green
+                    Start-Process "http://localhost:5173"
+                    $notifyIcon.Text = "OmniVoice TTS (Đang hoạt động)"
+                }
+            } catch {}
+        }
 
     # KHI TRÌNH DUYỆT ĐÃ MỞ: Kiểm tra nếu người dùng đã đóng tất cả tab localhost
     if ($script:browserOpened) {
         try {
-            $sys = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/system/status' -TimeoutSec 1 -ErrorAction SilentlyContinue
+            $sys = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/system/status' -TimeoutSec 2 -ErrorAction Stop
+            $script:backendDeadSeconds = 0 # Đã kết nối thành công, reset counter
             if ($sys -and $sys.should_shutdown -eq $true) {
-                Write-Host "Phat hien tat ca tab trinh duyet da dong. Dang tu dong tat Terminal va toan bo ung dung..." -ForegroundColor Yellow
+                Write-Host "Phat hien tat ca tab trinh duyet da dong qua 10 phut. Dang tu dong tat Terminal..." -ForegroundColor Yellow
                 & $script:ExitApplication
                 return
             }
         } catch {
-            # Nếu backend không còn phản hồi sau khi trình duyệt đã từng mở
+            # Nếu backend đang reload hoặc tạm thời chưa phản hồi khi F5, chờ tối đa 60 giây
             $beCon = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
             if (-not $beCon) {
-                Write-Host "Backend da dong. Dang tat Terminal..." -ForegroundColor Gray
-                & $script:ExitApplication
-                return
+                $script:backendDeadSeconds += 3
+                if ($script:backendDeadSeconds -ge 60) {
+                    Write-Host "Backend da tat qua lau (60s). Dang tu dong dong Terminal..." -ForegroundColor Gray
+                    & $script:ExitApplication
+                    return
+                }
+            } else {
+                $script:backendDeadSeconds = 0
             }
         }
     }
@@ -276,6 +300,9 @@ $timer.add_Tick({
             Hide-TerminalWindow
         }
     }
+} finally {
+    $script:isTickRunning = $false
+}
 })
 
 $timer.Start()
