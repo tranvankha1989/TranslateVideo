@@ -28,8 +28,6 @@ import {
   AlertTriangle,
   FolderOpen,
   Brain,
-  ListChecks,
-  ArrowRight,
   Mic,
   Volume2,
 } from "lucide-react";
@@ -61,7 +59,7 @@ export default function VideoTranslate() {
   const [keyVerifyResult, setKeyVerifyResult] = React.useState<{ valid: boolean; message: string } | null>(null);
 
   const [isOpeningFolder, setIsOpeningFolder] = React.useState(false);
-  const [bilingualSearch, setBilingualSearch] = React.useState("");
+  const transcriptContainerRef = React.useRef<HTMLDivElement>(null);
 
   const formatSrtTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -123,24 +121,6 @@ export default function VideoTranslate() {
     whisperModel,
     setWhisperModel,
     setShowAdvanced,
-    pauseForReview,
-    setPauseForReview,
-    showOriginalReviewModal,
-    setShowOriginalReviewModal,
-    originalSrtText,
-    setOriginalSrtText,
-    bilingualSegments,
-    setBilingualSegments,
-    reviewViewMode,
-    setReviewViewMode,
-    useUserTranslations,
-    setUseUserTranslations,
-    isLoadingOriginalSrt,
-    setIsLoadingOriginalSrt,
-    isSavingOriginalSrt,
-    setIsSavingOriginalSrt,
-    isContinuing,
-    setIsContinuing,
     setIsProcessing,
     setIsCleaning,
     setIsOpeningEditor,
@@ -285,22 +265,6 @@ export default function VideoTranslate() {
               setTaskStatus(data);
               if (data.status === "processing" || data.status === "queued") {
                 setIsProcessing(true);
-              } else if (data.status === "paused_for_review") {
-                setIsProcessing(false);
-                setShowOriginalReviewModal(true);
-                // Nạp bản đối chiếu song ngữ và phụ đề gốc
-                fetch(`http://localhost:8000/api/video-translate/bilingual-review/${currentId}`)
-                  .then((r) => r.json())
-                  .then((d) => {
-                    if (d.segments && isMounted) setBilingualSegments(d.segments);
-                  })
-                  .catch(() => {});
-                fetch(`http://localhost:8000/api/video-translate/subtitles-original-content/${currentId}`)
-                  .then((r) => r.json())
-                  .then((d) => {
-                    if (d.content && isMounted) setOriginalSrtText(d.content);
-                  })
-                  .catch(() => {});
               } else {
                 setIsProcessing(false);
                 setIsRedubbing(false);
@@ -338,31 +302,7 @@ export default function VideoTranslate() {
           taskStartTimeRef.current = Date.now() - (srvSec * 1000);
         }
 
-        if (data.status === "paused_for_review") {
-          setIsProcessing(false);
-          setShowOriginalReviewModal(true);
-          try {
-            // Tải bản đối chiếu song ngữ
-            const bilRes = await fetch(`http://localhost:8000/api/video-translate/bilingual-review/${taskId}`);
-            if (bilRes.ok) {
-              const bilData = await bilRes.json();
-              if (bilData.segments) {
-                setBilingualSegments(bilData.segments);
-              }
-            }
-            // Tải nội dung phụ đề gốc
-            const srtRes = await fetch(`http://localhost:8000/api/video-translate/subtitles-original-content/${taskId}`);
-            if (srtRes.ok) {
-              const srtData = await srtRes.json();
-              if (srtData.content) {
-                setOriginalSrtText(srtData.content);
-              }
-            }
-          } catch (e) {
-            console.error("Lỗi tải subtitles original:", e);
-          }
-          toast.info("⏸️ Đã bóc băng xong! Mời bạn xem bảng đối chiếu song ngữ Trung - Việt trước khi dịch.", { duration: 6000 });
-        } else if (data.status === "completed") {
+        if (data.status === "completed") {
           setIsProcessing(false);
           setIsRedubbing(false);
           toast.success("🎉 Video đã hoàn tất dịch & lồng tiếng!");
@@ -380,7 +320,7 @@ export default function VideoTranslate() {
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [isProcessing, taskId, setIsProcessing, setIsRedubbing, setTaskStatus, setShowOriginalReviewModal, setOriginalSrtText]);
+  }, [isProcessing, taskId, setIsProcessing, setIsRedubbing, setTaskStatus]);
 
   // 5. Xử lý tải video lên
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -465,7 +405,6 @@ export default function VideoTranslate() {
     formData.append("translation_model", geminiModel);
     formData.append("translation_temperature", geminiTemperature.toString());
     formData.append("whisper_model", whisperModel);
-    formData.append("pause_for_review", pauseForReview ? "true" : "false");
     if (geminiApiKey.trim()) {
       formData.append("translation_api_key", geminiApiKey.trim());
     }
@@ -643,98 +582,6 @@ export default function VideoTranslate() {
     }
   };
 
-  // Mở & tải phụ đề câu gốc & bản đối chiếu song ngữ để duyệt
-  const handleOpenOriginalReview = async () => {
-    const currentId = taskStatus?.task_id || taskId;
-    if (!currentId) return;
-    setIsLoadingOriginalSrt(true);
-    try {
-      // 1. Tải danh sách song ngữ đối chiếu
-      const bilRes = await fetch(`http://localhost:8000/api/video-translate/bilingual-review/${currentId}`);
-      if (bilRes.ok) {
-        const bilData = await bilRes.json();
-        if (bilData.segments) {
-          setBilingualSegments(bilData.segments);
-        }
-      }
-      // 2. Tải văn bản SRT thô
-      const res = await fetch(`http://localhost:8000/api/video-translate/subtitles-original-content/${currentId}`);
-      const data = await res.json();
-      if (res.ok && data.content) {
-        setOriginalSrtText(data.content);
-        setShowOriginalReviewModal(true);
-        toast.success("Đã nạp bản đối chiếu song ngữ Trung - Việt mới nhất");
-      } else {
-        toast.error("Chưa có dữ liệu câu gốc để xem");
-      }
-    } catch (err: any) {
-      toast.error("Lỗi khi tải phụ đề: " + err.message);
-    } finally {
-      setIsLoadingOriginalSrt(false);
-    }
-  };
-
-  // Lưu file phụ đề câu gốc / bản song ngữ đối chiếu
-  const handleSaveOriginalSrt = async () => {
-    const currentId = taskStatus?.task_id || taskId;
-    if (!currentId) return;
-    setIsSavingOriginalSrt(true);
-    try {
-      if (reviewViewMode === "bilingual" && bilingualSegments.length > 0) {
-        const res = await fetch(`http://localhost:8000/api/video-translate/bilingual-review/${currentId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ segments: bilingualSegments }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Không thể lưu bảng song ngữ");
-        toast.success("💾 Đã lưu thay đổi bảng song ngữ đối chiếu thành công!");
-      } else {
-        const res = await fetch(`http://localhost:8000/api/video-translate/subtitles-original-content/${currentId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: originalSrtText }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Không thể lưu phụ đề gốc");
-        toast.success("💾 Đã lưu thay đổi câu gốc thành công!");
-      }
-    } catch (err: any) {
-      toast.error("Lỗi lưu phụ đề gốc: " + err.message);
-    } finally {
-      setIsSavingOriginalSrt(false);
-    }
-  };
-
-  // Tiếp tục Bước 2: Dịch thuật & Lồng tiếng sau khi đã duyệt câu gốc
-  const handleContinueTranslation = async () => {
-    const currentId = taskStatus?.task_id || taskId;
-    if (!currentId) return;
-
-    setIsContinuing(true);
-    try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/continue/${currentId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          srt_content: originalSrtText,
-          bilingual_segments: bilingualSegments.length > 0 ? bilingualSegments : null,
-          use_user_translations: useUserTranslations,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Không thể tiếp tục quy trình");
-
-      setShowOriginalReviewModal(false);
-      setIsProcessing(true);
-      toast.success("🚀 Đã xác nhận! Đang tiếp tục Dịch thuật & Lồng tiếng...", { duration: 4000 });
-    } catch (err: any) {
-      toast.error("Lỗi khi tiếp tục: " + err.message);
-    } finally {
-      setIsContinuing(false);
-    }
-  };
-
   // ── STUDIO REALTIME SYNC & SELECTIVE REDUB HANDLERS ─────────────────────
   const fetchStudioSegments = async (tId: string) => {
     setIsLoadingStudioSegments(true);
@@ -760,7 +607,7 @@ export default function VideoTranslate() {
     }
   }, [taskStatus?.status, taskStatus?.task_id]);
 
-  // Đồng bộ thời gian thực: Video chạy đến đâu, câu thoại tự sáng & cuộn tới đó
+  // Đồng bộ thời gian thực: Video chạy đến đâu, câu thoại tự sáng & cuộn trong khung nhìn
   const handleVideoTimeUpdate = () => {
     if (!resultVideoRef.current || studioSegments.length === 0) return;
     const cur = resultVideoRef.current.currentTime;
@@ -768,8 +615,17 @@ export default function VideoTranslate() {
     if (found && found.id !== activeStudioSegmentId) {
       setActiveStudioSegmentId(found.id);
       const el = document.getElementById(`studio-seg-${found.id}`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      const container = transcriptContainerRef.current;
+      if (el && container) {
+        const elTop = el.offsetTop - container.offsetTop;
+        const containerScrollTop = container.scrollTop;
+        const containerHeight = container.clientHeight;
+        if (elTop < containerScrollTop || elTop + el.clientHeight > containerScrollTop + containerHeight) {
+          container.scrollTo({
+            top: Math.max(0, elTop - 40),
+            behavior: "smooth",
+          });
+        }
       }
     }
   };
@@ -806,13 +662,21 @@ export default function VideoTranslate() {
       const data = await res.json();
       updateSingleStudioSegment(seg.id, {
         ...data.segment,
+        text: seg.text,
         isRedubbing: false,
       });
       toast.success(`🎙️ Đã thu lại câu #${seg.id} thành công!`);
 
+      // Tua video về mốc bắt đầu của câu vừa thu để người dùng nhìn khung hình
+      if (resultVideoRef.current) {
+        resultVideoRef.current.currentTime = seg.start;
+        resultVideoRef.current.pause();
+      }
+
       // Tự động phát âm thanh vừa thu lại để người dùng nghe thử ngay lập tức
       if (data.audio_url) {
-        const audio = new Audio(`http://localhost:8000${data.audio_url}`);
+        const fullAudioUrl = data.audio_url.startsWith("http") ? data.audio_url : `http://localhost:8000${data.audio_url}`;
+        const audio = new Audio(fullAudioUrl);
         setPlayingAudioSegId(seg.id);
         audio.onended = () => setPlayingAudioSegId(null);
         audio.onerror = () => setPlayingAudioSegId(null);
@@ -1501,31 +1365,6 @@ export default function VideoTranslate() {
               )}
             </div>
 
-            {/* Quy trình 2 bước: Duyệt câu gốc trước khi dịch */}
-            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
-              <input
-                type="checkbox"
-                id="pauseForReviewToggle"
-                checked={pauseForReview}
-                onChange={(e) => setPauseForReview(e.target.checked)}
-                className="w-5 h-5 accent-amber-400 cursor-pointer rounded mt-0.5 shrink-0"
-              />
-              <label htmlFor="pauseForReviewToggle" className="cursor-pointer space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                    <ListChecks className="w-3.5 h-3.5 text-amber-400" />
-                    Quy trình 2 bước: Xem & duyệt câu gốc trước khi dịch
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                    Khuyên dùng
-                  </span>
-                </div>
-                <p className="text-[11px] text-on-surface-variant leading-relaxed">
-                  Tạm dừng sau khi bóc băng Whisper (40%) để bạn lướt qua sửa nhanh các từ sai chữ Hán/đồng âm trước khi bắt đầu Dịch thuật & Lồng tiếng.
-                </p>
-              </label>
-            </div>
-
             {/* CTA Button Bắt Đầu */}
             <button
               onClick={handleStartTranslation}
@@ -1784,7 +1623,7 @@ export default function VideoTranslate() {
                       Chưa có dữ liệu câu thoại cho video này.
                     </div>
                   ) : (
-                    <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+                    <div ref={transcriptContainerRef} className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
                       {filteredStudioSegments.map((seg) => {
                         const isActive = activeStudioSegmentId === seg.id;
                         const isPlayingAudio = playingAudioSegId === seg.id;
@@ -2062,243 +1901,6 @@ export default function VideoTranslate() {
                   </span>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* Card Duyệt & Đối Chiếu Song Ngữ Trung - Việt (Quy trình 2 bước) */}
-          {(taskStatus?.status === "paused_for_review" || showOriginalReviewModal) && taskStatus?.task_id && (
-            <div className="bg-surface/95 border-2 border-amber-500/40 rounded-3xl p-5 space-y-4 backdrop-blur-xl shadow-2xl animate-fadeIn">
-              {/* Header */}
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="p-2 rounded-xl bg-amber-500/20 text-amber-300">
-                    <ListChecks className="w-5 h-5" />
-                  </span>
-                  <div>
-                    <h3 className="text-sm font-bold text-amber-300 flex items-center gap-1.5">
-                      Đối Chiếu Song Ngữ & Duyệt Câu Gốc
-                    </h3>
-                    <p className="text-[11px] text-on-surface-variant">
-                      Đã nhận diện {taskStatus.total_segments || bilingualSegments.length || 0} câu thoại. Có sẵn nghĩa tiếng Việt đối chiếu bên cạnh.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleOpenOriginalReview}
-                    disabled={isLoadingOriginalSrt}
-                    className="px-2.5 py-1.5 rounded-lg bg-surface-variant hover:bg-white/10 text-on-surface text-xs flex items-center gap-1 border border-white/10 cursor-pointer disabled:opacity-50"
-                    title="Nạp lại dữ liệu từ máy chủ"
-                  >
-                    {isLoadingOriginalSrt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 text-amber-400" />}
-                    <span>Nạp lại</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleDownloadFile(
-                        taskStatus.task_id,
-                        "srt_original",
-                        `original_subtitles_${taskStatus.task_id}.srt`
-                      )
-                    }
-                    className="px-2.5 py-1.5 rounded-lg bg-surface-variant hover:bg-white/10 text-on-surface text-xs flex items-center gap-1 border border-white/10 cursor-pointer"
-                    title="Tải tệp .SRT câu gốc về máy tính"
-                  >
-                    <Download className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Tải .SRT</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Banner hướng dẫn cho người không biết tiếng Trung */}
-              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 space-y-1.5 text-xs text-amber-200/90 leading-relaxed">
-                <div className="flex items-center gap-2 font-bold text-amber-300">
-                  <span>💡 Bạn không biết tiếng Trung?</span>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-200 border border-amber-400/30">
-                    Chế độ đối chiếu thông minh
-                  </span>
-                </div>
-                <p className="text-[11px] text-amber-200/80">
-                  Hệ thống đã tự động đối chiếu và dịch nghĩa <strong>Tiếng Việt</strong> bên cạnh từng câu tiếng Trung. Bạn chỉ cần đọc hiểu cột tiếng Việt: thấy câu nào bị hiểu sai ngữ cảnh thì sửa trực tiếp vào ô tiếng Việt hoặc ô chữ Hán!
-                </p>
-              </div>
-
-              {/* Chuyển đổi tab xem: Bảng Song Ngữ vs Văn Bản SRT */}
-              <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-2 flex-wrap">
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setReviewViewMode("bilingual")}
-                    className={cn(
-                      "px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer",
-                      reviewViewMode === "bilingual"
-                        ? "bg-amber-400 text-black shadow-md shadow-amber-400/20"
-                        : "bg-surface-variant/40 text-on-surface-variant hover:text-on-surface"
-                    )}
-                  >
-                    <Languages className="w-3.5 h-3.5" />
-                    <span>Bảng Song Ngữ (Đối Chiếu)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReviewViewMode("srt")}
-                    className={cn(
-                      "px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer",
-                      reviewViewMode === "srt"
-                        ? "bg-amber-400 text-black shadow-md shadow-amber-400/20"
-                        : "bg-surface-variant/40 text-on-surface-variant hover:text-on-surface"
-                    )}
-                  >
-                    <Subtitles className="w-3.5 h-3.5" />
-                    <span>Xem Văn Bản .SRT Thô</span>
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleSaveOriginalSrt}
-                  disabled={isSavingOriginalSrt || isLoadingOriginalSrt}
-                  className="text-xs text-primary hover:underline flex items-center gap-1 cursor-pointer font-semibold disabled:opacity-50 ml-auto"
-                >
-                  {isSavingOriginalSrt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5 text-green-400" />}
-                  <span>Lưu thay đổi</span>
-                </button>
-              </div>
-
-              {/* Nội dung Review theo chế độ */}
-              {reviewViewMode === "bilingual" ? (
-                <div className="space-y-2.5">
-                  {/* Thanh tìm kiếm nhanh câu thoại */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="🔍 Tìm nhanh câu thoại theo từ khóa tiếng Việt hoặc chữ Hán..."
-                      value={bilingualSearch}
-                      onChange={(e) => setBilingualSearch(e.target.value)}
-                      className="w-full text-xs bg-surface-variant/60 border border-white/10 rounded-xl px-3 py-2 text-on-surface focus:outline-none focus:border-amber-400"
-                    />
-                  </div>
-
-                  {/* Danh sách thẻ đối chiếu song ngữ */}
-                  <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                    {bilingualSegments
-                      .filter(
-                        (s) =>
-                          !bilingualSearch ||
-                          s.source_text.toLowerCase().includes(bilingualSearch.toLowerCase()) ||
-                          s.target_text.toLowerCase().includes(bilingualSearch.toLowerCase())
-                      )
-                      .map((seg) => (
-                        <div
-                          key={seg.id}
-                          className="p-3 rounded-2xl bg-surface-variant/30 border border-white/10 hover:border-amber-400/40 transition-all space-y-2"
-                        >
-                          <div className="flex items-center justify-between text-[11px] text-on-surface-variant font-mono">
-                            <span className="font-bold text-amber-300">
-                              #{seg.id}
-                            </span>
-                            <span className="bg-black/40 px-2 py-0.5 rounded-md text-[10px] text-primary">
-                              ⏱️ {formatSrtTime(seg.start)} ➔ {formatSrtTime(seg.end)} ({Math.max(0.1, seg.end - seg.start).toFixed(1)}s)
-                            </span>
-                          </div>
-
-                          {/* Cột 1: Câu gốc tiếng Trung */}
-                          <div className="space-y-0.5">
-                            <label className="text-[10px] text-on-surface-variant/80 font-medium">
-                              Tiếng Trung gốc (Chữ Hán):
-                            </label>
-                            <input
-                              type="text"
-                              value={seg.source_text}
-                              onChange={(e) => {
-                                const newSegs = [...bilingualSegments];
-                                const targetIdx = newSegs.findIndex((s) => s.id === seg.id);
-                                if (targetIdx !== -1) {
-                                  newSegs[targetIdx].source_text = e.target.value;
-                                  setBilingualSegments(newSegs);
-                                }
-                              }}
-                              className="w-full text-xs font-mono bg-black/50 border border-white/10 rounded-xl px-2.5 py-1.5 text-amber-100 focus:outline-none focus:border-amber-400"
-                            />
-                          </div>
-
-                          {/* Cột 2: Nghĩa tiếng Việt đối chiếu */}
-                          <div className="space-y-0.5">
-                            <label className="text-[10px] text-primary font-semibold flex items-center justify-between">
-                              <span>Nghĩa Tiếng Việt đối chiếu (Đọc hiểu & chỉnh sửa):</span>
-                              <span className="text-[9px] text-primary/70 font-normal">Bạn có thể sửa trực tiếp ô này</span>
-                            </label>
-                            <input
-                              type="text"
-                              value={seg.target_text}
-                              onChange={(e) => {
-                                const newSegs = [...bilingualSegments];
-                                const targetIdx = newSegs.findIndex((s) => s.id === seg.id);
-                                if (targetIdx !== -1) {
-                                  newSegs[targetIdx].target_text = e.target.value;
-                                  setBilingualSegments(newSegs);
-                                }
-                              }}
-                              className="w-full text-xs bg-primary/5 border border-primary/30 rounded-xl px-2.5 py-1.5 text-on-surface focus:outline-none focus:border-primary font-medium"
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    {bilingualSegments.length === 0 && (
-                      <div className="text-center py-8 text-on-surface-variant text-xs flex flex-col items-center gap-2">
-                        <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
-                        <span>Đang nạp danh sách câu đối chiếu song ngữ...</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Tùy chọn sử dụng trực tiếp bản dịch tiếng Việt */}
-                  <div className="pt-2 border-t border-white/10 flex items-center justify-between">
-                    <label className="text-xs text-on-surface flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={useUserTranslations}
-                        onChange={(e) => setUseUserTranslations(e.target.checked)}
-                        className="w-4 h-4 accent-amber-400 cursor-pointer rounded"
-                      />
-                      <span>Áp dụng trực tiếp các câu dịch Tiếng Việt tôi vừa sửa trong bảng này để lồng tiếng</span>
-                    </label>
-                  </div>
-                </div>
-              ) : (
-                /* Văn bản SRT thô */
-                <div className="space-y-1.5">
-                  <textarea
-                    value={originalSrtText}
-                    onChange={(e) => setOriginalSrtText(e.target.value)}
-                    rows={10}
-                    className="w-full text-xs font-mono bg-black/70 border border-amber-500/30 rounded-2xl p-3 text-amber-100 focus:outline-none focus:border-amber-400 resize-y leading-relaxed shadow-inner"
-                    placeholder="Đang tải nội dung file phụ đề SRT..."
-                  />
-                </div>
-              )}
-
-              {/* Primary CTA Continue Button */}
-              <button
-                type="button"
-                onClick={handleContinueTranslation}
-                disabled={isContinuing || isLoadingOriginalSrt}
-                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black font-bold text-sm flex items-center justify-center gap-2 hover:opacity-95 active:scale-[0.99] transition-all shadow-lg shadow-amber-500/25 cursor-pointer disabled:opacity-50"
-              >
-                {isContinuing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-black" />
-                    <span>Đang khởi chạy Bước 2: Dịch thuật & Lồng tiếng...</span>
-                  </>
-                ) : (
-                  <>
-                    <ArrowRight className="w-4 h-4 text-black" />
-                    <span>Xác Nhận & Tiếp Tục Dịch - Lồng Tiếng</span>
-                  </>
-                )}
-              </button>
             </div>
           )}
         </div>

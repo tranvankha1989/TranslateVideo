@@ -16,14 +16,6 @@ export interface LanguageOption {
   name: string;
 }
 
-export interface BilingualSegment {
-  id: number;
-  start: number;
-  end: number;
-  source_text: string;
-  target_text: string;
-}
-
 export interface StudioSegment {
   id: number;
   start: number;
@@ -40,7 +32,7 @@ export interface StudioSegment {
 
 export interface TranslationProgress {
   task_id: string;
-  status: "queued" | "processing" | "paused_for_review" | "completed" | "failed";
+  status: "queued" | "processing" | "completed" | "failed";
   progress: number;
   current_step: string;
   message: string;
@@ -88,7 +80,6 @@ interface VideoTranslateState {
   geminiTemperature: number;
   whisperModel: string;
   showAdvanced: boolean;
-  pauseForReview: boolean;
 
   // Task & Processing State
   isProcessing: boolean;
@@ -99,16 +90,6 @@ interface VideoTranslateState {
   srtText: string;
   isLoadingSrt: boolean;
   isSavingSrt: boolean;
-
-  // Duyệt câu gốc 2 bước
-  showOriginalReviewModal: boolean;
-  originalSrtText: string;
-  bilingualSegments: BilingualSegment[];
-  reviewViewMode: "bilingual" | "srt";
-  useUserTranslations: boolean;
-  isLoadingOriginalSrt: boolean;
-  isSavingOriginalSrt: boolean;
-  isContinuing: boolean;
 
   taskId: string | null;
   taskStatus: TranslationProgress | null;
@@ -134,7 +115,6 @@ interface VideoTranslateState {
   setGeminiTemperature: (temp: number) => void;
   setWhisperModel: (model: string) => void;
   setShowAdvanced: (val: boolean) => void;
-  setPauseForReview: (val: boolean) => void;
 
   setIsProcessing: (val: boolean) => void;
   setIsCleaning: (val: boolean) => void;
@@ -144,15 +124,6 @@ interface VideoTranslateState {
   setSrtText: (text: string) => void;
   setIsLoadingSrt: (val: boolean) => void;
   setIsSavingSrt: (val: boolean) => void;
-
-  setShowOriginalReviewModal: (val: boolean) => void;
-  setOriginalSrtText: (text: string) => void;
-  setBilingualSegments: (segments: BilingualSegment[]) => void;
-  setReviewViewMode: (mode: "bilingual" | "srt") => void;
-  setUseUserTranslations: (val: boolean) => void;
-  setIsLoadingOriginalSrt: (val: boolean) => void;
-  setIsSavingOriginalSrt: (val: boolean) => void;
-  setIsContinuing: (val: boolean) => void;
 
   // Studio Realtime Review & Selective Redub
   studioSegments: StudioSegment[];
@@ -206,7 +177,6 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       geminiTemperature: 0.2,
       whisperModel: "large-v3",
       showAdvanced: false,
-      pauseForReview: false,
 
       isProcessing: false,
       isCleaning: false,
@@ -216,15 +186,6 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       srtText: "",
       isLoadingSrt: false,
       isSavingSrt: false,
-
-      showOriginalReviewModal: false,
-      originalSrtText: "",
-      bilingualSegments: [],
-      reviewViewMode: "bilingual",
-      useUserTranslations: false,
-      isLoadingOriginalSrt: false,
-      isSavingOriginalSrt: false,
-      isContinuing: false,
 
       taskId: null,
       taskStatus: null,
@@ -261,7 +222,6 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setGeminiTemperature: (geminiTemperature) => set({ geminiTemperature }),
       setWhisperModel: (whisperModel) => set({ whisperModel }),
       setShowAdvanced: (showAdvanced) => set({ showAdvanced }),
-      setPauseForReview: (pauseForReview) => set({ pauseForReview }),
 
       setIsProcessing: (isProcessing) => set({ isProcessing }),
       setIsCleaning: (isCleaning) => set({ isCleaning }),
@@ -271,15 +231,6 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setSrtText: (srtText) => set({ srtText }),
       setIsLoadingSrt: (isLoadingSrt) => set({ isLoadingSrt }),
       setIsSavingSrt: (isSavingSrt) => set({ isSavingSrt }),
-
-      setShowOriginalReviewModal: (showOriginalReviewModal) => set({ showOriginalReviewModal }),
-      setOriginalSrtText: (originalSrtText) => set({ originalSrtText }),
-      setBilingualSegments: (bilingualSegments) => set({ bilingualSegments }),
-      setReviewViewMode: (reviewViewMode) => set({ reviewViewMode }),
-      setUseUserTranslations: (useUserTranslations) => set({ useUserTranslations }),
-      setIsLoadingOriginalSrt: (isLoadingOriginalSrt) => set({ isLoadingOriginalSrt }),
-      setIsSavingOriginalSrt: (isSavingOriginalSrt) => set({ isSavingOriginalSrt }),
-      setIsContinuing: (isContinuing) => set({ isContinuing }),
 
       studioSegments: [],
       activeStudioSegmentId: null,
@@ -369,7 +320,6 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
         geminiModel: state.geminiModel,
         geminiTemperature: state.geminiTemperature,
         whisperModel: state.whisperModel,
-        pauseForReview: state.pauseForReview,
         taskId: state.taskId,
         taskStatus: state.taskStatus,
         isProcessing: state.isProcessing,

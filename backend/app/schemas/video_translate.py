@@ -18,25 +18,6 @@ class StartTranslationRequest(BaseModel):
     translation_api_key: str | None = Field(None, description="API Key nếu dùng LLM")
     translation_model: str = Field("gemini-2.5-flash", description="Mô hình dịch: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash, gemini-2.5-flash-lite")
     translation_temperature: float = Field(0.2, description="Nhiệt độ sáng tạo (0.0 -> 1.0, mặc định 0.2)")
-    pause_for_review: bool = Field(False, description="Tạm dừng sau khi bóc băng để người dùng kiểm tra và duyệt câu gốc tiếng Trung trước khi dịch")
-
-
-class BilingualSegmentItem(BaseModel):
-    id: int
-    start: float
-    end: float
-    source_text: str
-    target_text: str = ""
-
-
-class ContinueTranslationRequest(BaseModel):
-    srt_content: str | None = Field(None, description="Nội dung phụ đề câu gốc sau khi người dùng đã duyệt và chỉnh sửa chữ Hán (nếu có)")
-    bilingual_segments: list[BilingualSegmentItem] | None = Field(None, description="Danh sách các câu song ngữ đối chiếu Trung - Việt")
-    use_user_translations: bool = Field(False, description="Sử dụng trực tiếp các câu dịch tiếng Việt người dùng đã sửa trong bảng song ngữ")
-
-
-class SaveBilingualRequest(BaseModel):
-    segments: list[BilingualSegmentItem]
 
 
 class TranslationTaskStatus(BaseModel):

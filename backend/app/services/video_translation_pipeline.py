@@ -133,7 +133,6 @@ class VideoTranslationPipeline:
         translation_model: str = "gemini-2.5-flash",
         translation_temperature: float = 0.2,
         whisper_model: str = "large-v3",
-        pause_for_review: bool = False,
     ) -> None:
         start_time = time.time()
         try:
@@ -158,7 +157,6 @@ class VideoTranslationPipeline:
                 "translation_model": translation_model,
                 "translation_temperature": translation_temperature,
                 "whisper_model": whisper_model,
-                "pause_for_review": pause_for_review,
                 "_start_time": start_time,
                 "created_at": start_time,
             }
@@ -234,13 +232,16 @@ class VideoTranslationPipeline:
                 task_id,
                 progress=18,
                 current_step="transcribing",
-                message=f"Đã trích xuất âm thanh ({round(video_duration, 1)}s). Đang khởi chạy Faster-Whisper AI nhận dạng giọng nói...",
+                message=f"Đã trích xuất âm thanh ({round(video_duration, 1)}s). Đang khởi chạy Faster-Whisper ({whisper_model.upper()}) bóc tách thoại gốc...",
             )
 
             lang_arg = None if source_lang == "auto" else source_lang.split("-")[0]
 
             # Chạy whisper và nạp mô hình trong thread riêng để không block event loop
             def run_whisper():
+                logger.info(
+                    f"🎙️ [Whisper STT] Bắt đầu bóc băng video gốc '{video_path.name}' bằng mô hình '{whisper_model.upper()}' (Audio: {raw_audio_path.name}, Lang: {lang_arg or 'auto'})"
+                )
                 whisper = get_whisper_model(whisper_model)
                 initial_prompt = None
                 if lang_arg == "zh":
@@ -309,43 +310,6 @@ class VideoTranslationPipeline:
                 subtitles_original_srt_url=rel_orig_srt_url,
                 message=f"Đã nhận diện {len(original_segments)} câu thoại gốc.",
             )
-
-            # Nếu người dùng chọn Quy trình 2 bước: Tạm dừng để duyệt câu gốc trước khi dịch
-            if pause_for_review:
-                # Tự động tạo bản dịch nháp tiếng Việt nhanh (qua GoogleTranslator miễn phí, mất < 1 giây) để người dùng đối chiếu song ngữ
-                try:
-                    raw_texts = [seg["text"] for seg in original_segments]
-                    draft_vi_texts = await GoogleTranslator.translate_batch_texts(
-                        raw_texts,
-                        source_lang=detected_source_lang,
-                        target_lang=target_lang,
-                    )
-                    bilingual_data = []
-                    for seg, vi_text in zip(original_segments, draft_vi_texts):
-                        bilingual_data.append({
-                            "id": seg["id"],
-                            "start": seg["start"],
-                            "end": seg["end"],
-                            "source_text": seg["text"],
-                            "target_text": vi_text,
-                        })
-                    bilingual_file = task_dir / "bilingual_review.json"
-                    with open(bilingual_file, "w", encoding="utf-8") as f:
-                        json.dump(bilingual_data, f, ensure_ascii=False, indent=2)
-                except Exception as e:
-                    logger.warning(f"Lỗi tạo bản dịch nháp song ngữ đối chiếu: {e}")
-
-                cls.update_task(
-                    task_id,
-                    status="paused_for_review",
-                    progress=40,
-                    current_step="review_original",
-                    message=f"Đã bóc băng {len(original_segments)} câu gốc. Đang tạm dừng để bạn đối chiếu song ngữ Trung - Việt trước khi dịch.",
-                    elapsed_time=round(time.time() - start_time, 1),
-                    elapsed_str=format_duration_vietnamese(time.time() - start_time),
-                )
-                logger.info(f"⏸️ [Task {task_id}] Đã tạm dừng quy trình để người dùng đối chiếu song ngữ Trung - Việt.")
-                return
 
             # ── BƯỚC 3: DỊCH PHỤ ĐỀ SANG NGÔN NGỮ ĐÍCH (40% -> 55%) ────────
             cls.update_task(task_id, progress=45, current_step="translating", message="Đang dịch phụ đề qua AI...")
@@ -514,265 +478,6 @@ class VideoTranslationPipeline:
 
         except Exception as e:
             logger.error(f"❌ [Task {task_id}] Thất bại: {e}", exc_info=True)
-            cls.update_task(
-                task_id,
-                status="failed",
-                current_step="failed",
-                message=f"Lỗi: {str(e)}",
-                error=str(e),
-            )
-
-    @classmethod
-    async def resume_pipeline(
-        cls,
-        task_id: str,
-        srt_content: str | None = None,
-        bilingual_segments: list[dict[str, Any]] | None = None,
-        use_user_translations: bool = False,
-    ) -> None:
-        """
-        Tiếp tục quy trình từ Bước 3 (Dịch thuật) sau khi người dùng đã duyệt và chỉnh sửa câu gốc.
-        """
-        task = cls.get_task(task_id)
-        if not task:
-            raise RuntimeError(f"Không tìm thấy thông tin tác vụ {task_id}")
-
-        task_dir = TRANSLATE_OUTPUT_DIR / task_id
-        srt_orig_file = task_dir / "subtitles_original.srt"
-
-        # Nếu người dùng gửi danh sách song ngữ đối chiếu đã sửa
-        if bilingual_segments:
-            bilingual_file = task_dir / "bilingual_review.json"
-            try:
-                with open(bilingual_file, "w", encoding="utf-8") as f:
-                    json.dump(bilingual_segments, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                logger.warning(f"Lỗi lưu bilingual_review.json: {e}")
-
-            original_segments = [
-                {
-                    "id": item.get("id", i + 1),
-                    "start": float(item.get("start", 0.0)),
-                    "end": float(item.get("end", 0.0)),
-                    "text": str(item.get("source_text", "")).strip(),
-                }
-                for i, item in enumerate(bilingual_segments)
-            ]
-            generate_srt_file(original_segments, srt_orig_file, mode="hard_target")
-        elif srt_content is not None and srt_content.strip():
-            srt_orig_file.write_text(srt_content.strip(), encoding="utf-8")
-            original_segments = cls.parse_srt_file(srt_orig_file)
-        else:
-            original_segments = cls.parse_srt_file(srt_orig_file)
-
-        if not original_segments:
-            raise RuntimeError("Nội dung phụ đề câu gốc rỗng hoặc không đúng định dạng SRT.")
-
-        start_time = task.get("_start_time", time.time())
-        video_path_str = task.get("video_path")
-        if not video_path_str:
-            raise RuntimeError("Không tìm thấy đường dẫn video trong tác vụ.")
-        video_path = Path(video_path_str)
-
-        video_duration = float(task.get("video_duration", 0.0))
-        if video_duration <= 0 and video_path.exists():
-            video_duration = get_audio_duration(video_path)
-
-        bgm_path = Path(task.get("bgm_path")) if task.get("bgm_path") else None
-        detected_source_lang = task.get("detected_source_lang", task.get("source_lang", "zh-cn"))
-        target_lang = task.get("target_lang", "vi")
-        voice_id = task.get("voice_id", "vi-VN-HoaiMyNeural")
-        engine = task.get("engine", "edge-tts")
-        voice_rate = task.get("voice_rate", "+0%")
-        voice_pitch = task.get("voice_pitch", "+0Hz")
-        voice_volume = float(task.get("voice_volume", 1.0))
-        preserve_bgm = bool(task.get("preserve_bgm", True))
-        bgm_volume = float(task.get("bgm_volume", 0.25))
-        subtitle_mode = task.get("subtitle_mode", "hard_target")
-        max_speed_rate = float(task.get("max_speed_rate", 1.35))
-        translation_provider = task.get("translation_provider", "google")
-        translation_api_key = task.get("translation_api_key")
-        translation_style = task.get("translation_style", "auto")
-        translation_model = task.get("translation_model", "gemini-2.5-flash")
-        translation_temperature = float(task.get("translation_temperature", 0.2))
-
-        try:
-            cls.update_task(
-                task_id,
-                status="processing",
-                progress=45,
-                current_step="translating",
-                total_segments=len(original_segments),
-                message=f"Đang dịch {len(original_segments)} câu gốc đã duyệt sang {target_lang} qua AI...",
-            )
-
-            # ── BƯỚC 3: DỊCH PHỤ ĐỀ SANG NGÔN NGỮ ĐÍCH (45% -> 55%) ────────
-            if use_user_translations and bilingual_segments:
-                translated_segments = [
-                    {
-                        "id": item.get("id", i + 1),
-                        "start": float(item.get("start", 0.0)),
-                        "end": float(item.get("end", 0.0)),
-                        "text": str(item.get("target_text") or item.get("source_text", "")).strip(),
-                    }
-                    for i, item in enumerate(bilingual_segments)
-                ]
-            else:
-                translated_segments = await TranslationService.translate_segments(
-                    segments=original_segments,
-                    source_lang=detected_source_lang,
-                    target_lang=target_lang,
-                    provider=translation_provider,
-                    api_key=translation_api_key,
-                    style=translation_style,
-                    model=translation_model,
-                    temperature=translation_temperature,
-                )
-
-            for i, ts in enumerate(translated_segments):
-                if i < len(original_segments):
-                    ts["original_text"] = original_segments[i].get("text", "")
-
-            # ── BƯỚC 4: LỒNG TIẾNG TỰ ĐỘNG (55% -> 75%) ───────────────────
-            cls.update_task(
-                task_id,
-                progress=55,
-                current_step="dubbing",
-                message=f"Đang lồng tiếng {len(translated_segments)} câu bằng giọng '{voice_id}'...",
-            )
-
-            dub_res = await DubbingService.synthesize_batch(
-                segments=translated_segments,
-                voice_id=voice_id,
-                engine=engine,
-                rate=voice_rate,
-                pitch=voice_pitch,
-                session_id=task_id,
-            )
-
-            # Lưu checkpoint dữ liệu câu thoại & cấu hình để phục vụ Studio chỉnh sửa theo thời gian thực
-            task_meta = {
-                "task_id": task_id,
-                "video_path": str(video_path),
-                "video_duration": video_duration,
-                "voice_id": voice_id,
-                "engine": engine,
-                "voice_rate": voice_rate,
-                "voice_pitch": voice_pitch,
-                "voice_volume": voice_volume,
-                "preserve_bgm": preserve_bgm,
-                "bgm_volume": bgm_volume,
-                "bgm_path": str(bgm_path) if bgm_path else None,
-                "subtitle_mode": subtitle_mode,
-                "max_speed_rate": max_speed_rate,
-                "detected_source_lang": detected_source_lang,
-                "target_lang": target_lang,
-            }
-            try:
-                (task_dir / "task_meta.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2), encoding="utf-8")
-                (task_dir / "dubbed_segments.json").write_text(json.dumps(dub_res["dubbed_segments"], ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception as e:
-                logger.warning(f"Lỗi ghi task_meta/dubbed_segments: {e}")
-
-            # ── BƯỚC 5: CÂN CHỈNH TỐC ĐỘ VÀ RÁP NỐI TIMELINE (75% -> 85%) ───
-            cls.update_task(
-                task_id,
-                progress=75,
-                current_step="aligning",
-                message="Đang cân chỉnh tốc độ (SpeedRate) và hòa âm dải âm thanh khớp khung hình...",
-            )
-
-            timeline_res = AlignmentService.build_full_timeline(
-                segments=dub_res["dubbed_segments"],
-                total_video_duration=video_duration,
-                max_speed_rate=max_speed_rate,
-                bgm_path=bgm_path if preserve_bgm else None,
-                bgm_volume=bgm_volume,
-                voice_volume=voice_volume,
-                session_id=task_id,
-            )
-            final_audio_path = Path(timeline_res["final_audio_path"])
-
-            # ── BƯỚC 6: XUẤT PHỤ ĐỀ VÀ RENDER VIDEO MP4 (85% -> 100%) ───────
-            cls.update_task(
-                task_id,
-                progress=85,
-                current_step="rendering",
-                message="Đang ghép âm thanh và render video MP4 hoàn chỉnh...",
-            )
-
-            srt_file = task_dir / "subtitles.srt"
-            generate_srt_file(translated_segments, srt_file, mode=subtitle_mode)
-
-            srt_initial_file = task_dir / "subtitles_ai_initial.srt"
-            generate_srt_file(translated_segments, srt_initial_file, mode=subtitle_mode)
-
-            output_video_path = task_dir / "final_translated.mp4"
-
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", str(video_path),
-                "-i", str(final_audio_path),
-            ]
-
-            if subtitle_mode in ["hard_target", "hard_dual"]:
-                srt_escaped = str(srt_file).replace("\\", "/").replace(":", "\\:")
-                style_str = "FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=30"
-                ffmpeg_cmd.extend(["-vf", f"subtitles='{srt_escaped}':force_style='{style_str}'"])
-                ffmpeg_cmd.extend([
-                    "-map", "0:v:0",
-                    "-map", "1:a:0",
-                    "-c:v", "libx264",
-                    "-pix_fmt", "yuv420p",
-                    "-preset", "fast",
-                    "-crf", "19",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-shortest",
-                    "-movflags", "+faststart",
-                    str(output_video_path),
-                ])
-            else:
-                ffmpeg_cmd.extend([
-                    "-map", "0:v:0",
-                    "-map", "1:a:0",
-                    "-c:v", "copy",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-shortest",
-                    "-movflags", "+faststart",
-                    str(output_video_path),
-                ])
-
-            logger.info(f"[VideoTranslationPipeline:Resume] Chạy FFmpeg render: {' '.join(ffmpeg_cmd)}")
-            res = await asyncio.to_thread(subprocess.run, ffmpeg_cmd, capture_output=True, text=True)
-            if res.returncode != 0:
-                raise RuntimeError(f"FFmpeg render thất bại: {res.stderr}")
-
-            total_elapsed_sec = round(time.time() - start_time, 1)
-            total_elapsed_str = format_duration_vietnamese(total_elapsed_sec)
-            rel_video_url = f"/api/video-translate/stream/{task_id}"
-            rel_audio_url = f"/outputs/alignment/{task_id}/{final_audio_path.name}"
-            rel_srt_url = f"/outputs/video_translate/{task_id}/{srt_file.name}"
-            rel_orig_srt_url = f"/outputs/video_translate/{task_id}/{srt_orig_file.name}"
-
-            cls.update_task(
-                task_id,
-                status="completed",
-                progress=100,
-                current_step="completed",
-                message=f"🎉 Dịch và lồng tiếng video hoàn tất trong {total_elapsed_str}!",
-                video_url=rel_video_url,
-                audio_url=rel_audio_url,
-                subtitles_srt_url=rel_srt_url,
-                subtitles_original_srt_url=rel_orig_srt_url,
-                elapsed_time=total_elapsed_sec,
-                elapsed_str=total_elapsed_str,
-            )
-            logger.info(f"✅ [Task {task_id}] Hoàn tất resume video translation ({total_elapsed_str}): {output_video_path}")
-
-        except Exception as e:
-            logger.error(f"❌ [Task {task_id}] Thất bại khi resume: {e}", exc_info=True)
             cls.update_task(
                 task_id,
                 status="failed",
@@ -1244,7 +949,9 @@ class VideoTranslationPipeline:
         v_vol = voice_volume if voice_volume is not None else float(task_meta.get("voice_volume", 1.0))
         max_speed = max_speed_rate if max_speed_rate is not None else float(task_meta.get("max_speed_rate", 1.35))
 
-        bgm_path = DUBBING_OUTPUT_DIR / task_id / "bgm.wav"
+        bgm_path = task_dir / "bgm.wav"
+        if not bgm_path.exists():
+            bgm_path = DUBBING_OUTPUT_DIR / task_id / "bgm.wav"
         if not bgm_path.exists() and p_bgm:
             vocal_res = await asyncio.to_thread(DubbingService.separate_vocal_bgm, video_path, session_id=task_id)
             bgm_path = Path(vocal_res.get("bgm_audio", ""))

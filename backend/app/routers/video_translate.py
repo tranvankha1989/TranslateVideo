@@ -22,9 +22,6 @@ from app.schemas.video_translate import (
     RedubTaskRequest,
     SaveSubtitlesRequest,
     VerifyKeyRequest,
-    ContinueTranslationRequest,
-    SaveBilingualRequest,
-    BilingualSegmentItem,
     StudioRedubSegmentRequest,
     StudioRemuxRequest,
 )
@@ -80,7 +77,6 @@ async def start_video_translation(
     translation_model: str = Form("gemini-2.5-flash"),
     translation_temperature: float = Form(0.2),
     whisper_model: str = Form("large-v3"),
-    pause_for_review: bool = Form(False),
 ):
     """
     Tiếp nhận video tải lên và kích hoạt Pipeline dịch & lồng tiếng tự động chạy ngầm.
@@ -122,7 +118,6 @@ async def start_video_translation(
         "audio_url": None,
         "subtitles_srt_url": None,
         "subtitles_original_srt_url": None,
-        "pause_for_review": pause_for_review,
         "_start_time": now_ts,
         "created_at": now_ts,
         "elapsed_time": 0.0,
@@ -152,7 +147,6 @@ async def start_video_translation(
             translation_model=translation_model,
             translation_temperature=translation_temperature,
             whisper_model=whisper_model,
-            pause_for_review=pause_for_review,
         )
     )
     _BACKGROUND_TASKS.add(bg_task)
@@ -606,170 +600,6 @@ async def save_subtitles_content(task_id: str, req: SaveSubtitlesRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi ghi file phụ đề: {str(e)}")
-
-
-@router.get("/subtitles-original-content/{task_id}")
-async def get_subtitles_original_content(task_id: str):
-    """
-    Lấy toàn bộ nội dung văn bản thô của file phụ đề câu gốc subtitles_original.srt để người dùng xem và duyệt.
-    """
-    task_dir = TRANSLATE_OUTPUT_DIR / task_id
-    srt_file = task_dir / "subtitles_original.srt"
-    if not srt_file.exists():
-        raise HTTPException(status_code=404, detail="File phụ đề câu gốc chưa được tạo hoặc không tồn tại.")
-    try:
-        content = srt_file.read_text(encoding="utf-8")
-        return {"content": content, "file_path": str(srt_file)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi đọc file phụ đề gốc: {str(e)}")
-
-
-@router.post("/subtitles-original-content/{task_id}")
-async def save_subtitles_original_content(task_id: str, req: SaveSubtitlesRequest):
-    """
-    Lưu nội dung chỉnh sửa câu gốc tiếng Trung vào file subtitles_original.srt trước khi bắt đầu dịch.
-    """
-    task_dir = TRANSLATE_OUTPUT_DIR / task_id
-    if not task_dir.exists():
-        raise HTTPException(status_code=404, detail="Thư mục tác vụ không tồn tại.")
-
-    srt_file = task_dir / "subtitles_original.srt"
-    try:
-        srt_file.write_text(req.content.strip(), encoding="utf-8")
-        return {
-            "status": "ok",
-            "message": "Đã lưu nội dung phụ đề câu gốc thành công.",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi ghi file phụ đề gốc: {str(e)}")
-
-
-@router.get("/bilingual-review/{task_id}")
-async def get_bilingual_review_data(task_id: str):
-    """
-    Lấy danh sách các câu thoại song ngữ đối chiếu (Trung - Việt) để người dùng xem và chỉnh sửa.
-    Nếu chưa có bản dịch nháp, hệ thống tự động dịch nhanh qua GoogleTranslator trong 1 giây.
-    """
-    task_dir = TRANSLATE_OUTPUT_DIR / task_id
-    if not task_dir.exists():
-        raise HTTPException(status_code=404, detail="Thư mục tác vụ không tồn tại.")
-
-    bilingual_file = task_dir / "bilingual_review.json"
-    if bilingual_file.exists():
-        try:
-            with open(bilingual_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return {"segments": data}
-        except Exception:
-            pass
-
-    # Nếu chưa có file JSON, parse subtitles_original.srt và dịch nháp
-    srt_orig = task_dir / "subtitles_original.srt"
-    if not srt_orig.exists():
-        raise HTTPException(status_code=404, detail="Phụ đề gốc chưa sẵn sàng.")
-
-    orig_segs = VideoTranslationPipeline.parse_srt_file(srt_orig)
-    if not orig_segs:
-        return {"segments": []}
-
-    task = VideoTranslationPipeline.get_task(task_id) or {}
-    src_lang = task.get("detected_source_lang", task.get("source_lang", "zh-cn"))
-    tgt_lang = task.get("target_lang", "vi")
-
-    raw_texts = [s["text"] for s in orig_segs]
-    try:
-        draft_vi_texts = await GoogleTranslator.translate_batch_texts(
-            raw_texts,
-            source_lang=src_lang,
-            target_lang=tgt_lang,
-        )
-    except Exception as e:
-        logger.warning(f"Lỗi dịch nháp song ngữ: {e}")
-        draft_vi_texts = raw_texts
-
-    bilingual_data = []
-    for s, vi_txt in zip(orig_segs, draft_vi_texts):
-        bilingual_data.append({
-            "id": s["id"],
-            "start": s["start"],
-            "end": s["end"],
-            "source_text": s["text"],
-            "target_text": vi_txt,
-        })
-
-    try:
-        with open(bilingual_file, "w", encoding="utf-8") as f:
-            json.dump(bilingual_data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning(f"Lỗi lưu bilingual_review.json: {e}")
-
-    return {"segments": bilingual_data}
-
-
-@router.post("/bilingual-review/{task_id}")
-async def save_bilingual_review_data(task_id: str, req: SaveBilingualRequest):
-    """
-    Lưu danh sách câu đối chiếu song ngữ do người dùng chỉnh sửa.
-    """
-    task_dir = TRANSLATE_OUTPUT_DIR / task_id
-    if not task_dir.exists():
-        raise HTTPException(status_code=404, detail="Thư mục tác vụ không tồn tại.")
-
-    bilingual_file = task_dir / "bilingual_review.json"
-    segments_dict = [s.model_dump() for s in req.segments]
-    try:
-        with open(bilingual_file, "w", encoding="utf-8") as f:
-            json.dump(segments_dict, f, ensure_ascii=False, indent=2)
-
-        # Cập nhật luôn file subtitles_original.srt
-        srt_orig = task_dir / "subtitles_original.srt"
-        orig_segs = [
-            {
-                "id": s["id"],
-                "start": s["start"],
-                "end": s["end"],
-                "text": s["source_text"],
-            }
-            for s in segments_dict
-        ]
-        from app.services.video_translation_pipeline import generate_srt_file
-        generate_srt_file(orig_segs, srt_orig, mode="hard_target")
-
-        return {"status": "ok", "message": "Đã lưu bản đối chiếu song ngữ thành công!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi ghi file song ngữ: {str(e)}")
-
-
-@router.post("/continue/{task_id}")
-async def continue_video_translation(task_id: str, req: ContinueTranslationRequest | None = None):
-    """
-    Tiếp tục quy trình Dịch thuật & Lồng tiếng sau khi người dùng đã duyệt/sửa câu gốc tiếng Trung.
-    """
-    task = VideoTranslationPipeline.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Không tìm thấy tác vụ {task_id}.")
-
-    srt_content = req.srt_content if req else None
-    bilingual_segments = [s.model_dump() for s in req.bilingual_segments] if req and req.bilingual_segments else None
-    use_user_translations = req.use_user_translations if req else False
-
-    # Khởi chạy resume ngầm
-    bg_task = asyncio.create_task(
-        VideoTranslationPipeline.resume_pipeline(
-            task_id=task_id,
-            srt_content=srt_content,
-            bilingual_segments=bilingual_segments,
-            use_user_translations=use_user_translations,
-        )
-    )
-    _BACKGROUND_TASKS.add(bg_task)
-    bg_task.add_done_callback(_BACKGROUND_TASKS.discard)
-
-    return {
-        "status": "processing",
-        "task_id": task_id,
-        "message": "Đã xác nhận câu gốc thành công. Đang tiếp tục Dịch & Lồng tiếng...",
-    }
 
 
 @router.post("/redub/{task_id}")
