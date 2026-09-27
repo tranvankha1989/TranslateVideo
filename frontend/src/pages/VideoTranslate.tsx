@@ -275,12 +275,13 @@ export default function VideoTranslate() {
           const isCompatible = currentVoiceObj && (
             currentVoiceObj.lang?.toLowerCase().startsWith(langPrefix) ||
             currentVoiceObj.engine === "omnivoice" ||
+            selectedVoice.startsWith("omnivoice:") ||
             targetLang === "all"
           );
 
           if (!isCompatible) {
             let defaultV = data.voices.find((v: VoiceOption) => {
-              if (langPrefix === "en") return v.id.includes("Jenny") || v.id.includes("English") || v.id.startsWith("en-");
+              if (langPrefix === "en") return v.id.includes("English") || v.id.includes("Jenny") || v.id.startsWith("en-");
               if (langPrefix === "zh") return v.id.includes("Xiaoxiao") || v.id.startsWith("zh-");
               if (langPrefix === "ja") return v.id.includes("Nanami") || v.id.startsWith("ja-");
               if (langPrefix === "ko") return v.id.includes("SunHi") || v.id.startsWith("ko-");
@@ -292,6 +293,8 @@ export default function VideoTranslate() {
               setSelectedVoice(defaultV.id);
               setSelectedEngine(defaultV.engine);
             }
+          } else if (currentVoiceObj) {
+            setSelectedEngine(currentVoiceObj.engine);
           }
         }
       })

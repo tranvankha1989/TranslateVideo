@@ -703,14 +703,27 @@ def _generate_audio_local(
         except Exception as e:
             logger.warning(f"⚠️ Warmup thất bại, fallback về mode instruct cho chunk 1: {e}")
 
+    # Xác định mã ngôn ngữ phù hợp cho OmniVoice (en, vi, zh, ja, ko)
+    detect_lang = "vi"
+    if text:
+        clean_low = text.lower()
+        if any(w in clean_low for w in [" the ", " is ", " are ", " and ", " you ", " what ", " to ", " of ", " with ", " for ", " this "]):
+            detect_lang = "en"
+        elif any("\u4e00" <= ch <= "\u9fff" for ch in text):
+            detect_lang = "zh"
+        elif any("\u3040" <= ch <= "\u30ff" for ch in text):
+            detect_lang = "ja"
+        elif any("\uac00" <= ch <= "\ud7af" for ch in text):
+            detect_lang = "ko"
+
     try:
         with torch.inference_mode():
             for idx, chunk in enumerate(chunks):
-                logger.info(f"Đang sinh chunk [{idx + 1}/{len(chunks)}]: '{chunk[:50]}...'")
+                logger.info(f"Đang sinh chunk [{idx + 1}/{len(chunks)}]: '{chunk[:50]}...' (Lang: {detect_lang})")
 
                 gen_kwargs = {
                     "text": chunk,
-                    "language": "vi",
+                    "language": detect_lang,
                     "num_step": num_step,
                     "guidance_scale": cfg_value,
                     "normalize_text": False,
