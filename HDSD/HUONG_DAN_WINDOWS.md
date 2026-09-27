@@ -1,6 +1,6 @@
 # 🪟 HƯỚNG DẪN CÀI ĐẶT & KÉO CODE TRÊN MÁY TÍNH WINDOWS (A - Z)
 
-Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn dự án **OmniVoice Studio (VoxCPM-TTS)** từ GitHub về một máy tính Windows mới và thiết lập để chạy ứng dụng từ đầu.
+Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn dự án **OmniVoice Studio (TranslateVideo)** từ GitHub về một máy tính Windows mới và thiết lập để chạy ứng dụng từ đầu.
 
 ---
 
@@ -56,23 +56,23 @@ Hệ thống AI xử lý tách, ghép, chuẩn hóa âm thanh bắt buộc phả
 2. Nhấn giữ phím `Shift` + click chuột phải vào khoảng trống trong thư mục ➔ chọn **Open PowerShell window here** (hoặc *Open in Terminal*).
 3. Chạy lệnh clone repository chính thức:
    ```bash
-   git clone https://github.com/tranvankha1989/VoxCPM-TTS.git
+   git clone https://github.com/tranvankha1989/TranslateVideo.git
    ```
 4. Di chuyển vào thư mục dự án vừa tải:
    ```bash
-   cd VoxCPM-TTS
+   cd TranslateVideo
    ```
 
 ### Cách 2: Tải file nén ZIP (Nếu không muốn dùng Git)
-1. Truy cập [https://github.com/tranvankha1989/VoxCPM-TTS](https://github.com/tranvankha1989/VoxCPM-TTS).
+1. Truy cập [https://github.com/tranvankha1989/TranslateVideo](https://github.com/tranvankha1989/TranslateVideo).
 2. Bấm vào nút xanh **Code** ➔ Chọn **Download ZIP**.
-3. Giải nén file ZIP vào ổ cứng của bạn (ví dụ `D:\VoxCPM-TTS`).
+3. Giải nén file ZIP vào ổ cứng của bạn (ví dụ `D:\TranslateVideo`).
 
 ---
 
 ## 3. Cài Đặt Backend (Python)
 
-Mở Terminal tại thư mục gốc của dự án (`VoxCPM-TTS`), thực hiện tuần tự:
+Mở Terminal tại thư mục gốc của dự án (`TranslateVideo`), thực hiện tuần tự:
 
 ### 3.1. Tạo môi trường ảo (Virtualenv)
 ```powershell
@@ -149,7 +149,7 @@ pnpm build
 
 ## 5. Khởi Chạy Ứng Dụng (1-Click)
 
-Tại thư mục gốc dự án (`VoxCPM-TTS`):
+Tại thư mục gốc dự án (`TranslateVideo`):
 
 1. **Cách 1: Khởi chạy 1 chạm với `start.bat` (Khuyên dùng)**
    * Nhấp đúp chuột vào file:

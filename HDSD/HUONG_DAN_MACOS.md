@@ -1,6 +1,6 @@
 # 🍎 HƯỚNG DẪN CÀI ĐẶT & KÉO CODE TRÊN MÁY TÍNH MACOS (A - Z)
 
-Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn dự án **OmniVoice Studio (VoxCPM-TTS)** từ GitHub về một máy Mac mới (hỗ trợ cả **Apple Silicon M1/M2/M3/M4** lẫn **Mac Intel**) và cài đặt để vận hành mượt mà.
+Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn dự án **OmniVoice Studio (TranslateVideo)** từ GitHub về một máy Mac mới (hỗ trợ cả **Apple Silicon M1/M2/M3/M4** lẫn **Mac Intel**) và cài đặt để vận hành mượt mà.
 
 ---
 
@@ -58,15 +58,15 @@ ffmpeg -version
    ```
 2. Kéo mã nguồn từ GitHub chính thức:
    ```bash
-   git clone https://github.com/tranvankha1989/VoxCPM-TTS.git
+   git clone https://github.com/tranvankha1989/TranslateVideo.git
    ```
 3. Di chuyển vào thư mục dự án vừa tải:
    ```bash
-   cd VoxCPM-TTS
+   cd TranslateVideo
    ```
 
 ### Cách 2: Tải file nén ZIP
-1. Mở trình duyệt Safari hoặc Chrome truy cập: [https://github.com/tranvankha1989/VoxCPM-TTS](https://github.com/tranvankha1989/VoxCPM-TTS)
+1. Mở trình duyệt Safari hoặc Chrome truy cập: [https://github.com/tranvankha1989/TranslateVideo](https://github.com/tranvankha1989/TranslateVideo)
 2. Bấm vào nút **Code** ➔ Chọn **Download ZIP**.
 3. Giải nén vào thư mục bạn muốn trên máy Mac.
 
@@ -74,7 +74,7 @@ ffmpeg -version
 
 ## 3. Cài Đặt Backend (Python trên macOS)
 
-Tại thư mục dự án `VoxCPM-TTS`, thực hiện các bước sau:
+Tại thư mục dự án `TranslateVideo`, thực hiện các bước sau:
 
 ### 3.1. Tạo môi trường ảo (Virtualenv)
 ```bash
@@ -146,7 +146,7 @@ pnpm build
 Để có trải nghiệm tiện lợi như một phần mềm Mac thực thụ:
 
 ### 5.1. Cấp quyền thực thi cho các file script (Chỉ cần làm 1 lần duy nhất)
-Tại thư mục gốc `VoxCPM-TTS`, chạy lệnh:
+Tại thư mục gốc `TranslateVideo`, chạy lệnh:
 ```bash
 chmod +x start.command start.sh
 ```

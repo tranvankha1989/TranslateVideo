@@ -1,8 +1,8 @@
 # 📚 CẨM NANG HƯỚNG DẪN CÀI ĐẶT & KÉO CODE (WINDOWS & MACOS)
 
-Chào mừng bạn đến với tài liệu hướng dẫn toàn diện từ A - Z để **kéo mã nguồn (clone/pull)** và **thiết lập môi trường chạy ứng dụng OmniVoice Studio (VoxCPM-TTS)** sang một máy tính mới.
+Chào mừng bạn đến với tài liệu hướng dẫn toàn diện từ A - Z để **kéo mã nguồn (clone/pull)** và **thiết lập môi trường chạy ứng dụng OmniVoice Studio (TranslateVideo)** sang một máy tính mới.
 
-* Kho lưu trữ GitHub chính thức: **[https://github.com/tranvankha1989/VoxCPM-TTS](https://github.com/tranvankha1989/VoxCPM-TTS)**
+* Kho lưu trữ GitHub chính thức: **[https://github.com/tranvankha1989/TranslateVideo](https://github.com/tranvankha1989/TranslateVideo)**
 * Hỗ trợ đầy đủ: **Windows 10 / 11** và **macOS (Apple Silicon M1-M4 & Mac Intel)**.
 
 ---
@@ -58,20 +58,20 @@ Trước tiên, hãy tải và cài đặt 4 công cụ nền tảng sau:
 2. Nhấn giữ phím `Shift` + click chuột phải vào khoảng trống ➔ chọn **Open PowerShell window here** (hoặc *Open in Terminal*).
 3. Chạy lệnh clone:
    ```bash
-   git clone https://github.com/tranvankha1989/VoxCPM-TTS.git
+   git clone https://github.com/tranvankha1989/TranslateVideo.git
    ```
 4. Di chuyển vào thư mục code vừa tải:
    ```bash
-   cd VoxCPM-TTS
+   cd TranslateVideo
    ```
 
-*(Nếu không dùng Git, bạn có thể vào [https://github.com/tranvankha1989/VoxCPM-TTS](https://github.com/tranvankha1989/VoxCPM-TTS) ➔ Bấm **Code** ➔ Chọn **Download ZIP** rồi giải nén).*
+*(Nếu không dùng Git, bạn có thể vào [https://github.com/tranvankha1989/TranslateVideo](https://github.com/tranvankha1989/TranslateVideo) ➔ Bấm **Code** ➔ Chọn **Download ZIP** rồi giải nén).*
 
 ---
 
 ### 1.3. Cài Đặt Backend (Python)
 
-Tại thư mục `VoxCPM-TTS`, thực hiện các bước sau trong PowerShell:
+Tại thư mục `TranslateVideo`, thực hiện các bước sau trong PowerShell:
 
 ```powershell
 # 1. Đi vào thư mục backend
@@ -126,7 +126,7 @@ pnpm build
 
 ### 1.5. Khởi Chạy Ứng Dụng (1-Click)
 
-Tại thư mục gốc dự án (`VoxCPM-TTS`):
+Tại thư mục gốc dự án (`TranslateVideo`):
 
 * 👉 **Chỉ cần nhấp đúp vào file:**
   ```text
@@ -163,8 +163,8 @@ Hỗ trợ mượt mà cả **Apple Silicon (M1, M2, M3, M4)** lẫn **Mac Intel
 
 ```bash
 cd ~/Documents
-git clone https://github.com/tranvankha1989/VoxCPM-TTS.git
-cd VoxCPM-TTS
+git clone https://github.com/tranvankha1989/TranslateVideo.git
+cd TranslateVideo
 ```
 
 ---
@@ -211,7 +211,7 @@ pnpm build
 
 1. **Cấp quyền thực thi file script (làm 1 lần duy nhất):**
    ```bash
-   cd ~/Documents/VoxCPM-TTS
+   cd ~/Documents/TranslateVideo
    chmod +x start.command start.sh
    ```
 2. **Khởi chạy:**
