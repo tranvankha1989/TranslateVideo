@@ -860,7 +860,10 @@ def generate_audio(
                 )
             return
         except Exception as remote_err:
-            logger.warning(f"⚠️ Gọi GPU Online thất bại ({remote_err}), tự động chuyển sang sinh âm thanh bằng GPU/CPU máy local...")
+            logger.error(f"❌ [Cloud GPU] Gọi GPU Online thất bại: {remote_err}")
+            raise RuntimeError(
+                f"Lỗi khi xử lý trên Cloud GPU ({get_remote_gpu_url()}): {remote_err}"
+            )
 
     # ─── Chế độ Local: Đảm bảo model đã nạp và khóa 1 luồng bảo vệ GPU/RAM ────
     if _model is None:
