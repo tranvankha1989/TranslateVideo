@@ -115,12 +115,12 @@ _has_warmed_up = False
 _is_remote_gpu_online = False
 
 
-def load_model() -> None:
+def load_model(force_local: bool = False) -> None:
     """
     Load OmniVoice vào VRAM / RAM.
     Gọi hàm này duy nhất một lần trong FastAPI lifespan startup.
-    Nếu bật USE_REMOTE_GPU, sẽ kiểm tra kết nối Cloud GPU. Nếu kết nối thành công, không tải local model.
-    Nếu Cloud GPU offline hoặc lỗi, TỰ ĐỘNG FALLBACK tải mô hình vào GPU/CPU máy local.
+    Nếu bật USE_REMOTE_GPU và force_local=False, sẽ kiểm tra kết nối Cloud GPU. Nếu kết nối thành công, không tải local model.
+    Nếu Cloud GPU offline hoặc lỗi (hoặc force_local=True), TỰ ĐỘNG FALLBACK tải mô hình vào GPU/CPU máy local.
     """
     global _model, _is_remote_gpu_online
     if _model is not None:
@@ -128,7 +128,7 @@ def load_model() -> None:
         return
 
     # ─── Chế độ Cloud GPU Worker (Hugging Face / Colab) ───────────────────────────
-    if is_remote_gpu_enabled() and get_remote_gpu_url():
+    if not force_local and is_remote_gpu_enabled() and get_remote_gpu_url():
         target_health = _remote_url("health")
         logger.info(f"🌐 Đang kiểm tra kết nối Cloud GPU tại: {target_health} …")
         try:
@@ -197,12 +197,12 @@ def load_model() -> None:
     logger.info("✅ OmniVoice đã sẵn sàng phục vụ!")
 
 
-def get_model() -> OmniVoice:
+def get_model(force_local: bool = False) -> OmniVoice:
     """Trả về OmniVoice instance đã load. Tự động load nếu chưa khởi tạo."""
     global _model
     if _model is None:
         logger.info("🔄 OmniVoice chưa tải hoặc đã bị offload, tiến hành nạp lại...")
-        load_model()
+        load_model(force_local=force_local)
     return _model
 
 
@@ -631,7 +631,7 @@ def _generate_audio_local(
     enhance_audio: bool = True,
 ) -> None:
     """Sinh âm thanh cục bộ trên GPU/CPU local (cần giữ _model_lock)."""
-    model = get_model()
+    model = get_model(force_local=True)
 
     if seed is not None:
         torch.manual_seed(seed)
@@ -864,7 +864,7 @@ def generate_audio(
 
     # ─── Chế độ Local: Đảm bảo model đã nạp và khóa 1 luồng bảo vệ GPU/RAM ────
     if _model is None:
-        load_model()
+        load_model(force_local=True)
 
     if _model is None:
         raise RuntimeError("Mô hình OmniVoice cục bộ chưa được nạp và Cloud GPU không khả dụng.")
