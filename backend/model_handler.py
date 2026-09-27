@@ -115,12 +115,12 @@ _has_warmed_up = False
 _is_remote_gpu_online = False
 
 
-def load_model(force_local: bool = False) -> None:
+def load_model() -> None:
     """
     Load OmniVoice vào VRAM / RAM.
     Gọi hàm này duy nhất một lần trong FastAPI lifespan startup.
-    Nếu bật USE_REMOTE_GPU và force_local=False, sẽ kiểm tra kết nối Cloud GPU.
-    Nếu Cloud GPU offline hoặc lỗi (hoặc force_local=True), TỰ ĐỘNG FALLBACK tải mô hình vào GPU/CPU máy local.
+    Nếu bật USE_REMOTE_GPU, sẽ kiểm tra kết nối Cloud GPU. Nếu kết nối thành công, không tải local model.
+    Nếu Cloud GPU offline hoặc lỗi, TỰ ĐỘNG FALLBACK tải mô hình vào GPU/CPU máy local.
     """
     global _model, _is_remote_gpu_online
     if _model is not None:
@@ -128,7 +128,7 @@ def load_model(force_local: bool = False) -> None:
         return
 
     # ─── Chế độ Cloud GPU Worker (Hugging Face / Colab) ───────────────────────────
-    if not force_local and is_remote_gpu_enabled() and get_remote_gpu_url():
+    if is_remote_gpu_enabled() and get_remote_gpu_url():
         target_health = _remote_url("health")
         logger.info(f"🌐 Đang kiểm tra kết nối Cloud GPU tại: {target_health} …")
         try:
@@ -197,12 +197,12 @@ def load_model(force_local: bool = False) -> None:
     logger.info("✅ OmniVoice đã sẵn sàng phục vụ!")
 
 
-def get_model(force_local: bool = False) -> OmniVoice:
+def get_model() -> OmniVoice:
     """Trả về OmniVoice instance đã load. Tự động load nếu chưa khởi tạo."""
     global _model
     if _model is None:
         logger.info("🔄 OmniVoice chưa tải hoặc đã bị offload, tiến hành nạp lại...")
-        load_model(force_local=force_local)
+        load_model()
     return _model
 
 
@@ -631,7 +631,7 @@ def _generate_audio_local(
     enhance_audio: bool = True,
 ) -> None:
     """Sinh âm thanh cục bộ trên GPU/CPU local (cần giữ _model_lock)."""
-    model = get_model(force_local=True)
+    model = get_model()
 
     if seed is not None:
         torch.manual_seed(seed)
@@ -703,27 +703,14 @@ def _generate_audio_local(
         except Exception as e:
             logger.warning(f"⚠️ Warmup thất bại, fallback về mode instruct cho chunk 1: {e}")
 
-    # Xác định mã ngôn ngữ phù hợp cho OmniVoice (en, vi, zh, ja, ko)
-    detect_lang = "vi"
-    if text:
-        clean_low = text.lower()
-        if any(w in clean_low for w in [" the ", " is ", " are ", " and ", " you ", " what ", " to ", " of ", " with ", " for ", " this "]):
-            detect_lang = "en"
-        elif any("\u4e00" <= ch <= "\u9fff" for ch in text):
-            detect_lang = "zh"
-        elif any("\u3040" <= ch <= "\u30ff" for ch in text):
-            detect_lang = "ja"
-        elif any("\uac00" <= ch <= "\ud7af" for ch in text):
-            detect_lang = "ko"
-
     try:
         with torch.inference_mode():
             for idx, chunk in enumerate(chunks):
-                logger.info(f"Đang sinh chunk [{idx + 1}/{len(chunks)}]: '{chunk[:50]}...' (Lang: {detect_lang})")
+                logger.info(f"Đang sinh chunk [{idx + 1}/{len(chunks)}]: '{chunk[:50]}...'")
 
                 gen_kwargs = {
                     "text": chunk,
-                    "language": detect_lang,
+                    "language": "vi",
                     "num_step": num_step,
                     "guidance_scale": cfg_value,
                     "normalize_text": False,
@@ -877,7 +864,7 @@ def generate_audio(
 
     # ─── Chế độ Local: Đảm bảo model đã nạp và khóa 1 luồng bảo vệ GPU/RAM ────
     if _model is None:
-        load_model(force_local=True)
+        load_model()
 
     if _model is None:
         raise RuntimeError("Mô hình OmniVoice cục bộ chưa được nạp và Cloud GPU không khả dụng.")

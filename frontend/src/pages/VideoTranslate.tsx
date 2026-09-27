@@ -970,6 +970,9 @@ export default function VideoTranslate() {
         throw new Error(err.detail || "Không thể xóa câu này");
       }
       removeStudioSegment(segId);
+      if (playingAudioSegId === segId) {
+        setPlayingAudioSegId(null);
+      }
       toast.success(`🗑️ Đã xóa đoạn #${segId} thành công!`);
     } catch (err: any) {
       toast.error("Lỗi khi xóa câu: " + err.message);

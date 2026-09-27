@@ -1453,10 +1453,19 @@ class VideoTranslationPipeline:
         segments = studio_data["segments"]
         task_meta = studio_data.get("meta", {})
 
-        initial_len = len(segments)
-        segments = [s for s in segments if s.get("id") != segment_id]
-        if len(segments) == initial_len:
+        target_seg = next((s for s in segments if s.get("id") == segment_id), None)
+        if not target_seg:
             raise RuntimeError(f"Không tìm thấy câu thoại ID {segment_id} để xóa")
+
+        # Xóa file âm thanh vật lý của câu này để giải phóng dung lượng đĩa
+        audio_path_str = target_seg.get("audio_path")
+        if audio_path_str:
+            try:
+                Path(audio_path_str).unlink(missing_ok=True)
+            except Exception as e:
+                logger.debug(f"Không thể xóa file audio câu {segment_id}: {e}")
+
+        segments = [s for s in segments if s.get("id") != segment_id]
 
         # Lưu lại dubbed_segments.json
         dubbed_file.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
