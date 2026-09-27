@@ -387,39 +387,8 @@ class DubbingService:
 
             seg_file = session_dir / f"seg_{seg_id:04d}.mp3"
 
-            # Tự động phân vai giọng Nam / Nữ theo nhân vật đối thoại (nếu dùng Edge-TTS)
+            # Giữ nguyên 100% giọng đọc người dùng đã lựa chọn một cách nhất quán
             cur_voice = voice_id
-            speaker = str(seg.get("speaker", "")).lower()
-            if engine == "edge-tts" and speaker and not voice_id.startswith("omnivoice:"):
-                prefix = voice_id[:2].lower()
-                is_male = any(k in speaker for k in ["nam", "lục", "anh", "ông", "bố", "cha", "chàng", "sếp", "bác trai", "boy", "man", "male"])
-                is_female = any(k in speaker for k in ["nữ", "mẹ", "cô", "chị", "bà", "hứa", "em", "gái", "girl", "woman", "female"])
-                
-                if prefix == "en":
-                    if is_male and not is_female:
-                        cur_voice = "en-US-GuyNeural"
-                    elif is_female and not is_male:
-                        cur_voice = "en-US-JennyNeural"
-                elif prefix == "zh":
-                    if is_male and not is_female:
-                        cur_voice = "zh-CN-YunxiNeural"
-                    elif is_female and not is_male:
-                        cur_voice = "zh-CN-XiaoxiaoNeural"
-                elif prefix == "ja":
-                    if is_male and not is_female:
-                        cur_voice = "ja-JP-KeitaNeural"
-                    elif is_female and not is_male:
-                        cur_voice = "ja-JP-NanamiNeural"
-                elif prefix == "ko":
-                    if is_male and not is_female:
-                        cur_voice = "ko-KR-InJoonNeural"
-                    elif is_female and not is_male:
-                        cur_voice = "ko-KR-SunHiNeural"
-                elif prefix == "vi":
-                    if is_male and not is_female:
-                        cur_voice = "vi-VN-NamMinhNeural"
-                    elif is_female and not is_male:
-                        cur_voice = "vi-VN-HoaiMyNeural"
 
             try:
                 res = await cls.synthesize_single(

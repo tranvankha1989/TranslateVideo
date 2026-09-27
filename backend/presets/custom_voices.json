@@ -66,5 +66,18 @@
     "has_cache_pt": true,
     "samples_count": 1,
     "duration": 6.6
+  },
+  {
+    "id": "custom_e052a7eb",
+    "name": "Tvhay",
+    "gender": "female",
+    "description": "Giọng tự tạo (Đa mẫu)",
+    "icon": "record_voice_over",
+    "url": "http://localhost:8000/presets/custom/custom_e052a7eb.wav",
+    "prompt_text": "",
+    "type": "custom",
+    "has_cache_pt": true,
+    "samples_count": 1,
+    "duration": 10.0
   }
 ]
