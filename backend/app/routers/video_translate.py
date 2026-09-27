@@ -205,6 +205,7 @@ async def start_video_translation(
 async def start_manual_transcription(
     video: UploadFile = File(..., description="File video cần tạo phụ đề gốc"),
     source_lang: str = Form("auto"),
+    target_lang: str = Form("vi"),
     whisper_model: str = Form("large-v3"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
@@ -215,6 +216,7 @@ async def start_manual_transcription(
     Sau khi xong, hệ thống dừng lại chờ người dùng tải file về dịch và nạp lại.
     """
     s_lang = str(_form_val(source_lang, "auto"))
+    t_lang = str(_form_val(target_lang, "vi"))
     w_model = str(_form_val(whisper_model, "large-v3"))
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
@@ -241,7 +243,7 @@ async def start_manual_transcription(
         "current_step": "extracting",
         "message": "Đang tiếp nhận video và bắt đầu trích xuất âm thanh...",
         "source_lang": s_lang,
-        "target_lang": "vi",
+        "target_lang": t_lang,
         "total_segments": 0,
         "is_manual_mode": True,
         "start_time": c_start,
@@ -262,6 +264,7 @@ async def start_manual_transcription(
             task_id=task_id,
             video_path=input_video_path,
             source_lang=s_lang,
+            target_lang=t_lang,
             whisper_model=w_model,
             clip_start=c_start,
             clip_end=c_end,

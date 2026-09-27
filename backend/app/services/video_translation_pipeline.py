@@ -668,6 +668,7 @@ class VideoTranslationPipeline:
         task_id: str,
         video_path: Path,
         source_lang: str = "auto",
+        target_lang: str = "vi",
         whisper_model: str = "large-v3",
         clip_start: float = 0.0,
         clip_end: float | None = None,
@@ -713,7 +714,7 @@ class VideoTranslationPipeline:
             task_config = {
                 "video_path": str(video_path),
                 "source_lang": source_lang,
-                "target_lang": "vi",
+                "target_lang": target_lang,
                 "whisper_model": whisper_model,
                 "start_time": clip_start,
                 "end_time": clip_end,

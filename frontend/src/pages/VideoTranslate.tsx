@@ -619,6 +619,7 @@ export default function VideoTranslate() {
     const formData = new FormData();
     formData.append("video", videoFile);
     formData.append("source_lang", sourceLang);
+    formData.append("target_lang", targetLang);
     formData.append("whisper_model", whisperModel);
     if (videoStartTime > 0) {
       formData.append("start_time", videoStartTime.toString());

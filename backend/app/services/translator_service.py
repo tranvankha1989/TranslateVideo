@@ -59,6 +59,40 @@ GOOGLE_LANG_MAP = {
     "auto": "auto",
 }
 
+LANGUAGE_NAMES = {
+    "vi": "Tiếng Việt",
+    "en": "English",
+    "zh": "Tiếng Trung (中文)",
+    "zh-cn": "Tiếng Trung giản thể (Simplified Chinese)",
+    "zh-tw": "Tiếng Trung phồn thể (Traditional Chinese)",
+    "ja": "Tiếng Nhật (日本語)",
+    "ko": "Tiếng Hàn (한국어)",
+    "fr": "Tiếng Pháp (Français)",
+    "de": "Tiếng Đức (Deutsch)",
+    "es": "Tiếng Tây Ban Nha (Español)",
+    "ru": "Tiếng Nga (Русский)",
+    "th": "Tiếng Thái (ไทย)",
+    "id": "Bahasa Indonesia",
+    "pt": "Tiếng Bồ Đào Nha (Português)",
+    "it": "Tiếng Ý (Italiano)",
+    "hi": "Tiếng Hindi (हिन्दी)",
+    "ar": "Tiếng Ả Rập (العربية)",
+    "auto": "Tự động nhận diện",
+}
+
+
+def get_language_name(code: str) -> str:
+    if not code:
+        return "Tự động nhận diện"
+    c = code.lower().strip()
+    return LANGUAGE_NAMES.get(c, LANGUAGE_NAMES.get(c.split("-")[0], code))
+
+
+VIETNAMESE_DIACRITICS_PATTERN = re.compile(
+    r"[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]",
+    re.IGNORECASE,
+)
+
 
 def get_supported_languages() -> list[dict[str, str]]:
     return SUPPORTED_LANGUAGES
@@ -152,7 +186,7 @@ class GoogleTranslator:
 
             await asyncio.sleep(0.1)
 
-        return [clean_technical_terms(t) for t in results]
+        return [clean_technical_terms(t, target_lang=target_lang) for t in results]
 
 
 TECHNICAL_TERM_FIXES = [
@@ -169,11 +203,15 @@ TECHNICAL_TERM_FIXES = [
 ]
 
 
-def clean_technical_terms(text: str) -> str:
+def clean_technical_terms(text: str, target_lang: str = "vi") -> str:
     if not text:
         return text
-    for pattern, replacement in TECHNICAL_TERM_FIXES:
-        text = pattern.sub(replacement, text)
+    tl = target_lang.lower().strip() if target_lang else "vi"
+    if tl.startswith("vi"):
+        for pattern, replacement in TECHNICAL_TERM_FIXES:
+            text = pattern.sub(replacement, text)
+    else:
+        text = re.sub(r"\b(bloop[\s,]*)+", "", text, flags=re.IGNORECASE)
     return text.strip()
 
 
@@ -205,23 +243,47 @@ class OpenAITranslator:
         )
         memory_instruction = TranslationMemoryService.format_prompt_memory_section(relevant_mems)
 
-        system_prompt = (
-            f"Bạn là một chuyên gia biên dịch kịch bản phim và xử lý phụ đề chuyên nghiệp ({source_lang} -> {target_lang}).\n"
-            f"Dịch từng phân đoạn thoại sang {target_lang} chuẩn kịch bản lồng tiếng TTS.\n\n"
-            f"CÁC NGUYÊN TẮC BẮT BUỘC (MỀM DẺO & CHUẨN NGỮ CẢNH):\n"
-            f"1. SỬA LỖI ĐỒNG ÂM ASR: Đọc ngữ cảnh, tự suy luận và ngầm sửa các từ đồng âm/gần âm sai chữ Hán (ví dụ: 假方 -> 甲方, 善 -> 删, 'XX单YY' -> 'từ XX đến YY tuổi' do nhầm 到/单...). Dịch bản đã hiểu đúng sang tiếng Việt.\n"
-            f"2. KHÔNG DỊCH THÔ (WORD-BY-WORD): Thoát ý theo ngữ cảnh khẩu ngữ:\n"
-            f"   - '搞落公司了' / '落在...': '落' là để quên/rơi -> dịch 'Tôi để quên ở công ty rồi' (không dịch 'gỡ xuống').\n"
-            f"   - '会说人话': Khẩu ngữ -> dịch 'ăn nói tử tế / giao tiếp lịch sự' (không dịch 'nói được tiếng người').\n"
-            f"   - '会演戏': Trong bối cảnh kịch bản -> dịch 'biết diễn xuất / biết đóng giả' (không dịch 'hành động').\n"
-            f"   - Tên riêng và danh xưng: '许小姐 / 徐小姐' -> 'Hứa tiểu thư / Cô Hứa' (ưu tiên Hán-Việt, tránh Pinyin 'cô Xu').\n"
-            f"3. XỬ LÝ NHẠC NỀN & TỪ ĐỆM (NHẸ NHÀNG): Nếu phân đoạn chỉ toàn tiếng nhạc đệm vô nghĩa (như 'bloop bloop'), hãy lược bỏ từ rác; nhưng nếu là câu thoại của nhân vật thì LUÔN DỊCH ĐẦY ĐỦ, tự nhiên theo ngữ cảnh.\n"
-            f"4. THOẠI ĐÈ & CẮT CÂU: Gom nghĩa cả cụm câu trước khi dịch, dùng dấu gạch ngang (-) nếu 2 người nói chen nhau.\n"
-            f"5. GIỚI HẠN ĐỘ DÀI: Tiếng Việt ngắn gọn, súc tích; số chữ tiếng Việt KHÔNG vượt quá 1.3 lần số chữ gốc để đọc vừa khung thời lượng.\n"
-            f"6. NHỊP ĐIỆU TTS: Câu ngắn (<1.5s) dùng từ đơn gọn gàng; câu dài ít chữ dùng từ kéo dài, trợ từ ngữ khí tự nhiên.\n"
-            f"{memory_instruction}\n"
-            f"7. ĐỊNH DẠNG: Giữ nguyên 100% số lượng dòng và ID. CHỈ TRẢ VỀ JSON array: [{{\"id\": 1, \"text\": \"bản dịch\"}}]."
-        )
+        tgt_code = target_lang.lower().strip() if target_lang else "vi"
+        src_code = source_lang.lower().strip() if source_lang else "auto"
+        tgt_name = get_language_name(tgt_code)
+        src_name = get_language_name(src_code)
+
+        if tgt_code.startswith("vi"):
+            system_prompt = (
+                f"Bạn là một chuyên gia biên dịch kịch bản phim và xử lý phụ đề chuyên nghiệp ({src_name} -> Tiếng Việt).\n"
+                f"Dịch từng phân đoạn thoại sang Tiếng Việt chuẩn kịch bản lồng tiếng TTS.\n\n"
+                f"CÁC NGUYÊN TẮC BẮT BUỘC (MỀM DẺO & CHUẨN NGỮ CẢNH):\n"
+                f"1. SỬA LỖI ĐỒNG ÂM ASR: Tự suy luận và ngầm sửa các từ đồng âm/gần âm nghe nhầm theo ngữ cảnh. Dịch bản đã hiểu đúng sang Tiếng Việt.\n"
+                f"2. KHÔNG DỊCH THÔ (WORD-BY-WORD): Thoát ý theo ngữ cảnh khẩu ngữ phim ảnh. Điều chỉnh đại từ nhân xưng (anh, em, cô, chú...) tự nhiên.\n"
+                f"3. XỬ LÝ NHẠC NỀN & TỪ ĐỆM (NHẸ NHÀNG): Nếu phân đoạn chỉ toàn tiếng nhạc đệm vô nghĩa (như 'bloop bloop'), hãy lược bỏ từ rác; nhưng nếu là câu thoại của nhân vật thì LUÔN DỊCH ĐẦY ĐỦ, tự nhiên theo ngữ cảnh.\n"
+                f"4. THOẠI ĐÈ & CẮT CÂU: Gom nghĩa cả cụm câu trước khi dịch, dùng dấu gạch ngang (-) nếu 2 người nói chen nhau.\n"
+                f"5. GIỚI HẠN ĐỘ DÀI: Tiếng Việt ngắn gọn, súc tích; vừa nhịp đọc TTS (~3.5 từ/giây) để đọc vừa khung thời lượng.\n"
+                f"6. NHỊP ĐIỆU TTS: Câu ngắn (<1.5s) dùng từ đơn gọn gàng; câu dài ít chữ dùng từ kéo dài, trợ từ ngữ khí tự nhiên.\n"
+                f"{memory_instruction}\n"
+                f"7. ĐỊNH DẠNG: Giữ nguyên 100% số lượng dòng và ID. Toàn bộ trường 'text' là Tiếng Việt chuẩn. CHỈ TRẢ VỀ JSON array: [{{\"id\": 1, \"text\": \"bản dịch tiếng Việt\"}}]."
+            )
+        elif tgt_code.startswith("en"):
+            system_prompt = (
+                f"You are an expert film/video subtitle translator and dubbing scriptwriter ({src_name} -> English).\n"
+                f"Translate each dialogue segment into NATURAL SPOKEN ENGLISH for TTS voiceover and subtitles.\n\n"
+                f"MANDATORY RULES:\n"
+                f"1. STRICT TARGET LANGUAGE: The 'text' field of EVERY segment MUST BE IN ENGLISH. Do NOT output Vietnamese or the original language.\n"
+                f"2. NATURAL SPOKEN DIALOGUE: Use natural English contractions (don't, I'm, let's, can't, won't) and conversational phrasing. Translate Vietnamese pronouns (anh, em, chị, cô...) to appropriate English pronouns (I, you, he, she...) according to context.\n"
+                f"3. TIMING & SPEED: Keep lines concise so they can be spoken at ~2.5-3.5 words/second to fit the subtitle timing.\n"
+                f"4. NOISE: Filter out meaningless background sound effects.\n"
+                f"{memory_instruction}\n"
+                f"5. FORMAT: Preserve 100% of IDs. ONLY return a valid JSON array: [{{\"id\": 1, \"text\": \"English translation\"}}]."
+            )
+        else:
+            system_prompt = (
+                f"You are a professional subtitle translator ({src_name} -> {tgt_name}).\n"
+                f"Translate each dialogue segment into natural {tgt_name} ({target_lang}) for voiceover dubbing and subtitles.\n\n"
+                f"MANDATORY RULES:\n"
+                f"1. The 'text' field MUST be in {tgt_name} ({target_lang}).\n"
+                f"2. Natural conversational dialogue fitting the subtitle timing.\n"
+                f"{memory_instruction}\n"
+                f"3. Preserve 100% of IDs. ONLY return a valid JSON array: [{{\"id\": 1, \"text\": \"translation in {tgt_name}\"}}]."
+            )
 
         input_payload = [{"id": i + 1, "text": t} for i, t in enumerate(texts)]
         user_prompt = json.dumps(input_payload, ensure_ascii=False)
@@ -251,7 +313,20 @@ class OpenAITranslator:
                 items = parsed if isinstance(parsed, list) else parsed.get("translations", parsed.get("subtitles", []))
 
                 id_to_text = {item.get("id"): item.get("text", "") for item in items if isinstance(item, dict)}
-                return [clean_technical_terms(id_to_text.get(i + 1, texts[i])) for i in range(len(texts))]
+                out = []
+                for i in range(len(texts)):
+                    trans_text = id_to_text.get(i + 1, "").strip()
+                    # Kiểm tra an toàn: nếu đích là tiếng Anh mà còn dấu tiếng Việt thì fallback Google
+                    if tgt_code.startswith("en") and VIETNAMESE_DIACRITICS_PATTERN.search(trans_text):
+                        logger.warning(f"[OpenAITranslator] ID {i+1} còn tiếng Việt khi đích là tiếng Anh: '{trans_text}'. Fallback Google...")
+                        fallback = await GoogleTranslator.translate_single_text(texts[i], source_lang=source_lang, target_lang=target_lang)
+                        out.append(clean_technical_terms(fallback, target_lang=target_lang))
+                    elif not trans_text:
+                        fallback = await GoogleTranslator.translate_single_text(texts[i], source_lang=source_lang, target_lang=target_lang)
+                        out.append(clean_technical_terms(fallback, target_lang=target_lang))
+                    else:
+                        out.append(clean_technical_terms(trans_text, target_lang=target_lang))
+                return out
             except Exception as e:
                 logger.error(f"[OpenAITranslator] Lỗi parse kết quả JSON LLM: {e}. Fallback sang Google...")
                 return await GoogleTranslator.translate_batch_texts(texts, source_lang, target_lang)
@@ -426,19 +501,38 @@ class GoogleAIStudioTranslator:
             if m not in candidate_models:
                 candidate_models.append(m)
 
+        tgt_code = target_lang.lower().strip() if target_lang else "vi"
+        src_code = source_lang.lower().strip() if source_lang else "auto"
+        tgt_name = get_language_name(tgt_code)
+        src_name = get_language_name(src_code)
+
         style_instruction = ""
-        if style == "romance":
-            style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI NGÔN TÌNH / ĐÔ THỊ: Xưng hô nam nữ yêu nhau: 'Anh' - 'Em', lời thoại ngọt ngào, hờn dỗi hoặc trầm lắng theo mạch cảm xúc."
-        elif style == "school":
-            style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI THANH XUÂN / HỌC ĐƯỜNG: Xưng hô học sinh, bạn bè: 'Cậu' - 'Tớ', 'Mày' - 'Tao' (nếu bạn bè thân trêu đùa), 'Thầy'/'Cô' - 'Em'."
-        elif style == "wuxia":
-            style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI KIẾM HIỆP / CỔ TRANG / TIÊN HIỆP: Xưng hô chuẩn phong vị kiếm hiệp: 'Tại hạ', 'Các hạ', 'Huynh' - 'Đệ', 'Sư phụ' - 'Đồ nhi', 'Bổn tọa', 'Cô nương'."
-        elif style == "workplace":
-            style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI CÔNG SỞ / TỔNG TÀI: Xưng hô cấp trên - cấp dưới: 'Sếp' - 'Tôi/Em ạ', 'Tôi' - 'Cô/Cậu', lịch thiệp và dứt khoát."
-        elif style == "family":
-            style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI GIA ĐÌNH / ĐỜI SỐNG: Xưng hô người thân: 'Bố/Mẹ' - 'Con', 'Vợ' - 'Chồng', 'Ông/Bà' - 'Cháu'."
-        elif style == "narration":
-            style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI KỂ CHUYỆN / REVIEW / TIN TỨC: Xưng hô tự nhiên với người xem: 'Mình' - 'Các bạn', 'Tôi' - 'Quý vị'."
+        if tgt_code.startswith("vi"):
+            if style == "romance":
+                style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI NGÔN TÌNH / ĐÔ THỊ: Xưng hô nam nữ yêu nhau: 'Anh' - 'Em', lời thoại ngọt ngào, hờn dỗi hoặc trầm lắng theo mạch cảm xúc."
+            elif style == "school":
+                style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI THANH XUÂN / HỌC ĐƯỜNG: Xưng hô học sinh, bạn bè: 'Cậu' - 'Tớ', 'Mày' - 'Tao' (nếu bạn bè thân trêu đùa), 'Thầy'/'Cô' - 'Em'."
+            elif style == "wuxia":
+                style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI KIẾM HIỆP / CỔ TRANG / TIÊN HIỆP: Xưng hô chuẩn phong vị kiếm hiệp: 'Tại hạ', 'Các hạ', 'Huynh' - 'Đệ', 'Sư phụ' - 'Đồ nhi', 'Bổn tọa', 'Cô nương'."
+            elif style == "workplace":
+                style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI CÔNG SỞ / TỔNG TÀI: Xưng hô cấp trên - cấp dưới: 'Sếp' - 'Tôi/Em ạ', 'Tôi' - 'Cô/Cậu', lịch thiệp và dứt khoát."
+            elif style == "family":
+                style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI GIA ĐÌNH / ĐỜI SỐNG: Xưng hô người thân: 'Bố/Mẹ' - 'Con', 'Vợ' - 'Chồng', 'Ông/Bà' - 'Cháu'."
+            elif style == "narration":
+                style_instruction = "\n* ĐẶC BIỆT YÊU CẦU THỂ LOẠI KỂ CHUYỆN / REVIEW / TIN TỨC: Xưng hô tự nhiên với người xem: 'Mình' - 'Các bạn', 'Tôi' - 'Quý vị'."
+        elif tgt_code.startswith("en"):
+            if style == "romance":
+                style_instruction = "\n* GENRE: ROMANCE / DRAMA: Warm, romantic, emotional dialogue. Use affectionate and natural phrasing between lovers."
+            elif style == "school":
+                style_instruction = "\n* GENRE: YOUTH / CAMPUS: Casual dialogue between young students/friends, natural banter and modern expressions."
+            elif style == "wuxia":
+                style_instruction = "\n* GENRE: MARTIAL ARTS / HISTORICAL: Period-appropriate, dignified dialogue (e.g. Master, Disciple, Sir, Lady)."
+            elif style == "workplace":
+                style_instruction = "\n* GENRE: WORKPLACE / DRAMA: Professional, crisp, respectful workplace dialogue."
+            elif style == "family":
+                style_instruction = "\n* GENRE: FAMILY / DOMESTIC: Warm, conversational, natural family conversations."
+            elif style == "narration":
+                style_instruction = "\n* GENRE: NARRATION / DOCUMENTARY: Engaging, articulate tone for audience narration."
 
         results = list(texts)
         speakers = [""] * len(texts)
@@ -475,51 +569,92 @@ class GoogleAIStudioTranslator:
             )
             memory_section = TranslationMemoryService.format_prompt_memory_section(relevant_mems)
 
-            prompt = (
-                f"Bạn là một chuyên gia biên dịch kịch bản phim và xử lý phụ đề chuyên nghiệp (Trung - Việt).\n"
-                f"Nhiệm vụ của bạn là nhận các phân đoạn thoại phụ đề từ '{source_lang}' sang '{target_lang}' chuẩn kịch bản lồng tiếng.\n\n"
-                f"HÃY THỰC HIỆN THEO CÁC NGUYÊN TẮC QUY TRÌNH NÀY CHỦ ĐỘNG CHO MỌI VIDEO:\n\n"
-                f"1. TỰ ĐỘNG PHÁT HIỆN VÀ NGẦM SỬA LỖI CHÍNH TẢ / ĐỒNG ÂM ASR TRƯỚC KHI DỊCH:\n"
-                f"   - Phụ đề đầu vào do công cụ nhận dạng âm thanh (ASR) tạo ra nên chứa rất nhiều từ đồng âm/gần âm bị sai chữ Hán.\n"
-                f"   - Ví dụ ASR sai: 假方 -> 甲方, 善 -> 删, 姓 -> 性, '二十五单三十五' (nghe nhầm '到' thành '单') -> hiểu đúng là 'từ 25 đến 35 tuổi'.\n"
-                f"   - Nhiệm vụ: Đọc toàn bộ ngữ cảnh mạch chuyện, tự suy luận và NGẦM SỬA CHÍNH TẢ / ĐỒNG ÂM của tiếng Trung sang chữ đúng trước khi dịch.\n"
-                f"   - Dịch bản đã hiểu đúng sang tiếng Việt chuẩn kịch bản.\n"
-                f"   - Khôi phục tên riêng (nếu bị biến dạng thành từ chỉ vật/học vấn), chuyển khẩu ngữ/từ lóng về đúng ngữ cảnh.\n\n"
-                f"2. BIÊN DỊCH VIÊN PHIM ẢNH - KHÔNG DỊCH THÔ (WORD-BY-WORD):\n"
-                f"   - Tuyệt đối KHÔNG dịch thô (word-by-word). Hãy đóng vai một biên dịch viên phim ảnh chuyên nghiệp, dịch thoát ý, giàu cảm xúc và tự nhiên.\n"
-                f"   - HIỂU ĐÚNG KHẨU NGỮ & TIẾNG LÓNG MẠNG/PHIM ẢNH TRUNG QUỐC:\n"
-                f"     + '搞落公司了' / '落在...': '落' ở đây là rơi/để quên -> dịch: 'Tôi để quên ở công ty rồi' (Tuyệt đối KHÔNG dịch là 'gỡ xuống').\n"
-                f"     + '会说人话': Khẩu ngữ giới trẻ -> dịch: 'giao tiếp lịch sự / ăn nói tử tế / biết điều' (Tuyệt đối KHÔNG dịch 'nói được tiếng người').\n"
-                f"     + '会演戏': Trong bối cảnh tìm người đóng giả/kịch bản -> dịch: 'biết diễn xuất / biết đóng giả / biết phối hợp diễn' (Tuyệt đối KHÔNG dịch 'có thể hành động').\n"
-                f"     + '干净正常': 'Sạch sẽ, đàng hoàng, lịch sự'.\n"
-                f"   - Chủ động điều chỉnh đại từ nhân xưng (anh, em, cô, chú, bác, sếp, giám đốc, mẹ, con...) cho mượt mà, tự nhiên và đúng văn phong giao tiếp của người Việt.\n"
-                f"   - Nhất quán xưng hô của từng cặp nhân vật từ đầu đến cuối toàn bộ file.\n"
-                f"   - Tên riêng và danh xưng nhân vật: Tự động chuyển đổi sang phiên âm Hán-Việt tự nhiên, xuôi tai (ví dụ: '许小姐 / 徐小姐' -> 'Hứa tiểu thư / Cô Hứa', tuyệt đối không dịch pinyin tiếng Anh như 'cô Xu'). Ghi vai/người nói suy luận được vào trường 'speaker'.{style_instruction}\n\n"
-                f"3. XỬ LÝ NHẠC NỀN & TỪ ĐỆM (LINH HOẠT & NHẸ NHÀNG):\n"
-                f"   - Nếu một phân đoạn RÕ RÀNG chỉ là tiếng nhạc đệm lặp vô nghĩa (như 'bloop bloop'), hãy lược bỏ từ rác hoặc làm sạch câu.\n"
-                f"   - NẾU LÀ CÂU THOẠI CỦA NHÂN VẬT: Luôn dịch đầy đủ, tự nhiên theo ngữ cảnh, tuyệt đối không cắt bớt lời thoại.\n"
-                f"   - Khi một câu thoại bị ngắt làm nhiều dòng do timestamp, hãy đọc gom nghĩa cả cụm câu trước khi dịch từng dòng lẻ để tránh mất ngữ cảnh và cụt câu.\n"
-                f"   - Nếu một dòng chứa thoại của 2 người nói chen ngang, hãy dùng dấu gạch ngang (-) để phân tách rõ ràng.\n\n"
-                f"4. GIỚI HẠN ĐỘ DÀI CÂU DỊCH (ĐỂ LỒNG TIẾNG VỪA KHUNG THỜI GIAN):\n"
-                f"   - Tiếng Trung ngắn hơn tiếng Việt. Hãy ưu tiên dùng các từ đơn, từ ngắn, dịch súc tích, đúng ý cốt lõi nhưng KHÔNG ĐƯỢC DÀI DÒNG.\n"
-                f"   - NGUYÊN TẮC ĐẾM CHỮ: Số chữ tiếng Việt dịch ra KHÔNG ĐƯỢC VƯỢT QUÁ 1.3 LẦN số chữ tiếng Trung gốc của dòng đó.\n"
-                f"   - Căn chỉnh độ dài theo thời lượng (duration_sec): Câu tiếng Việt phải vừa vặn nhịp đọc (~3.5 - 4.0 từ/giây), ngắt câu tự nhiên theo nhịp nói khẩu ngữ để phần mềm lồng tiếng (TTS) đọc vừa kịp thời gian của dòng phụ đề, tránh bị dồn toa trễ giọng.\n\n"
-                f"5. TỐI ƯU CẢM XÚC VÀ NHỊP ĐOẠN THOẠI (DÀNH CHO LỒNG TIẾNG TTS):\n"
-                f"   - Nhận diện tâm trạng câu thoại (giận dữ, vội vã, buồn bã, mỉa mai, nói thầm) qua từ cảm thán và dấu câu.\n"
-                f"   - Khi khoảng thời gian của câu ngắn (dưới 1.5 giây): Sử dụng từ đơn, câu lẹm, lược bỏ từ đệm để nói gọn, nhanh gọn đúng nhịp.\n"
-                f"   - Khi khoảng thời gian của câu dài nhưng ít chữ: Dùng từ có âm tiết kéo dài, thêm từ biểu cảm (à, ừm, nha, này...) để giọng đọc trải dài tự nhiên mà không bị ngập ngừng.\n"
-                f"   - Đảm bảo bản dịch giữ nguyên cấu trúc ngữ điệu, giúp giọng đọc TTS truyền tải đúng cảm xúc nhân vật.\n\n"
-                f"{memory_section}"
-                f"6. ĐỊNH DẠNG ĐẦU RA BẮT BUỘC:\n"
-                f"   - BẮT BUỘC TRẢ VỀ ĐẦY ĐỦ 100% TẤT CẢ {len(chunk)} PHÂN ĐOẠN (từ id: 1 đến id: {len(chunk)}).\n"
-                f"   - Giữ nguyên cấu trúc mã định danh (id).\n"
-                f"   - Tuyệt đối KHÔNG ĐƯỢC gộp các ID thành 1, KHÔNG ĐƯỢC bỏ sót bất kỳ ID nào!\n"
-                f"   - Trường 'text' của các ID thoại là bản dịch tiếng Việt tự nhiên, phù hợp với ngữ cảnh hội thoại.\n"
-                f"   - CHỈ TRẢ VỀ JSON array hợp lệ gồm các object với 'id', 'speaker', và 'text'. Không kèm bất kỳ lời mở đầu, giải thích hay ghi chú nào.\n"
-                f"Ví dụ cấu trúc đầu ra: [{{\"id\": 1, \"speaker\": \"Người nói 1\", \"text\": \"Câu thoại tiếng Việt tự nhiên...\"}}]\n\n"
-                f"Danh sách phân đoạn đầu vào:\n"
-                f"{json.dumps(input_items, ensure_ascii=False)}"
-            )
+            if tgt_code.startswith("vi"):
+                prompt = (
+                    f"Bạn là một chuyên gia biên dịch kịch bản phim và xử lý phụ đề chuyên nghiệp ({src_name} -> Tiếng Việt).\n"
+                    f"Nhiệm vụ của bạn là nhận các phân đoạn thoại phụ đề từ '{src_name}' sang Tiếng Việt chuẩn kịch bản lồng tiếng.\n\n"
+                    f"HÃY THỰC HIỆN THEO CÁC NGUYÊN TẮC QUY TRÌNH NÀY CHỦ ĐỘNG CHO MỌI VIDEO:\n\n"
+                    f"1. TỰ ĐỘNG PHÁT HIỆN VÀ NGẦM SỬA LỖI CHÍNH TẢ / ĐỒNG ÂM ASR TRƯỚC KHI DỊCH:\n"
+                    f"   - Phụ đề đầu vào do công cụ nhận dạng âm thanh (ASR) tạo ra nên có thể chứa từ đồng âm/gần âm bị sai chữ.\n"
+                    f"   - Nhiệm vụ: Đọc toàn bộ ngữ cảnh mạch chuyện, tự suy luận và NGẦM SỬA CHÍNH TẢ / ĐỒNG ÂM trước khi dịch.\n"
+                    f"   - Dịch bản đã hiểu đúng sang tiếng Việt chuẩn kịch bản.\n"
+                    f"   - Khôi phục tên riêng (nếu bị biến dạng), chuyển khẩu ngữ/từ lóng về đúng ngữ cảnh.\n\n"
+                    f"2. BIÊN DỊCH VIÊN PHIM ẢNH - KHÔNG DỊCH THÔ (WORD-BY-WORD):\n"
+                    f"   - Tuyệt đối KHÔNG dịch thô (word-by-word). Hãy đóng vai một biên dịch viên phim ảnh chuyên nghiệp, dịch thoát ý, giàu cảm xúc và tự nhiên.\n"
+                    f"   - Hiểu đúng khẩu ngữ, tiếng lóng mạng và phim ảnh.\n"
+                    f"   - Chủ động điều chỉnh đại từ nhân xưng (anh, em, cô, chú, bác, sếp, giám đốc, mẹ, con...) cho mượt mà, tự nhiên và đúng văn phong giao tiếp của người Việt.\n"
+                    f"   - Nhất quán xưng hô của từng cặp nhân vật từ đầu đến cuối toàn bộ file.\n"
+                    f"   - Tên riêng và danh xưng nhân vật: Tự động chuyển đổi sang phiên âm Hán-Việt tự nhiên nếu là phim Trung, hoặc giữ tên chuẩn xuôi tai. Ghi vai/người nói suy luận được vào trường 'speaker'.{style_instruction}\n\n"
+                    f"3. XỬ LÝ NHẠC NỀN & TỪ ĐỆM (LINH HOẠT & NHẸ NHÀNG):\n"
+                    f"   - Nếu một phân đoạn RÕ RÀNG chỉ là tiếng nhạc đệm lặp vô nghĩa (như 'bloop bloop'), hãy lược bỏ từ rác hoặc làm sạch câu.\n"
+                    f"   - NẾU LÀ CÂU THOẠI CỦA NHÂN VẬT: Luôn dịch đầy đủ, tự nhiên theo ngữ cảnh, tuyệt đối không cắt bớt lời thoại.\n"
+                    f"   - Khi một câu thoại bị ngắt làm nhiều dòng do timestamp, hãy đọc gom nghĩa cả cụm câu trước khi dịch từng dòng lẻ để tránh mất ngữ cảnh và cụt câu.\n"
+                    f"   - Nếu một dòng chứa thoại của 2 người nói chen ngang, hãy dùng dấu gạch ngang (-) để phân tách rõ ràng.\n\n"
+                    f"4. GIỚI HẠN ĐỘ DÀI CÂU DỊCH (ĐỂ LỒNG TIẾNG VỪA KHUNG THỜI GIAN):\n"
+                    f"   - Hãy ưu tiên dùng các từ đơn, từ ngắn, dịch súc tích, đúng ý cốt lõi nhưng KHÔNG ĐƯỢC DÀI DÒNG.\n"
+                    f"   - Căn chỉnh độ dài theo thời lượng (duration_sec): Câu tiếng Việt phải vừa vặn nhịp đọc (~3.5 - 4.0 từ/giây), ngắt câu tự nhiên theo nhịp nói khẩu ngữ để phần mềm lồng tiếng (TTS) đọc vừa kịp thời gian của dòng phụ đề, tránh bị dồn toa trễ giọng.\n\n"
+                    f"5. TỐI ƯU CẢM XÚC VÀ NHỊP ĐOẠN THOẠI (DÀNH CHO LỒNG TIẾNG TTS):\n"
+                    f"   - Nhận diện tâm trạng câu thoại (giận dữ, vội vã, buồn bã, mỉa mai, nói thầm) qua từ cảm thán và dấu câu.\n"
+                    f"   - Khi khoảng thời gian của câu ngắn (dưới 1.5 giây): Sử dụng từ đơn, câu lẹm, lược bỏ từ đệm để nói gọn, nhanh gọn đúng nhịp.\n"
+                    f"   - Khi khoảng thời gian của câu dài nhưng ít chữ: Dùng từ có âm tiết kéo dài, thêm từ biểu cảm (à, ừm, nha, này...) để giọng đọc trải dài tự nhiên mà không bị ngập ngừng.\n"
+                    f"   - Đảm bảo bản dịch giữ nguyên cấu trúc ngữ điệu, giúp giọng đọc TTS truyền tải đúng cảm xúc nhân vật.\n\n"
+                    f"{memory_section}"
+                    f"6. ĐỊNH DẠNG ĐẦU RA BẮT BUỘC:\n"
+                    f"   - BẮT BUỘC TRẢ VỀ ĐẦY ĐỦ 100% TẤT CẢ {len(chunk)} PHÂN ĐOẠN (từ id: 1 đến id: {len(chunk)}).\n"
+                    f"   - Giữ nguyên cấu trúc mã định danh (id).\n"
+                    f"   - Tuyệt đối KHÔNG ĐƯỢC gộp các ID thành 1, KHÔNG ĐƯỢC bỏ sót bất kỳ ID nào!\n"
+                    f"   - Trường 'text' của các ID thoại là bản dịch TIẾNG VIỆT tự nhiên, phù hợp với ngữ cảnh hội thoại.\n"
+                    f"   - CHỈ TRẢ VỀ JSON array hợp lệ gồm các object với 'id', 'speaker', và 'text'. Không kèm bất kỳ lời mở đầu, giải thích hay ghi chú nào.\n"
+                    f"Ví dụ cấu trúc đầu ra: [{{\"id\": 1, \"speaker\": \"Người nói 1\", \"text\": \"Câu thoại tiếng Việt tự nhiên...\"}}]\n\n"
+                    f"Danh sách phân đoạn đầu vào:\n"
+                    f"{json.dumps(input_items, ensure_ascii=False)}"
+                )
+            elif tgt_code.startswith("en"):
+                prompt = (
+                    f"You are an expert film/video subtitle translator and dubbing scriptwriter ({src_name} -> English).\n"
+                    f"Your task is to translate subtitle dialogue segments from '{src_name}' into NATURAL, IDIOMATIC SPOKEN ENGLISH for voiceover dubbing and subtitles.\n\n"
+                    f"CRITICAL REQUIREMENTS:\n\n"
+                    f"1. STRICT OUTPUT LANGUAGE REQUIREMENT:\n"
+                    f"   - The 'text' field of EVERY segment MUST BE TRANSLATED INTO ENGLISH.\n"
+                    f"   - NEVER keep Vietnamese or the original language in the 'text' field. Every line must be English.\n\n"
+                    f"2. NATURAL SPOKEN FILM DIALOGUE (NOT WORD-BY-WORD):\n"
+                    f"   - Do NOT translate literally or word-by-word. Translate meaning, emotion, and conversational tone.\n"
+                    f"   - Use natural conversational English contractions (e.g., \"don't\", \"can't\", \"I'm\", \"it's\", \"you'll\", \"let's\").\n"
+                    f"   - Accurately translate Vietnamese hierarchical pronouns and terms of address (anh, em, chị, cô, chú, bác, sếp, mẹ, con...) into natural English pronouns (I, you, he, she, we, they) or names based on conversational context and relationship.\n"
+                    f"   - Keep character naming consistent throughout all segments. Infer the speaker's role or character name and put it in the 'speaker' field (in English).{style_instruction}\n\n"
+                    f"3. DUBBING & SUBTITLE TIMING CONSTRAINTS:\n"
+                    f"   - Normal English speech pace for voiceover/subtitles is approximately 2.5 - 3.5 words per second.\n"
+                    f"   - Use 'duration_sec' as a guide: keep English lines concise and punchy so the TTS voiceover can read them clearly within the allocated time without rushing.\n"
+                    f"   - For short duration clips (<1.5s): use brief, punchy words.\n"
+                    f"   - If two people speak over each other in one segment, use a hyphen (-) to separate their lines.\n\n"
+                    f"4. NOISE & NON-SPEECH:\n"
+                    f"   - If a segment is clearly just background sound effects or nonsensical audio noise (like 'bloop', 'ting'), output an empty string \"\" or omit noise.\n"
+                    f"   - If it is actual character dialogue, ALWAYS translate it fully and faithfully.\n\n"
+                    f"{memory_section}"
+                    f"5. MANDATORY JSON OUTPUT FORMAT:\n"
+                    f"   - Return EXACTLY {len(chunk)} segments (ids 1 to {len(chunk)}).\n"
+                    f"   - Preserve every ID exactly. Do NOT combine IDs, do NOT skip any ID.\n"
+                    f"   - The 'text' field MUST contain the translated ENGLISH text.\n"
+                    f"   - ONLY output a valid JSON array of objects with 'id', 'speaker', and 'text'. No explanations, no markdown wrapper other than raw JSON.\n"
+                    f"Example Output: [{{\"id\": 1, \"speaker\": \"Speaker 1\", \"text\": \"Natural English movie line here...\"}}]\n\n"
+                    f"Input segments to translate:\n"
+                    f"{json.dumps(input_items, ensure_ascii=False)}"
+                )
+            else:
+                prompt = (
+                    f"You are a professional film/video subtitle translator ({src_name} -> {tgt_name}).\n"
+                    f"Your task is to translate subtitle segments from '{src_name}' into NATURAL {tgt_name} ({target_lang}) for voiceover dubbing and subtitles.\n\n"
+                    f"CRITICAL REQUIREMENTS:\n"
+                    f"1. The 'text' field of EVERY segment MUST BE TRANSLATED INTO {tgt_name} ({target_lang}).\n"
+                    f"2. Translate naturally for conversational dialogue, keeping tone, emotion and subtitle timing intact.\n"
+                    f"3. Adjust sentence length to fit 'duration_sec' for TTS voice reading.\n"
+                    f"4. Preserve all {len(chunk)} segments with matching 'id' numbers.\n"
+                    f"{memory_section}"
+                    f"5. ONLY output a valid JSON array of objects with 'id', 'speaker', and 'text' in {tgt_name}.\n"
+                    f"Example: [{{\"id\": 1, \"speaker\": \"Speaker 1\", \"text\": \"Dialogue in {tgt_name}...\"}}]\n\n"
+                    f"Input segments:\n"
+                    f"{json.dumps(input_items, ensure_ascii=False)}"
+                )
 
             payload = {
                 "contents": [
@@ -569,13 +704,27 @@ class GoogleAIStudioTranslator:
                                 for i in range(len(chunk)):
                                     if (i + 1) in id_to_text:
                                         trans_text = id_to_text[i + 1].strip()
-                                        # Nếu còn chữ Trung chưa dịch hết thì fallback
-                                        if any('\u4e00' <= char <= '\u9fff' for char in trans_text):
-                                            logger.warning(f"ID {i+1} còn chữ Trung: '{trans_text}'. Đang fallback...")
+                                        needs_fallback = False
+
+                                        # 1. Nếu dịch sang tiếng Việt mà còn chữ Trung (từ phim Trung)
+                                        if tgt_code.startswith("vi") and src_code.startswith("zh") and any('\u4e00' <= char <= '\u9fff' for char in trans_text):
+                                            logger.warning(f"ID {i+1} còn chữ Trung khi đích là tiếng Việt: '{trans_text}'. Đang fallback qua Google...")
+                                            needs_fallback = True
+
+                                        # 2. Nếu dịch sang tiếng Anh mà output vẫn chứa dấu tiếng Việt (AI chưa dịch hoặc trả lại câu gốc)
+                                        elif tgt_code.startswith("en") and VIETNAMESE_DIACRITICS_PATTERN.search(trans_text):
+                                            logger.warning(f"ID {i+1} vẫn còn tiếng Việt khi đích là tiếng Anh: '{trans_text}'. Đang fallback qua Google...")
+                                            needs_fallback = True
+
+                                        # 3. Nếu output rỗng hoàn toàn mà câu gốc có thoại thực sự
+                                        elif not trans_text and len(chunk[i].strip()) > 3:
+                                            logger.warning(f"ID {i+1} bị rỗng nội dung. Đang fallback qua Google...")
+                                            needs_fallback = True
+
+                                        if needs_fallback:
                                             fallback_text = await GoogleTranslator.translate_single_text(chunk[i], source_lang=source_lang, target_lang=target_lang)
                                             results[start_idx + i] = fallback_text
                                         else:
-                                            # Chấp nhận bản dịch tiếng Việt hoặc chuỗi rỗng "" (nếu AI cố tình lọc bỏ nhạc nền)
                                             results[start_idx + i] = trans_text
                                     else:
                                         logger.warning(f"ID {i+1} bị thiếu trong JSON. Đang fallback...")
@@ -585,7 +734,7 @@ class GoogleAIStudioTranslator:
                                     if (i + 1) in id_to_spk and id_to_spk[i + 1]:
                                         speakers[start_idx + i] = id_to_spk[i + 1]
 
-                                logger.info(f"✅ [Google AI Studio] Dịch thành công batch {start_idx + 1}-{start_idx + len(chunk)} qua Gemini ({cur_model}) với phân vai & biểu cảm")
+                                logger.info(f"✅ [Google AI Studio] Dịch thành công batch {start_idx + 1}-{start_idx + len(chunk)} sang {tgt_name} qua Gemini ({cur_model}) với phân vai & biểu cảm")
                                 translated_ok = True
                                 break
                 except Exception as e:
@@ -603,7 +752,7 @@ class GoogleAIStudioTranslator:
 
             await asyncio.sleep(0.1)
 
-        cleaned_results = [clean_technical_terms(r) for r in results]
+        cleaned_results = [clean_technical_terms(r, target_lang=target_lang) for r in results]
         return cleaned_results, speakers
 
 
