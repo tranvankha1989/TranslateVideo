@@ -162,6 +162,10 @@ TECHNICAL_TERM_FIXES = [
     (re.compile(r"\btetra pack\b", re.IGNORECASE), "Tetra Pak"),
     (re.compile(r"\bbodrate\b", re.IGNORECASE), "Baud rate"),
     (re.compile(r"\bbaudrate\b", re.IGNORECASE), "Baud rate"),
+    # Chuẩn hóa tên nhân vật Hán-Việt tự nhiên
+    (re.compile(r"\bcô\s+xu\b", re.IGNORECASE), "Hứa tiểu thư"),
+    # Lược nhẹ từ tượng thanh rác lọt vào
+    (re.compile(r"\b(bloop[\s,]*)+", re.IGNORECASE), ""),
 ]
 
 
@@ -170,7 +174,7 @@ def clean_technical_terms(text: str) -> str:
         return text
     for pattern, replacement in TECHNICAL_TERM_FIXES:
         text = pattern.sub(replacement, text)
-    return text
+    return text.strip()
 
 
 class OpenAITranslator:
@@ -204,14 +208,19 @@ class OpenAITranslator:
         system_prompt = (
             f"Bạn là một chuyên gia biên dịch kịch bản phim và xử lý phụ đề chuyên nghiệp ({source_lang} -> {target_lang}).\n"
             f"Dịch từng phân đoạn thoại sang {target_lang} chuẩn kịch bản lồng tiếng TTS.\n\n"
-            f"CÁC NGUYÊN TẮC BẮT BUỘC:\n"
-            f"1. SỬA LỖI ĐỒNG ÂM ASR: Đọc ngữ cảnh, tự suy luận và ngầm sửa các từ đồng âm/gần âm sai chữ Hán (ví dụ: 假方 -> 甲方, 善 -> 删...). Dịch bản đã hiểu đúng sang tiếng Việt.\n"
-            f"2. KHÔNG DỊCH THÔ (WORD-BY-WORD): Đóng vai biên dịch viên phim ảnh, dịch thoát ý, điều chỉnh đại từ nhân xưng (anh, em, cô, chú, sếp, giám đốc...) tự nhiên và nhất quán.\n"
-            f"3. THOẠI ĐÈ & CẮT CÂU: Gom nghĩa cả cụm câu trước khi dịch, dùng dấu gạch ngang (-) nếu 2 người nói chen nhau. Lọc bỏ từ rác nhạc nền.\n"
-            f"4. GIỚI HẠN ĐỘ DÀI: Tiếng Việt ngắn gọn, súc tích; số chữ tiếng Việt KHÔNG vượt quá 1.3 lần số chữ gốc để đọc vừa khung thời lượng.\n"
-            f"5. NHỊP ĐIỆU TTS: Câu ngắn (<1.5s) dùng từ đơn gọn gàng; câu dài ít chữ dùng từ kéo dài, trợ từ ngữ khí tự nhiên.\n"
+            f"CÁC NGUYÊN TẮC BẮT BUỘC (MỀM DẺO & CHUẨN NGỮ CẢNH):\n"
+            f"1. SỬA LỖI ĐỒNG ÂM ASR: Đọc ngữ cảnh, tự suy luận và ngầm sửa các từ đồng âm/gần âm sai chữ Hán (ví dụ: 假方 -> 甲方, 善 -> 删, 'XX单YY' -> 'từ XX đến YY tuổi' do nhầm 到/单...). Dịch bản đã hiểu đúng sang tiếng Việt.\n"
+            f"2. KHÔNG DỊCH THÔ (WORD-BY-WORD): Thoát ý theo ngữ cảnh khẩu ngữ:\n"
+            f"   - '搞落公司了' / '落在...': '落' là để quên/rơi -> dịch 'Tôi để quên ở công ty rồi' (không dịch 'gỡ xuống').\n"
+            f"   - '会说人话': Khẩu ngữ -> dịch 'ăn nói tử tế / giao tiếp lịch sự' (không dịch 'nói được tiếng người').\n"
+            f"   - '会演戏': Trong bối cảnh kịch bản -> dịch 'biết diễn xuất / biết đóng giả' (không dịch 'hành động').\n"
+            f"   - Tên riêng và danh xưng: '许小姐 / 徐小姐' -> 'Hứa tiểu thư / Cô Hứa' (ưu tiên Hán-Việt, tránh Pinyin 'cô Xu').\n"
+            f"3. XỬ LÝ NHẠC NỀN & TỪ ĐỆM (NHẸ NHÀNG): Nếu phân đoạn chỉ toàn tiếng nhạc đệm vô nghĩa (như 'bloop bloop'), hãy lược bỏ từ rác; nhưng nếu là câu thoại của nhân vật thì LUÔN DỊCH ĐẦY ĐỦ, tự nhiên theo ngữ cảnh.\n"
+            f"4. THOẠI ĐÈ & CẮT CÂU: Gom nghĩa cả cụm câu trước khi dịch, dùng dấu gạch ngang (-) nếu 2 người nói chen nhau.\n"
+            f"5. GIỚI HẠN ĐỘ DÀI: Tiếng Việt ngắn gọn, súc tích; số chữ tiếng Việt KHÔNG vượt quá 1.3 lần số chữ gốc để đọc vừa khung thời lượng.\n"
+            f"6. NHỊP ĐIỆU TTS: Câu ngắn (<1.5s) dùng từ đơn gọn gàng; câu dài ít chữ dùng từ kéo dài, trợ từ ngữ khí tự nhiên.\n"
             f"{memory_instruction}\n"
-            f"6. ĐỊNH DẠNG: Giữ nguyên 100% số lượng dòng và ID. CHỈ TRẢ VỀ JSON array: [{{\"id\": 1, \"text\": \"bản dịch\"}}]."
+            f"7. ĐỊNH DẠNG: Giữ nguyên 100% số lượng dòng và ID. CHỈ TRẢ VỀ JSON array: [{{\"id\": 1, \"text\": \"bản dịch\"}}]."
         )
 
         input_payload = [{"id": i + 1, "text": t} for i, t in enumerate(texts)]
@@ -256,7 +265,7 @@ class GoogleAIStudioTranslator:
 
     @classmethod
     async def verify_api_key(cls, api_key: str) -> dict[str, Any]:
-        """Kiểm tra kết nối và tính hợp lệ của API Key Google AI Studio."""
+        """Kiểm tra kết nối, tính hợp lệ và hạn mức chi tiết của API Key Google AI Studio."""
         if not api_key or not api_key.strip():
             return {"valid": False, "message": "API Key không được để trống."}
 
@@ -289,55 +298,100 @@ class GoogleAIStudioTranslator:
                 elif get_resp.status_code == 429:
                     return {
                         "valid": False,
-                        "message": "⚠️ API KEY ĐÚNG NHƯNG ĐÃ HẾT HẠN MỨC (Lỗi 429 Quota Exceeded): Tài khoản Google này đã dùng hết 20 lượt gọi miễn phí hôm nay. Vui lòng tạo Key mới từ Gmail khác hoặc dùng 'Google Dịch (Miễn phí)'.",
+                        "message": "⚠️ API KEY ĐÃ HẾT HẠN MỨC (Lỗi 429 Quota Exceeded): Tài khoản này đã dùng hết lượt gọi miễn phí hôm nay. Vui lòng tạo Key mới từ Gmail khác hoặc dùng 'Google Dịch (Miễn phí)'.",
                     }
         except httpx.TimeoutException:
             return {"valid": False, "message": "❌ Không thể kết nối đến Google AI Studio (Timeout). Vui lòng kiểm tra lại mạng Internet."}
         except Exception as e:
             return {"valid": False, "message": f"❌ Lỗi kết nối mạng đến Google AI Studio: {str(e)}"}
 
-        # Bước 2: Thử sinh nội dung để kiểm tra Quota còn lại
-        models_to_try = [m for m in ["gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-pro"] if m in available_models] or available_models[:4] or ["gemini-3.8-flash"]
+        # Bước 2: Test từng model chính thức và đo lường hạn mức
+        standard_models = [
+            {
+                "id": "gemini-3.8-flash",
+                "name": "Gemini 3.8 Flash (Thế hệ mới nhất)",
+                "rpd": "1.500 lượt/ngày",
+                "rpm": "15 lượt/phút",
+                "tpm": "1.000.000 tokens/phút",
+            },
+            {
+                "id": "gemini-3.7-flash",
+                "name": "Gemini 3.7 Flash",
+                "rpd": "1.500 lượt/ngày",
+                "rpm": "15 lượt/phút",
+                "tpm": "1.000.000 tokens/phút",
+            },
+            {
+                "id": "gemini-3.1-pro-preview",
+                "name": "Gemini 3.1 Pro (Bản Pro thông minh)",
+                "rpd": "50 lượt/ngày",
+                "rpm": "2 lượt/phút",
+                "tpm": "32.000 tokens/phút",
+            },
+            {
+                "id": "gemma-4-26b-a4b-it",
+                "name": "Gemma 4 26B (Google AI Mở rộng)",
+                "rpd": "1.500 lượt/ngày",
+                "rpm": "30 lượt/phút",
+                "tpm": "1.000.000 tokens/phút",
+            },
+        ]
 
-        is_quota_exceeded = False
-        last_error = ""
+        models_quota_info = []
+        is_any_model_working = False
+        tested_working_model = None
 
-        for m in models_to_try:
-            post_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key}"
+        for m_info in standard_models:
+            m_id = m_info["id"]
+            post_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{m_id}:generateContent?key={key}"
             payload = {
-                "contents": [{"parts": [{"text": "Hello"}]}],
-                "generationConfig": {"maxOutputTokens": 5},
+                "contents": [{"parts": [{"text": "Hi"}]}],
+                "generationConfig": {"maxOutputTokens": 3},
             }
+            m_status = "unknown"
+            m_status_text = ""
+
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                async with httpx.AsyncClient(timeout=8.0) as client:
                     resp = await client.post(post_endpoint, json=payload)
                     if resp.status_code == 200:
-                        return {
-                            "valid": True,
-                            "model": m,
-                            "message": f"✅ Kết nối Google AI Studio thành công! Mô hình '{m}' hoạt động tốt và còn hạn ngạch.",
-                        }
+                        m_status = "ready"
+                        m_status_text = "✅ Sẵn sàng hoạt động (Còn hạn mức)"
+                        is_any_model_working = True
+                        if not tested_working_model:
+                            tested_working_model = m_id
                     elif resp.status_code == 429:
-                        is_quota_exceeded = True
-                        last_error = "Hết hạn mức Quota trong ngày (Free Tier)"
-                    elif resp.status_code in [404, 503]:
-                        continue
+                        m_status = "quota_exceeded"
+                        m_status_text = "⚠️ Hết hạn mức / Đang nghẽn (429 Quota Exceeded)"
+                    elif resp.status_code == 404:
+                        m_status = "not_available"
+                        m_status_text = "Chưa mở trên vùng của bạn"
                     else:
-                        err_msg = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
-                        last_error = err_msg
+                        m_status = "error"
+                        m_status_text = f"HTTP {resp.status_code}"
             except Exception as e:
-                last_error = str(e)
+                m_status = "error"
+                m_status_text = "Timeout kết nối"
 
-        if is_quota_exceeded:
+            models_quota_info.append({
+                **m_info,
+                "status": m_status,
+                "status_text": m_status_text,
+            })
+
+        if is_any_model_working:
+            return {
+                "valid": True,
+                "model": tested_working_model,
+                "message": f"✅ Kết nối Google AI Studio thành công! Đã kiểm tra hạn ngạch các mô hình.",
+                "quota_details": models_quota_info,
+            }
+        else:
             return {
                 "valid": False,
-                "message": "⚠️ API KEY ĐÚNG NHƯNG ĐÃ HẾT HẠN MỨC (Lỗi 429 Quota Exceeded): Tài khoản Google này đã dùng hết 20 lượt gọi miễn phí hôm nay. Vui lòng tạo Key mới từ Gmail khác hoặc dùng 'Google Dịch (Miễn phí)'.",
+                "message": "⚠️ API KEY HỢP LỆ NHƯNG TẤT CẢ MÔ HÌNH ĐÃ HẾT HẠN MỨC TRONG NGÀY (429 Quota Exceeded). Vui lòng tạo Key mới từ Gmail khác.",
+                "quota_details": models_quota_info,
             }
-
-        return {
-            "valid": True,
-            "message": f"✅ API Key hợp lệ và đã kết nối máy chủ Google AI Studio thành công ({len(available_models)} mô hình sẵn sàng).",
-        }
 
     @classmethod
     async def translate_batch_texts(
@@ -351,6 +405,7 @@ class GoogleAIStudioTranslator:
         batch_size: int = 40,
         durations: list[float] | None = None,
         style: str = "auto",
+        progress_callback: Any | None = None,
     ) -> tuple[list[str], list[str]]:
         if not texts:
             return [], []
@@ -361,11 +416,12 @@ class GoogleAIStudioTranslator:
             candidate_models.append(model.strip())
         for m in [
             "gemini-3.8-flash",
+            "gemini-3.7-flash",
             "gemini-flash-latest",
-            "gemini-2.5-flash",
-            "gemini-2.5-pro",
-            "gemini-2.0-flash",
-            "gemini-2.5-flash-lite",
+            "gemini-3.1-pro-preview",
+            "gemini-3.5-flash",
+            "gemma-4-26b-a4b-it",
+            "gemma-4-31b-it",
         ]:
             if m not in candidate_models:
                 candidate_models.append(m)
@@ -391,6 +447,18 @@ class GoogleAIStudioTranslator:
             chunk = texts[start_idx : start_idx + batch_size]
             chunk_durs = durations[start_idx : start_idx + batch_size] if durations else None
 
+            if progress_callback:
+                try:
+                    cur_count = start_idx + 1
+                    total_count = len(texts)
+                    msg = f"Đang gửi AI dịch batch câu {cur_count}-{min(start_idx + len(chunk), total_count)}/{total_count}..."
+                    if asyncio.iscoroutinefunction(progress_callback):
+                        await progress_callback(cur_count, total_count, msg)
+                    else:
+                        progress_callback(cur_count, total_count, msg)
+                except Exception:
+                    pass
+
             input_items = []
             for i, t in enumerate(chunk):
                 item = {"id": i + 1, "text": t}
@@ -412,19 +480,26 @@ class GoogleAIStudioTranslator:
                 f"Nhiệm vụ của bạn là nhận các phân đoạn thoại phụ đề từ '{source_lang}' sang '{target_lang}' chuẩn kịch bản lồng tiếng.\n\n"
                 f"HÃY THỰC HIỆN THEO CÁC NGUYÊN TẮC QUY TRÌNH NÀY CHỦ ĐỘNG CHO MỌI VIDEO:\n\n"
                 f"1. TỰ ĐỘNG PHÁT HIỆN VÀ NGẦM SỬA LỖI CHÍNH TẢ / ĐỒNG ÂM ASR TRƯỚC KHI DỊCH:\n"
-                f"   - Phụ đề đầu vào do công cụ nhận dạng âm thanh (ASR) tạo ra nên chứa rất nhiều từ đồng âm/gần âm bị sai chữ Hán (ví dụ: 假方 thay vì 甲方, 善 thay vì 删, 姓 thay vì 性...).\n"
+                f"   - Phụ đề đầu vào do công cụ nhận dạng âm thanh (ASR) tạo ra nên chứa rất nhiều từ đồng âm/gần âm bị sai chữ Hán.\n"
+                f"   - Ví dụ ASR sai: 假方 -> 甲方, 善 -> 删, 姓 -> 性, '二十五单三十五' (nghe nhầm '到' thành '单') -> hiểu đúng là 'từ 25 đến 35 tuổi'.\n"
                 f"   - Nhiệm vụ: Đọc toàn bộ ngữ cảnh mạch chuyện, tự suy luận và NGẦM SỬA CHÍNH TẢ / ĐỒNG ÂM của tiếng Trung sang chữ đúng trước khi dịch.\n"
                 f"   - Dịch bản đã hiểu đúng sang tiếng Việt chuẩn kịch bản.\n"
                 f"   - Khôi phục tên riêng (nếu bị biến dạng thành từ chỉ vật/học vấn), chuyển khẩu ngữ/từ lóng về đúng ngữ cảnh.\n\n"
                 f"2. BIÊN DỊCH VIÊN PHIM ẢNH - KHÔNG DỊCH THÔ (WORD-BY-WORD):\n"
                 f"   - Tuyệt đối KHÔNG dịch thô (word-by-word). Hãy đóng vai một biên dịch viên phim ảnh chuyên nghiệp, dịch thoát ý, giàu cảm xúc và tự nhiên.\n"
+                f"   - HIỂU ĐÚNG KHẨU NGỮ & TIẾNG LÓNG MẠNG/PHIM ẢNH TRUNG QUỐC:\n"
+                f"     + '搞落公司了' / '落在...': '落' ở đây là rơi/để quên -> dịch: 'Tôi để quên ở công ty rồi' (Tuyệt đối KHÔNG dịch là 'gỡ xuống').\n"
+                f"     + '会说人话': Khẩu ngữ giới trẻ -> dịch: 'giao tiếp lịch sự / ăn nói tử tế / biết điều' (Tuyệt đối KHÔNG dịch 'nói được tiếng người').\n"
+                f"     + '会演戏': Trong bối cảnh tìm người đóng giả/kịch bản -> dịch: 'biết diễn xuất / biết đóng giả / biết phối hợp diễn' (Tuyệt đối KHÔNG dịch 'có thể hành động').\n"
+                f"     + '干净正常': 'Sạch sẽ, đàng hoàng, lịch sự'.\n"
                 f"   - Chủ động điều chỉnh đại từ nhân xưng (anh, em, cô, chú, bác, sếp, giám đốc, mẹ, con...) cho mượt mà, tự nhiên và đúng văn phong giao tiếp của người Việt.\n"
                 f"   - Nhất quán xưng hô của từng cặp nhân vật từ đầu đến cuối toàn bộ file.\n"
-                f"   - Tên riêng và danh xưng nhân vật: Tự động chuyển đổi sang phiên âm Hán-Việt tự nhiên, xuôi tai (ví dụ chức vụ Tổng giám đốc/Lục tổng/Trương tổng...). Ghi vai/người nói suy luận được vào trường 'speaker'.{style_instruction}\n\n"
-                f"3. XỬ LÝ THOẠI ĐÈ & CẮT NỬA CÂU:\n"
+                f"   - Tên riêng và danh xưng nhân vật: Tự động chuyển đổi sang phiên âm Hán-Việt tự nhiên, xuôi tai (ví dụ: '许小姐 / 徐小姐' -> 'Hứa tiểu thư / Cô Hứa', tuyệt đối không dịch pinyin tiếng Anh như 'cô Xu'). Ghi vai/người nói suy luận được vào trường 'speaker'.{style_instruction}\n\n"
+                f"3. XỬ LÝ NHẠC NỀN & TỪ ĐỆM (LINH HOẠT & NHẸ NHÀNG):\n"
+                f"   - Nếu một phân đoạn RÕ RÀNG chỉ là tiếng nhạc đệm lặp vô nghĩa (như 'bloop bloop'), hãy lược bỏ từ rác hoặc làm sạch câu.\n"
+                f"   - NẾU LÀ CÂU THOẠI CỦA NHÂN VẬT: Luôn dịch đầy đủ, tự nhiên theo ngữ cảnh, tuyệt đối không cắt bớt lời thoại.\n"
                 f"   - Khi một câu thoại bị ngắt làm nhiều dòng do timestamp, hãy đọc gom nghĩa cả cụm câu trước khi dịch từng dòng lẻ để tránh mất ngữ cảnh và cụt câu.\n"
-                f"   - Nếu một dòng chứa thoại của 2 người nói chen ngang, hãy dùng dấu gạch ngang (-) để phân tách rõ ràng.\n"
-                f"   - Phân biệt rõ lời thoại và nhạc nền: Nếu phân đoạn nào chỉ là tiếng nhạc dạo hoặc từ lặp vô nghĩa của nhạc nền, hãy làm sạch hoặc bỏ qua từ rác.\n\n"
+                f"   - Nếu một dòng chứa thoại của 2 người nói chen ngang, hãy dùng dấu gạch ngang (-) để phân tách rõ ràng.\n\n"
                 f"4. GIỚI HẠN ĐỘ DÀI CÂU DỊCH (ĐỂ LỒNG TIẾNG VỪA KHUNG THỜI GIAN):\n"
                 f"   - Tiếng Trung ngắn hơn tiếng Việt. Hãy ưu tiên dùng các từ đơn, từ ngắn, dịch súc tích, đúng ý cốt lõi nhưng KHÔNG ĐƯỢC DÀI DÒNG.\n"
                 f"   - NGUYÊN TẮC ĐẾM CHỮ: Số chữ tiếng Việt dịch ra KHÔNG ĐƯỢC VƯỢT QUÁ 1.3 LẦN số chữ tiếng Trung gốc của dòng đó.\n"
@@ -439,7 +514,7 @@ class GoogleAIStudioTranslator:
                 f"   - BẮT BUỘC TRẢ VỀ ĐẦY ĐỦ 100% TẤT CẢ {len(chunk)} PHÂN ĐOẠN (từ id: 1 đến id: {len(chunk)}).\n"
                 f"   - Giữ nguyên cấu trúc mã định danh (id).\n"
                 f"   - Tuyệt đối KHÔNG ĐƯỢC gộp các ID thành 1, KHÔNG ĐƯỢC bỏ sót bất kỳ ID nào!\n"
-                f"   - Trường 'text' của TẤT CẢ các ID đều PHẢI là tiếng Việt, tuyệt đối không để nguyên tiếng Trung.\n"
+                f"   - Trường 'text' của các ID thoại là bản dịch tiếng Việt tự nhiên, phù hợp với ngữ cảnh hội thoại.\n"
                 f"   - CHỈ TRẢ VỀ JSON array hợp lệ gồm các object với 'id', 'speaker', và 'text'. Không kèm bất kỳ lời mở đầu, giải thích hay ghi chú nào.\n"
                 f"Ví dụ cấu trúc đầu ra: [{{\"id\": 1, \"speaker\": \"Người nói 1\", \"text\": \"Câu thoại tiếng Việt tự nhiên...\"}}]\n\n"
                 f"Danh sách phân đoạn đầu vào:\n"
@@ -468,6 +543,11 @@ class GoogleAIStudioTranslator:
                 try:
                     async with httpx.AsyncClient(timeout=45.0) as client:
                         resp = await client.post(endpoint, headers=headers, json=payload)
+                        if resp.status_code == 429:
+                            logger.warning(f"Mô hình {cur_model} bị nghẽn tốc độ (429), đợi 2.5 giây và thử lại...")
+                            await asyncio.sleep(2.5)
+                            resp = await client.post(endpoint, headers=headers, json=payload)
+
                         if resp.status_code in [404, 503, 429]:
                             logger.warning(f"Mô hình {cur_model} trả về HTTP {resp.status_code}, thử mô hình tiếp theo...")
                             continue
@@ -487,14 +567,20 @@ class GoogleAIStudioTranslator:
                                 id_to_spk = {item.get("id"): item.get("speaker", "") for item in items if isinstance(item, dict)}
 
                                 for i in range(len(chunk)):
-                                    trans_text = id_to_text.get(i + 1, "").strip()
-                                    # Bảo đảm 100% tiếng Việt, nếu sót ID hoặc còn chữ Trung thì fallback dịch ngay
-                                    if not trans_text or any('\u4e00' <= char <= '\u9fff' for char in trans_text):
-                                        logger.warning(f"ID {i+1} chưa được dịch trọn vẹn: '{trans_text}'. Đang fallback...")
+                                    if (i + 1) in id_to_text:
+                                        trans_text = id_to_text[i + 1].strip()
+                                        # Nếu còn chữ Trung chưa dịch hết thì fallback
+                                        if any('\u4e00' <= char <= '\u9fff' for char in trans_text):
+                                            logger.warning(f"ID {i+1} còn chữ Trung: '{trans_text}'. Đang fallback...")
+                                            fallback_text = await GoogleTranslator.translate_single_text(chunk[i], source_lang=source_lang, target_lang=target_lang)
+                                            results[start_idx + i] = fallback_text
+                                        else:
+                                            # Chấp nhận bản dịch tiếng Việt hoặc chuỗi rỗng "" (nếu AI cố tình lọc bỏ nhạc nền)
+                                            results[start_idx + i] = trans_text
+                                    else:
+                                        logger.warning(f"ID {i+1} bị thiếu trong JSON. Đang fallback...")
                                         fallback_text = await GoogleTranslator.translate_single_text(chunk[i], source_lang=source_lang, target_lang=target_lang)
                                         results[start_idx + i] = fallback_text
-                                    else:
-                                        results[start_idx + i] = trans_text
 
                                     if (i + 1) in id_to_spk and id_to_spk[i + 1]:
                                         speakers[start_idx + i] = id_to_spk[i + 1]
@@ -573,6 +659,7 @@ class TranslationService:
         model: str | None = None,
         temperature: float = 0.2,
         style: str = "auto",
+        progress_callback: Any | None = None,
     ) -> list[dict[str, Any]]:
         if not segments:
             return []
@@ -586,7 +673,7 @@ class TranslationService:
         translated_speakers = [""] * len(texts)
 
         if provider.lower() in ["gemini", "google_ai_studio", "google-ai-studio"] and gemini_key:
-            selected_model = model or "gemini-2.5-flash"
+            selected_model = model or "gemini-3.8-flash"
             logger.info(f"🌐 Sử dụng Google AI Studio (Model={selected_model}, Temp={temperature}) dịch {len(texts)} câu phụ đề (Style={style})...")
             translated_texts, translated_speakers = await GoogleAIStudioTranslator.translate_batch_texts(
                 texts=texts,
@@ -597,6 +684,7 @@ class TranslationService:
                 temperature=temperature,
                 durations=durations,
                 style=style,
+                progress_callback=progress_callback,
             )
         elif provider.lower() in ["openai", "deepseek"] and api_key:
             logger.info(f"🌐 Sử dụng {provider} LLM dịch {len(texts)} câu phụ đề...")

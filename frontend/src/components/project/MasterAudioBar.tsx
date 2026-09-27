@@ -157,7 +157,7 @@ export function MasterAudioBar({
               type="button"
               onClick={handleSendToAutoCaption}
               className="px-3.5 py-1.5 rounded-xl bg-surface-variant hover:bg-white/10 text-on-surface text-xs font-label-caps border border-white/10 transition-colors flex items-center gap-1.5"
-              title="Tự động bóc băng và tạo phụ đề video từ file Master này"
+              title="Tự động nhận diện giọng nói và tạo phụ đề video từ file Master này"
             >
               <Video className="w-4 h-4 text-emerald-400" />
               Tạo Video Auto Caption

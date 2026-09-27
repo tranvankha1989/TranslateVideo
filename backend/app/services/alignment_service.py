@@ -58,14 +58,16 @@ class AlignmentService:
         # Tính tỷ lệ tốc độ cần thiết S = T_orig / T_target
         calc_speed = orig_dur / target_duration
 
-        # NGUYÊN TẮC VÀNG TRÁNH GIỌNG "LÚC NHANH LÚC CHẬM":
-        # 1. Tuyệt đối KHÔNG BAO GIỜ làm chậm giọng đọc dưới 1.0x (tránh giọng bị rề rà, kéo dài nhân tạo)
-        #    Nếu câu đọc ngắn hơn thời lượng cảnh quay, hãy để câu nói phát tự nhiên ở 1.0x và giữ khoảng lặng tự nhiên.
-        # 2. Khi câu nói dài hơn, chỉ tăng tốc nhẹ nhàng nếu thực sự cần thiết, kẹp tối đa max_speed_rate.
-        if calc_speed <= 1.03:
+        # NGUYÊN TẮC VÀNG TRÁNH GIỌNG "LÚC NHANH LÚC CHẬM" & KHÔNG BAO GIỜ BỊ CẮT CHỮ:
+        # 1. Nếu câu đọc vừa vặn hoặc ngắn hơn thời lượng cảnh quay (calc_speed <= 1.05),
+        #    giữ nguyên tốc độ tự nhiên 1.0x.
+        # 2. Khi câu tiếng Việt dài hơn, tăng tốc độ tương ứng để phát trọn vẹn 100% nội dung
+        #    (cho phép tăng tốc thích ứng tối đa tới max_speed_rate hoặc 1.50x đối với câu quá dài).
+        if calc_speed <= 1.05:
             applied_speed = 1.0
         else:
-            applied_speed = min(max_speed_rate, calc_speed)
+            effective_max_speed = max(max_speed_rate, 1.45)
+            applied_speed = min(effective_max_speed, calc_speed)
 
         if output_path is None:
             filename = f"aligned_{src.stem}_{uuid.uuid4().hex[:6]}.wav"
@@ -135,7 +137,7 @@ class AlignmentService:
     ) -> dict[str, Any]:
         """
         Ráp nối toàn bộ các câu audio lồng tiếng vào đúng mốc mili-giây (start) trên trục timeline,
-        đồng thời hòa âm cùng nhạc nền gốc BGM.
+        đồng thời hòa âm cùng nhạc nền gốc BGM. Bảo toàn 100% âm thanh không bao giờ bị cắt cụt đuôi câu.
         """
         if not session_id:
             session_id = uuid.uuid4().hex[:12]
@@ -158,14 +160,19 @@ class AlignmentService:
 
             start = float(seg.get("start", 0.0))
             end = float(seg.get("end", 0.0))
+            if start < 0:
+                start = 0.0
+            if end <= start:
+                end = start + 1.5
+
             seg_dur = max(0.1, end - start)
 
             # Khung thời lượng tối đa cho phép trước khi nhân vật kế tiếp mở miệng nói
             if i + 1 < len(segments):
                 next_start = float(segments[i + 1].get("start", end))
                 if next_start > start:
-                    # Giữ 50ms khoảng đệm tự nhiên trước khi câu sau cất lời
-                    available_dur = max(0.3, next_start - start - 0.05)
+                    # Cho phép câu thoại đọc tự nhiên kéo dài vào khoảng lặng trước câu tiếp theo
+                    available_dur = max(0.3, next_start - start)
                 else:
                     available_dur = max(0.3, seg_dur)
             else:
@@ -173,18 +180,17 @@ class AlignmentService:
 
             actual_dur = get_audio_duration(audio_path)
 
-            # Nếu âm thanh thực tế vừa vặn trong khoảng khả dụng (hoặc lệch nhẹ <= 5%), giữ nguyên 1.0x tự nhiên 100%!
+            # Cân chỉnh mục tiêu thời lượng
             if actual_dur <= available_dur * 1.05:
                 target_dur = actual_dur
             else:
                 target_dur = available_dur
 
             # KHÓA CHẶT MỐC THỜI GIAN THEO LỜI THOẠI NHÂN VẬT (Lip-Sync Lock):
-            # Tuyệt đối cố định start_ms theo đúng thời điểm nhân vật mở miệng trong video.
-            # Không dời mốc của câu sau, tránh tích tụ độ trễ lệch hình!
+            # Cố định start_ms theo đúng thời điểm nhân vật mở miệng trong video.
             start_ms = max(0, int(start * 1000))
 
-            # Co giãn tốc độ mượt mà
+            # Co giãn tốc độ thích ứng để vừa vặn
             adj_file = session_dir / f"aligned_{Path(audio_path).stem}.wav"
             adj_res = cls.adjust_speed(
                 audio_path=audio_path,
@@ -196,16 +202,25 @@ class AlignmentService:
             # Nạp câu audio đã cân chỉnh
             try:
                 clip = AudioSegment.from_file(adj_res["output_audio_path"])
-                # Điều chỉnh âm lượng giọng nếu có yêu cầu
+
+                # 1. CHUẨN HÓA ÂM LƯỢNG TỰ ĐỘNG CHO TỪNG CÂU THOẠI (Loudness Normalization):
+                # San phẳng chênh lệch giữa câu ngắn/câu dài, câu hỏi/câu cảm thán, giọng nam/giọng nữ về mức chuẩn -18.0 dBFS
+                TARGET_VOICE_DBFS = -18.0
+                if clip.dBFS != -float("inf") and clip.dBFS < 0:
+                    loudness_diff = TARGET_VOICE_DBFS - clip.dBFS
+                    clamped_gain = max(-5.0, min(7.0, loudness_diff))
+                    clip = clip.apply_gain(clamped_gain)
+
+                # Điều chỉnh âm lượng giọng tổng thể nếu có cấu hình từ người dùng
                 if voice_volume != 1.0 and voice_volume > 0:
                     gain_db = 20 * math.log10(voice_volume)
                     clip = clip.apply_gain(gain_db)
 
-                # Giới hạn độ dài clip để tuyệt đối không tràn sang câu thoại tiếp theo của nhân vật khác
-                max_clip_ms = int(available_dur * 1000)
-                if len(clip) > max_clip_ms and max_clip_ms > 200:
-                    fade_ms = min(50, max(15, max_clip_ms // 10))
-                    clip = clip[:max_clip_ms].fade_out(fade_ms)
+                # BẢO TOÀN 100% NỘI DUNG ÂM THANH (Không cắt cụt đuôi câu):
+                # Chỉ giới hạn nếu câu bị tràn quá thời lượng toàn bộ video
+                if start_ms + len(clip) > total_ms:
+                    remaining_ms = max(100, total_ms - start_ms)
+                    clip = clip[:remaining_ms].fade_out(30)
 
                 # Đặt câu audio vào timeline chính xác
                 full_voice = full_voice.overlay(clip, position=start_ms)
@@ -230,7 +245,7 @@ class AlignmentService:
 
         # 2. Hòa âm chuẩn thuyết minh phim (Ducking voice-over):
         # Giữ lại trọn vẹn âm thanh gốc (nhạc nền, tiếng động, giọng gốc) ở mức âm lượng vừa phải
-        # để giọng thuyết minh AI nổi bật rõ ràng phía trước.
+        # để giọng thuyết minh AI nổi bật rõ ràng, đồng đều phía trước.
         final_audio = full_voice
         if bgm_path and Path(bgm_path).exists():
             try:
@@ -247,16 +262,16 @@ class AlignmentService:
                     bgm = bgm[:total_ms]
 
                 # Nếu âm thanh gốc có âm lượng quá nhỏ (dưới -26 dBFS), chuẩn hóa nhẹ trước
-                if bgm.dBFS < -26.0:
+                if bgm.dBFS < -26.0 and bgm.dBFS != -float("inf"):
                     bgm = bgm.apply_gain(-20.0 - bgm.dBFS)
 
                 # Cân chỉnh âm lượng âm thanh gốc theo tỷ lệ thuyết minh (mặc định 20% - 30%)
                 bgm_gain_db = 20 * math.log10(max(0.01, bgm_volume))
                 ducked_bgm = bgm.apply_gain(bgm_gain_db)
 
-                # Hòa trộn: Âm thanh nền ducking + Giọng thuyết minh AI
+                # Hòa trộn: Âm thanh nền ducking + Giọng thuyết minh AI đã chuẩn hóa đều đặn
                 final_audio = ducked_bgm.overlay(full_voice)
-                logger.info(f"Đã hòa âm thuyết minh thành công với âm lượng nền {bgm_volume*100:.0f}% (gain: {bgm_gain_db:.1f}dB)")
+                logger.info(f"Đã hòa âm thuyết minh thành công với âm lượng nền {bgm_volume*100:.0f}% (gain: {bgm_gain_db:.1f}dB, chuẩn hóa giọng -18dBFS)")
             except Exception as e:
                 logger.warning(f"Lỗi khi hòa âm BGM: {e}. Sử dụng dải giọng đọc thuần túy.")
 

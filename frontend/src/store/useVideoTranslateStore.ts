@@ -32,7 +32,7 @@ export interface StudioSegment {
 
 export interface TranslationProgress {
   task_id: string;
-  status: "queued" | "processing" | "completed" | "failed";
+  status: "queued" | "processing" | "completed" | "failed" | "waiting_manual_translation";
   progress: number;
   current_step: string;
   message: string;
@@ -49,11 +49,13 @@ export interface TranslationProgress {
 }
 
 interface VideoTranslateState {
-  // Video File in memory
+  // Video File in memory & Trimming
   videoFile: File | null;
   videoFileName: string | null;
   videoFileSize: number | null;
   videoPreviewUrl: string | null;
+  videoStartTime: number;
+  videoEndTime: number | null;
 
   // Translation Config
   languages: LanguageOption[];
@@ -71,6 +73,7 @@ interface VideoTranslateState {
   bgmVolume: number;
   subtitleMode: string;
   maxSpeedRate: number;
+  outputResolution: string;
 
   // Provider & Style
   translationProvider: string;
@@ -80,6 +83,10 @@ interface VideoTranslateState {
   geminiTemperature: number;
   whisperModel: string;
   showAdvanced: boolean;
+
+  // Mode
+  translationMode: "auto" | "manual";
+  setTranslationMode: (mode: "auto" | "manual") => void;
 
   // Task & Processing State
   isProcessing: boolean;
@@ -97,6 +104,9 @@ interface VideoTranslateState {
 
   // Actions
   setVideoFile: (file: File | null, previewUrl?: string | null) => void;
+  setVideoStartTime: (time: number) => void;
+  setVideoEndTime: (time: number | null) => void;
+  resetVideoTrim: () => void;
   setLanguages: (languages: LanguageOption[]) => void;
   setSourceLang: (lang: string) => void;
   setTargetLang: (lang: string) => void;
@@ -108,6 +118,7 @@ interface VideoTranslateState {
   setBgmVolume: (vol: number) => void;
   setSubtitleMode: (mode: string) => void;
   setMaxSpeedRate: (rate: number) => void;
+  setOutputResolution: (res: string) => void;
   setTranslationProvider: (provider: string) => void;
   setTranslationStyle: (style: string) => void;
   setGeminiApiKey: (key: string) => void;
@@ -134,6 +145,7 @@ interface VideoTranslateState {
 
   setStudioSegments: (segments: StudioSegment[]) => void;
   updateStudioSegmentText: (id: number, text: string) => void;
+  updateStudioSegmentTiming: (id: number, start?: number, end?: number) => void;
   setStudioSegmentRedubbing: (id: number, isRedubbing: boolean) => void;
   updateSingleStudioSegment: (id: number, patch: Partial<StudioSegment>) => void;
   setActiveStudioSegmentId: (id: number | null) => void;
@@ -169,14 +181,18 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       bgmVolume: 0.25,
       subtitleMode: "hard_target",
       maxSpeedRate: 1.35,
+      outputResolution: "720p",
 
       translationProvider: "gemini",
       translationStyle: "auto",
       geminiApiKey: typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") || "" : "",
-      geminiModel: "gemini-2.5-flash",
+      geminiModel: "gemini-3.8-flash",
       geminiTemperature: 0.2,
       whisperModel: "large-v3",
       showAdvanced: false,
+
+      translationMode: "auto",
+      setTranslationMode: (translationMode) => set({ translationMode }),
 
       isProcessing: false,
       isCleaning: false,
@@ -191,6 +207,9 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       taskStatus: null,
       elapsedSeconds: 0,
 
+      videoStartTime: 0,
+      videoEndTime: null,
+
       setVideoFile: (file, previewUrl = null) =>
         set({
           videoFile: file,
@@ -198,6 +217,10 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
           videoFileSize: file ? file.size : null,
           videoPreviewUrl: previewUrl,
         }),
+
+      setVideoStartTime: (videoStartTime) => set({ videoStartTime }),
+      setVideoEndTime: (videoEndTime) => set({ videoEndTime }),
+      resetVideoTrim: () => set({ videoStartTime: 0, videoEndTime: null }),
 
       setLanguages: (languages) => set({ languages }),
       setSourceLang: (sourceLang) => set({ sourceLang }),
@@ -210,6 +233,7 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setBgmVolume: (bgmVolume) => set({ bgmVolume }),
       setSubtitleMode: (subtitleMode) => set({ subtitleMode }),
       setMaxSpeedRate: (maxSpeedRate) => set({ maxSpeedRate }),
+      setOutputResolution: (outputResolution) => set({ outputResolution }),
       setTranslationProvider: (translationProvider) => set({ translationProvider }),
       setTranslationStyle: (translationStyle) => set({ translationStyle }),
       setGeminiApiKey: (geminiApiKey) => {
@@ -242,6 +266,18 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       updateStudioSegmentText: (id, text) =>
         set((state) => ({
           studioSegments: state.studioSegments.map((s) => (s.id === id ? { ...s, text } : s)),
+        })),
+      updateStudioSegmentTiming: (id, start, end) =>
+        set((state) => ({
+          studioSegments: state.studioSegments.map((s) =>
+            s.id === id
+              ? {
+                  ...s,
+                  ...(start !== undefined ? { start } : {}),
+                  ...(end !== undefined ? { end } : {}),
+                }
+              : s
+          ),
         })),
       setStudioSegmentRedubbing: (id, isRedubbing) =>
         set((state) => ({

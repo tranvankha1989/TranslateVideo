@@ -28,3 +28,6 @@ frontend/.env.production
 *.log
 *.tmp
 *.bak
+/*.mp3
+/*.wav
+

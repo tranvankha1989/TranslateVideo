@@ -78,6 +78,11 @@
     50% { height: 24px; }
   }
 
+  @keyframes move-stripe {
+    0% { background-position: 1rem 0; }
+    100% { background-position: 0 0; }
+  }
+
   /* Hide scrollbar utility */
   .hide-scrollbar::-webkit-scrollbar {
     display: none;

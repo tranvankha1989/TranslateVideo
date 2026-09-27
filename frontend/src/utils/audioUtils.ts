@@ -80,3 +80,79 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
 
   return new Blob([bufferArr], { type: "audio/wav" });
 }
+
+/**
+ * Phát âm thanh chuông thông báo nhẹ nhàng, vui tươi khi hoàn thành tác vụ (Success Chime).
+ * Sử dụng Web Audio API không phụ thuộc file mp3 ngoài, hoạt động mượt mà trên mọi trình duyệt.
+ */
+export const playCompletionSound = () => {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+
+    // Hợp âm 4 nốt vươn cao: G5 (784Hz) -> B5 (988Hz) -> D6 (1175Hz) -> G6 (1568Hz)
+    const notes = [
+      { freq: 783.99, start: 0.0, dur: 0.18, vol: 0.18 },
+      { freq: 987.77, start: 0.12, dur: 0.18, vol: 0.20 },
+      { freq: 1174.66, start: 0.24, dur: 0.22, vol: 0.22 },
+      { freq: 1567.98, start: 0.36, dur: 0.65, vol: 0.25 },
+    ];
+
+    notes.forEach(({ freq, start, dur, vol }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(vol, ctx.currentTime + start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur);
+    });
+  } catch (err) {
+    console.debug("Không thể phát âm thanh hoàn tất:", err);
+  }
+};
+
+/**
+ * Phát âm thanh thông báo ngắn (ví dụ: tạo phụ đề xong, nạp file thành công).
+ */
+export const playNotificationSound = () => {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+
+    const notes = [
+      { freq: 880, start: 0.0, dur: 0.15, vol: 0.16 }, // A5
+      { freq: 1318.51, start: 0.10, dur: 0.35, vol: 0.20 }, // E6
+    ];
+
+    notes.forEach(({ freq, start, dur, vol }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(vol, ctx.currentTime + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur);
+    });
+  } catch (err) {
+    console.debug("Không thể phát âm thanh thông báo:", err);
+  }
+};

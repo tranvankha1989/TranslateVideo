@@ -7,7 +7,7 @@ API Router cho dịch và lồng tiếng video trọn gói:
 - Hỗ trợ chế độ 2-bước tương tác (Duyệt/sửa phụ đề dịch trước khi render video)
 """
 
-from typing import Any
+from typing import Any, Optional
 import time
 import json
 import uuid
@@ -25,6 +25,7 @@ from app.schemas.video_translate import (
     SaveSubtitlesRequest,
     VerifyKeyRequest,
     StudioRedubSegmentRequest,
+    StudioUpdateSegmentRequest,
     StudioRemuxRequest,
 )
 from app.services.translator_service import GoogleAIStudioTranslator, GoogleTranslator
@@ -85,6 +86,9 @@ async def start_video_translation(
     translation_model: str = Form("gemini-2.5-flash"),
     translation_temperature: float = Form(0.2),
     whisper_model: str = Form("large-v3"),
+    output_resolution: str = Form("720p"),
+    start_time: float = Form(0.0),
+    end_time: float | None = Form(None),
 ):
     """
     Tiếp nhận video tải lên và kích hoạt Pipeline dịch & lồng tiếng tự động chạy ngầm.
@@ -108,6 +112,10 @@ async def start_video_translation(
     trans_model = str(_form_val(translation_model, "gemini-2.5-flash"))
     trans_temp = float(_form_val(translation_temperature, 0.2))
     w_model = str(_form_val(whisper_model, "large-v3"))
+    out_res = str(_form_val(output_resolution, "720p"))
+    c_start = float(_form_val(start_time, 0.0))
+    raw_end = _form_val(end_time, None)
+    c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None
 
     if trans_provider.lower() in ["gemini", "google_ai_studio", "google-ai-studio"]:
         effective_key = trans_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_STUDIO_API_KEY")
@@ -142,6 +150,9 @@ async def start_video_translation(
         "source_lang": s_lang,
         "target_lang": t_lang,
         "total_segments": 0,
+        "output_resolution": out_res,
+        "start_time": c_start,
+        "end_time": c_end,
         "video_url": None,
         "audio_url": None,
         "subtitles_srt_url": None,
@@ -175,6 +186,9 @@ async def start_video_translation(
             translation_model=trans_model,
             translation_temperature=trans_temp,
             whisper_model=w_model,
+            output_resolution=out_res,
+            clip_start=c_start,
+            clip_end=c_end,
         )
     )
     _BACKGROUND_TASKS.add(bg_task)
@@ -185,6 +199,245 @@ async def start_video_translation(
         "status": "processing",
         "message": "Tác vụ dịch video đã được khởi chạy thành công.",
     }
+
+
+@router.post("/manual/start-transcribe")
+async def start_manual_transcription(
+    video: UploadFile = File(..., description="File video cần tạo phụ đề gốc"),
+    source_lang: str = Form("auto"),
+    whisper_model: str = Form("large-v3"),
+    start_time: float = Form(0.0),
+    end_time: float | None = Form(None),
+):
+    """
+    Giai đoạn 1 (Chế độ thủ công):
+    Tải video lên -> Tách audio -> Chạy Whisper tạo phụ đề gốc (subtitles_original.srt).
+    Sau khi xong, hệ thống dừng lại chờ người dùng tải file về dịch và nạp lại.
+    """
+    s_lang = str(_form_val(source_lang, "auto"))
+    w_model = str(_form_val(whisper_model, "large-v3"))
+    c_start = float(_form_val(start_time, 0.0))
+    raw_end = _form_val(end_time, None)
+    c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None
+
+    task_id = uuid.uuid4().hex[:12]
+    task_dir = TRANSLATE_OUTPUT_DIR / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_filename = video.filename or f"upload_{task_id}.mp4"
+    input_video_path = task_dir / f"input_{safe_filename}"
+
+    def _save_video():
+        with open(input_video_path, "wb") as buffer:
+            shutil.copyfileobj(video.file, buffer)
+
+    await asyncio.to_thread(_save_video)
+
+    now_ts = time.time()
+    _TASK_STORE[task_id] = {
+        "task_id": task_id,
+        "status": "processing",
+        "progress": 5,
+        "current_step": "extracting",
+        "message": "Đang tiếp nhận video và bắt đầu trích xuất âm thanh...",
+        "source_lang": s_lang,
+        "target_lang": "vi",
+        "total_segments": 0,
+        "is_manual_mode": True,
+        "start_time": c_start,
+        "end_time": c_end,
+        "video_url": None,
+        "audio_url": None,
+        "subtitles_srt_url": None,
+        "subtitles_original_srt_url": None,
+        "_start_time": now_ts,
+        "created_at": now_ts,
+        "elapsed_time": 0.0,
+        "elapsed_str": "0 giây",
+        "error": None,
+    }
+
+    bg_task = asyncio.create_task(
+        VideoTranslationPipeline.run_manual_transcribe(
+            task_id=task_id,
+            video_path=input_video_path,
+            source_lang=s_lang,
+            whisper_model=w_model,
+            clip_start=c_start,
+            clip_end=c_end,
+        )
+    )
+    _BACKGROUND_TASKS.add(bg_task)
+    bg_task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+    return {
+        "task_id": task_id,
+        "status": "processing",
+        "message": "Đã bắt đầu tạo phụ đề gốc bằng Faster-Whisper.",
+    }
+
+
+@router.post("/manual/upload-translated-srt/{task_id}")
+async def upload_manual_translated_srt(
+    task_id: str,
+    srt_file: UploadFile | None = File(None),
+    srt_content: str | None = Form(None),
+):
+    """
+    Nạp file hoặc nội dung phụ đề .srt đã dịch từ người dùng vào thư mục tác vụ.
+    Tự động chuẩn hóa, lọc sạch citation AI và code block markdown.
+    """
+    task_dir = TRANSLATE_OUTPUT_DIR / task_id
+    if not task_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy tác vụ '{task_id}'.")
+
+    content = ""
+    if srt_file is not None:
+        raw_bytes = await srt_file.read()
+        try:
+            content = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            content = raw_bytes.decode("utf-8-sig", errors="ignore")
+    elif srt_content:
+        content = srt_content.strip()
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Nội dung file phụ đề .srt rỗng hoặc không hợp lệ.")
+
+    parsed = VideoTranslationPipeline.parse_srt_content(content)
+    if not parsed:
+        raise HTTPException(
+            status_code=400,
+            detail="File phụ đề không đúng định dạng SRT chuẩn (cần có số thứ tự, mốc thời gian 00:00:00,000 --> 00:00:00,000 và văn bản).",
+        )
+
+    target_srt = task_dir / "subtitles.srt"
+    generate_srt_file(parsed, target_srt, mode="hard_target")
+
+    VideoTranslationPipeline.update_task(
+        task_id,
+        progress=50,
+        current_step="waiting_manual_translation",
+        message=f"✅ Đã nạp {len(parsed)} câu thoại phụ đề dịch. Hãy chọn giọng đọc ở Bước 4 và bấm 'Tiếp Tục Lồng Tiếng & Render Video' để xuất phim.",
+        subtitles_srt_url=f"/outputs/video_translate/{task_id}/subtitles.srt",
+        total_segments=len(parsed),
+    )
+
+    return {
+        "status": "ok",
+        "message": f"Nạp phụ đề thành công! Nhận diện {len(parsed)} câu thoại hợp lệ.",
+        "segments_count": len(parsed),
+        "subtitles_srt_url": f"/outputs/video_translate/{task_id}/subtitles.srt",
+    }
+
+
+@router.post("/manual/resume-pipeline/{task_id}")
+async def resume_manual_pipeline(
+    task_id: str,
+    voice_id: str = Form("vi-VN-HoaiMyNeural"),
+    engine: str = Form("edge-tts"),
+    voice_rate: str = Form("+0%"),
+    voice_pitch: str = Form("+0Hz"),
+    voice_volume: float = Form(1.0),
+    preserve_bgm: bool = Form(True),
+    bgm_volume: float = Form(0.25),
+    subtitle_mode: str = Form("hard_target"),
+    max_speed_rate: float = Form(1.35),
+    output_resolution: str = Form("720p"),
+    srt_file: UploadFile | None = File(None),
+    srt_content: str | None = Form(None),
+):
+    """
+    Giai đoạn 2 (Chế độ thủ công):
+    Tiếp nhận bản dịch SRT và cấu hình giọng đọc, kích hoạt Lồng tiếng TTS -> Cân bằng âm -> Hòa âm BGM -> Render Video MP4.
+    """
+    task_dir = TRANSLATE_OUTPUT_DIR / task_id
+    if not task_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy tác vụ '{task_id}'.")
+
+    # Nếu người dùng nạp kèm file SRT mới ngay lúc bấm nút
+    if srt_file is not None:
+        raw_bytes = await srt_file.read()
+        try:
+            content = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            content = raw_bytes.decode("utf-8-sig", errors="ignore")
+        if content.strip():
+            parsed_new = VideoTranslationPipeline.parse_srt_content(content)
+            if parsed_new:
+                generate_srt_file(parsed_new, task_dir / "subtitles.srt", mode="hard_target")
+    elif srt_content and srt_content.strip():
+        parsed_new = VideoTranslationPipeline.parse_srt_content(srt_content)
+        if parsed_new:
+            generate_srt_file(parsed_new, task_dir / "subtitles.srt", mode="hard_target")
+
+    if not (task_dir / "subtitles.srt").exists():
+        raise HTTPException(
+            status_code=400,
+            detail="Chưa có file phụ đề dịch subtitles.srt. Vui lòng tải lên file phụ đề đã dịch trước khi tiếp tục.",
+        )
+
+    v_id = str(_form_val(voice_id, "vi-VN-HoaiMyNeural"))
+    eng = str(_form_val(engine, "edge-tts"))
+    v_rate = str(_form_val(voice_rate, "+0%"))
+    v_pitch = str(_form_val(voice_pitch, "+0Hz"))
+    v_vol = float(_form_val(voice_volume, 1.0))
+    p_bgm_raw = _form_val(preserve_bgm, True)
+    p_bgm = p_bgm_raw if isinstance(p_bgm_raw, bool) else str(p_bgm_raw).lower() in ("true", "1", "yes")
+    bgm_vol = float(_form_val(bgm_volume, 0.25))
+    sub_mode = str(_form_val(subtitle_mode, "hard_target"))
+    max_speed = float(_form_val(max_speed_rate, 1.35))
+    out_res = str(_form_val(output_resolution, "720p"))
+
+    VideoTranslationPipeline.update_task(
+        task_id,
+        status="processing",
+        progress=20,
+        current_step="dubbing",
+        message="Đang khởi tạo lồng tiếng và render video...",
+        output_resolution=out_res,
+        error=None,
+    )
+
+    bg_task = asyncio.create_task(
+        VideoTranslationPipeline.run_redub(
+            task_id=task_id,
+            voice_id=v_id,
+            engine=eng,
+            voice_rate=v_rate,
+            voice_pitch=v_pitch,
+            voice_volume=v_vol,
+            preserve_bgm=p_bgm,
+            bgm_volume=bgm_vol,
+            subtitle_mode=sub_mode,
+            max_speed_rate=max_speed,
+            output_resolution=out_res,
+        )
+    )
+    _BACKGROUND_TASKS.add(bg_task)
+    bg_task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+    return {
+        "task_id": task_id,
+        "status": "processing",
+        "message": "Đang tiến hành lồng tiếng và render video hoàn chỉnh...",
+    }
+
+
+@router.get("/tasks")
+async def list_translation_tasks():
+    """Lấy danh sách toàn bộ các dự án dịch video đã thực hiện (phục vụ mục Thư viện)."""
+    tasks = VideoTranslationPipeline.list_all_tasks()
+    return {"total": len(tasks), "tasks": tasks}
+
+
+@router.delete("/tasks/{task_id}")
+async def delete_translation_task(task_id: str):
+    """Xóa dự án dịch video và giải phóng dung lượng ổ đĩa."""
+    success = VideoTranslationPipeline.delete_task(task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án hoặc không thể xóa.")
+    return {"status": "ok", "message": f"Đã xóa dự án {task_id} thành công."}
 
 
 @router.get("/active-task")
@@ -296,7 +549,8 @@ async def stream_translated_video(task_id: str):
 @router.get("/download/{task_id}")
 async def download_file_endpoint(
     task_id: str,
-    file_type: str = Query("video", description="Loại file cần tải: 'video', 'srt', hoặc 'audio'"),
+    file_type: Optional[str] = Query(None, description="Loại file cần tải: 'video', 'srt', 'srt_original', hoặc 'audio'"),
+    type: Optional[str] = Query(None, description="Tên bí danh thay thế cho file_type"),
 ):
     """
     Endpoint tải file video / phụ đề / âm thanh trực tiếp về máy.
@@ -306,30 +560,41 @@ async def download_file_endpoint(
     if not task_dir.exists():
         raise HTTPException(status_code=404, detail=f"Không tìm thấy thư mục xử lý của tác vụ '{task_id}'")
 
-    if file_type.lower() in ["srt_original", "original_srt", "srt_source"]:
+    requested_type = (file_type or type or "video").strip().lower()
+
+    # 1. Tải phụ đề gốc (original Whisper SRT)
+    if requested_type in ["srt_original", "original_srt", "srt_source", "original", "source_srt"]:
         orig_srt = task_dir / "subtitles_original.srt"
         if not orig_srt.exists():
-            raise HTTPException(status_code=404, detail="Chưa có file phụ đề thoại gốc nào được tạo")
+            orig_candidates = list(task_dir.glob("*original*.srt"))
+            if orig_candidates:
+                orig_srt = orig_candidates[0]
+            else:
+                raise HTTPException(status_code=404, detail="Chưa có file phụ đề thoại gốc nào được tạo")
         return FileResponse(
             path=str(orig_srt),
             filename=f"original_subtitles_{task_id}.srt",
-            media_type="text/plain; charset=utf-8",
+            media_type="application/x-subrip",
+            headers={"Content-Disposition": f'attachment; filename="original_subtitles_{task_id}.srt"'},
         )
 
-    if file_type.lower() == "srt":
+    # 2. Tải phụ đề đã dịch (translated SRT)
+    if requested_type in ["srt", "subtitles", "subtitle", "sub", "translated_srt"]:
         srt_file = task_dir / "subtitles.srt"
         if not srt_file.exists():
-            srt_candidates = [f for f in task_dir.glob("*.srt") if not f.name.startswith("subtitles_original")]
+            srt_candidates = [f for f in task_dir.glob("*.srt") if not "original" in f.name.lower()]
             if not srt_candidates:
-                raise HTTPException(status_code=404, detail="Chưa có file phụ đề SRT nào được tạo")
+                raise HTTPException(status_code=404, detail="Chưa có file phụ đề SRT dịch nào được tạo")
             srt_file = srt_candidates[0]
         return FileResponse(
             path=str(srt_file),
             filename=f"translated_subtitles_{task_id}.srt",
-            media_type="text/plain; charset=utf-8",
+            media_type="application/x-subrip",
+            headers={"Content-Disposition": f'attachment; filename="translated_subtitles_{task_id}.srt"'},
         )
 
-    if file_type.lower() == "audio":
+    # 3. Tải âm thanh lồng tiếng
+    if requested_type in ["audio", "wav", "mp3"]:
         audio_candidates = list(task_dir.glob("final_*.wav")) or list(task_dir.glob("*.wav"))
         if not audio_candidates:
             raise HTTPException(status_code=404, detail="Chưa có file âm thanh nào được tạo")
@@ -338,9 +603,10 @@ async def download_file_endpoint(
             path=str(audio_file),
             filename=f"dubbed_audio_{task_id}.wav",
             media_type="audio/wav",
+            headers={"Content-Disposition": f'attachment; filename="dubbed_audio_{task_id}.wav"'},
         )
 
-    # Mặc định file_type == 'video'
+    # 4. Mặc định: Tải Video MP4
     candidates = [
         task_dir / "final_translated.mp4",
         *[f for f in task_dir.glob("*.mp4") if not f.name.startswith("input_")],
@@ -352,6 +618,7 @@ async def download_file_endpoint(
                 path=str(cand),
                 filename=f"translated_video_{task_id}.mp4",
                 media_type="video/mp4",
+                headers={"Content-Disposition": f'attachment; filename="translated_video_{task_id}.mp4"'},
             )
     raise HTTPException(status_code=404, detail="File video hoàn thiện chưa sẵn sàng hoặc render chưa hoàn tất")
 
@@ -853,10 +1120,27 @@ async def studio_redub_segment_endpoint(task_id: str, req: StudioRedubSegmentReq
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/studio-update-segment/{task_id}")
+async def studio_update_segment_endpoint(task_id: str, req: StudioUpdateSegmentRequest):
+    """
+    Cập nhật trực tiếp nội dung hoặc mốc thời gian bắt đầu/kết thúc của câu thoại trong Studio.
+    """
+    try:
+        return await VideoTranslationPipeline.update_segment(
+            task_id=task_id,
+            segment_id=req.segment_id,
+            text=req.text,
+            start=req.start,
+            end=req.end,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/studio-quick-remux/{task_id}")
 async def studio_quick_remux_endpoint(task_id: str, req: StudioRemuxRequest | None = None):
     """
-    Ráp lại dải âm thanh và mux lại vào video siêu tốc (chỉ 2-5 giây) sau khi người dùng sửa câu trong Studio.
+    Ráp lại dải âm thanh và mux lại vào video siêu tốc (chỉ 2-5 giây) sau khi người dùng sửa câu trong Studio hoặc Xuất bản.
     """
     try:
         req_data = req.model_dump() if req else {}
@@ -867,6 +1151,7 @@ async def studio_quick_remux_endpoint(task_id: str, req: StudioRemuxRequest | No
             bgm_volume=req_data.get("bgm_volume"),
             voice_volume=req_data.get("voice_volume"),
             max_speed_rate=req_data.get("max_speed_rate"),
+            output_resolution=req_data.get("output_resolution"),
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

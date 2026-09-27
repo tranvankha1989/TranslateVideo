@@ -260,6 +260,39 @@ interface TTSState {
   testRemoteGpuConnection: (url: string) => Promise<TestGpuResult>;
   openEnvFile: () => Promise<{ ok: boolean; message?: string }>;
   reloadBackend: () => Promise<{ ok: boolean; message?: string }>;
+  appVersionInfo: AppVersionInfo | null;
+  fetchAppVersion: () => Promise<AppVersionInfo | null>;
+  checkAppUpdate: () => Promise<CheckUpdateResult>;
+  performAppUpdate: () => Promise<PerformUpdateResult>;
+}
+
+export interface AppVersionInfo {
+  version: string;
+  name?: string;
+  release_date?: string;
+  description?: string;
+  git_branch?: string;
+  git_commit?: string;
+  git_commit_date?: string;
+}
+
+export interface CheckUpdateResult {
+  ok: boolean;
+  has_update: boolean;
+  current_version: string;
+  latest_remote_commit?: string;
+  commits_behind: number;
+  commit_messages: string[];
+  message: string;
+  error?: string;
+}
+
+export interface PerformUpdateResult {
+  ok: boolean;
+  message: string;
+  new_version?: string;
+  logs: string[];
+  error?: string;
 }
 
 export interface HardwareConfig {
@@ -280,6 +313,7 @@ export interface TestGpuResult {
   ping_ms?: number;
   error?: string;
 }
+
 
 
 
@@ -1094,5 +1128,59 @@ export const useTTSStore = create<TTSState>((set, get) => {
         set({ isLoadingHardware: false });
       }
     },
+    appVersionInfo: null,
+    fetchAppVersion: async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/settings/app-version");
+        if (res.ok) {
+          const data: AppVersionInfo = await res.json();
+          set({ appVersionInfo: data });
+          return data;
+        }
+        return null;
+      } catch (err) {
+        console.error("Lỗi lấy thông tin phiên bản:", err);
+        return null;
+      }
+    },
+    checkAppUpdate: async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/settings/check-update", {
+          method: "POST",
+        });
+        const data: CheckUpdateResult = await res.json();
+        return data;
+      } catch (err: any) {
+        return {
+          ok: false,
+          has_update: false,
+          current_version: "2.9.0",
+          commits_behind: 0,
+          commit_messages: [],
+          message: "Không thể kiểm tra bản cập nhật",
+          error: err.message || "Lỗi kết nối mạng",
+        };
+      }
+    },
+    performAppUpdate: async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/settings/perform-update", {
+          method: "POST",
+        });
+        const data: PerformUpdateResult = await res.json();
+        if (data.ok && data.new_version) {
+          get().fetchAppVersion().catch(() => {});
+        }
+        return data;
+      } catch (err: any) {
+        return {
+          ok: false,
+          message: "Lỗi thực thi cập nhật",
+          logs: [],
+          error: err.message || "Không thể kết nối máy chủ Backend",
+        };
+      }
+    },
   }; // end return
 }); // end create
+

@@ -1,1 +1,62 @@
-[]
+[
+  {
+    "id": "mem_001",
+    "source_text": "搞落公司了",
+    "ai_translated": "Công ty đã bị gỡ xuống",
+    "user_corrected": "Tôi để quên ở công ty rồi",
+    "note": "Từ '落' trong khẩu ngữ là rớt/để quên đồ, không phải gỡ xuống",
+    "source_lang": "zh",
+    "target_lang": "vi",
+    "updated_at": "2026-09-27T13:10:00"
+  },
+  {
+    "id": "mem_002",
+    "source_text": "二十五单三十五",
+    "ai_translated": "Hai mươi lăm đơn ba mươi lăm",
+    "user_corrected": "Từ 25 đến 35 tuổi",
+    "note": "ASR Whisper nhận nhầm '到' (đến) thành '单' (đơn), đây là khoảng độ tuổi",
+    "source_lang": "zh",
+    "target_lang": "vi",
+    "updated_at": "2026-09-27T13:10:00"
+  },
+  {
+    "id": "mem_003",
+    "source_text": "干净正常会说人话",
+    "ai_translated": "Sạch sẽ và bình thường, có thể nói được tiếng người",
+    "user_corrected": "Sạch sẽ, đàng hoàng, giao tiếp lịch sự",
+    "note": "Khẩu ngữ '会说人话' là ăn nói tử tế/lịch sự/biết điều, không dịch thô 'nói tiếng người'",
+    "source_lang": "zh",
+    "target_lang": "vi",
+    "updated_at": "2026-09-27T13:10:00"
+  },
+  {
+    "id": "mem_004",
+    "source_text": "会演戏",
+    "ai_translated": "Có thể hành động",
+    "user_corrected": "Biết diễn kịch, biết đóng giả",
+    "note": "Trong bối cảnh tìm người đóng giả bạn trai/kịch bản là biết diễn xuất, không dịch là 'hành động'",
+    "source_lang": "zh",
+    "target_lang": "vi",
+    "updated_at": "2026-09-27T13:10:00"
+  },
+  {
+    "id": "mem_005",
+    "source_text": "we ain't gonna be a none and block, bloop, bloop",
+    "ai_translated": "Rằng chúng ta sẽ không là ai cả và chặn, bloop, bloop",
+    "user_corrected": "",
+    "note": "Nhạc nền tiếng Anh chêm vào trong video thoại tiếng Trung -> Bắt buộc trả về text rỗng để bỏ qua, không dịch và không lồng tiếng đè",
+    "source_lang": "zh",
+    "target_lang": "vi",
+    "updated_at": "2026-09-27T14:12:00"
+  },
+  {
+    "id": "mem_006",
+    "source_text": "徐小姐 / 许小姐",
+    "ai_translated": "cô Xu",
+    "user_corrected": "Hứa tiểu thư / Cô Hứa",
+    "note": "Tên riêng nhân vật tiếng Trung bắt buộc chuyển sang âm Hán-Việt xuôi tai, tuyệt đối không dùng Pinyin tiếng Anh",
+    "source_lang": "zh",
+    "target_lang": "vi",
+    "updated_at": "2026-09-27T14:12:00"
+  }
+]

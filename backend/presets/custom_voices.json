@@ -8,7 +8,6 @@
     "prompt_text": "Xin chào, mình là Minh Quân Pro, một dọc độc được tối ưu cho khả năng có suy trình giữa tiếng việt và tiếng lang.  Với chắc dọc tự nhiên, mượt mà những người thật cùng khả năng chuyển ngữ liền mạc.",
     "url": "http://localhost:8000/presets/custom/custom_7fd3a2c1.wav"
   },
-
   {
     "id": "custom_0bc4de90",
     "name": "Nhật Phong",
@@ -36,6 +35,32 @@
     "description": "Giọng tự tạo (Đa mẫu)",
     "icon": "record_voice_over",
     "url": "http://localhost:8000/presets/custom/custom_a4c589c2.wav",
+    "prompt_text": "",
+    "type": "custom",
+    "has_cache_pt": true,
+    "samples_count": 1,
+    "duration": 6.6
+  },
+  {
+    "id": "custom_172b68c0",
+    "name": "Thế Giới Động Vật",
+    "gender": "female",
+    "description": "Giọng tự tạo (Đa mẫu)",
+    "icon": "record_voice_over",
+    "url": "http://localhost:8000/presets/custom/custom_172b68c0.wav",
+    "prompt_text": "",
+    "type": "custom",
+    "has_cache_pt": true,
+    "samples_count": 1,
+    "duration": 10.0
+  },
+  {
+    "id": "custom_697725f8",
+    "name": "English V1",
+    "gender": "male",
+    "description": "Giọng tự tạo (Đa mẫu)",
+    "icon": "record_voice_over",
+    "url": "http://localhost:8000/presets/custom/custom_697725f8.wav",
     "prompt_text": "",
     "type": "custom",
     "has_cache_pt": true,

@@ -268,3 +268,224 @@ async def reload_backend():
         "hardware": hw,
     }
 
+
+# ─── QUẢN LÝ PHIÊN BẢN & TỰ ĐỘNG CẬP NHẬT PHẦN MỀM (AUTO UPDATE) ─────────────
+
+REPO_ROOT = BASE_DIR.parent
+VERSION_FILE = REPO_ROOT / "version.json"
+
+
+class AppVersionResponse(BaseModel):
+    version: str
+    name: Optional[str] = "VoiceSync AI"
+    release_date: Optional[str] = None
+    description: Optional[str] = None
+    git_branch: Optional[str] = None
+    git_commit: Optional[str] = None
+    git_commit_date: Optional[str] = None
+
+
+class CheckUpdateResponse(BaseModel):
+    ok: bool
+    has_update: bool
+    current_version: str
+    latest_remote_commit: Optional[str] = None
+    commits_behind: int = 0
+    commit_messages: list[str] = []
+    message: str
+    error: Optional[str] = None
+
+
+class PerformUpdateResponse(BaseModel):
+    ok: bool
+    message: str
+    new_version: Optional[str] = None
+    logs: list[str] = []
+    error: Optional[str] = None
+
+
+def _get_git_output(args: list[str], cwd: Path = REPO_ROOT, timeout: float = 12.0) -> tuple[int, str]:
+    try:
+        res = subprocess.run(
+            ["git"] + args,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        output = (res.stdout or "").strip()
+        if not output and res.stderr:
+            output = res.stderr.strip()
+        return res.returncode, output
+    except Exception as e:
+        return -1, str(e)
+
+
+@router.get("/app-version", response_model=AppVersionResponse, summary="Lấy thông tin phiên bản phần mềm hiện tại")
+async def get_app_version_endpoint():
+    """Trả về thông tin phiên bản, ngày phát hành và commit Git hiện tại."""
+    ver_data = {
+        "version": "2.9.0",
+        "name": "VoiceSync AI",
+        "release_date": None,
+        "description": None,
+    }
+
+    if VERSION_FILE.exists():
+        try:
+            import json
+            with open(VERSION_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                ver_data.update(loaded)
+        except Exception as e:
+            logger.warning(f"Không thể đọc version.json: {e}")
+
+    # Lấy thông tin Git
+    branch_code, branch_name = _get_git_output(["branch", "--show-current"])
+    commit_code, commit_hash = _get_git_output(["rev-parse", "--short", "HEAD"])
+    date_code, commit_date = _get_git_output(["log", "-1", "--format=%cd", "--date=short"])
+
+    return AppVersionResponse(
+        version=ver_data.get("version", "2.9.0"),
+        name=ver_data.get("name", "VoiceSync AI"),
+        release_date=ver_data.get("release_date"),
+        description=ver_data.get("description"),
+        git_branch=branch_name if branch_code == 0 and branch_name else "main",
+        git_commit=commit_hash if commit_code == 0 and commit_hash else None,
+        git_commit_date=commit_date if date_code == 0 and commit_date else None,
+    )
+
+
+@router.post("/check-update", response_model=CheckUpdateResponse, summary="Kiểm tra xem có bản cập nhật mới từ GitHub không")
+async def check_update_endpoint():
+    """Kết nối tới GitHub remote để kiểm tra xem có commit mới chưa được cập nhật không."""
+    cur_ver = "2.9.0"
+    if VERSION_FILE.exists():
+        try:
+            import json
+            with open(VERSION_FILE, "r", encoding="utf-8") as f:
+                cur_ver = json.load(f).get("version", "2.9.0")
+        except Exception:
+            pass
+
+    # 1. Fetch remote origin
+    fetch_code, fetch_err = _get_git_output(["fetch", "origin", "main"], timeout=15.0)
+    if fetch_code != 0:
+        # Thử fetch chung nếu branch mặc định khác
+        fetch_code, fetch_err = _get_git_output(["fetch"], timeout=15.0)
+
+    if fetch_code != 0:
+        return CheckUpdateResponse(
+            ok=False,
+            has_update=False,
+            current_version=cur_ver,
+            message="Không thể kết nối tới Git Remote hoặc mạng Internet bị ngắt quãng.",
+            error=fetch_err,
+        )
+
+    # 2. Đếm số commit chưa kéo về
+    count_code, count_str = _get_git_output(["rev-list", "HEAD..origin/main", "--count"])
+    if count_code != 0:
+        # Thử với @{u} (upstream)
+        count_code, count_str = _get_git_output(["rev-list", "HEAD..@{u}", "--count"])
+
+    behind_count = 0
+    try:
+        behind_count = int(count_str.strip()) if count_code == 0 else 0
+    except ValueError:
+        behind_count = 0
+
+    # 3. Lấy log các commit mới
+    log_code, log_str = _get_git_output(["log", "HEAD..origin/main", "--oneline", "-n", "8"])
+    if log_code != 0:
+        log_code, log_str = _get_git_output(["log", "HEAD..@{u}", "--oneline", "-n", "8"])
+
+    commit_msgs = [line.strip() for line in log_str.splitlines() if line.strip()] if log_code == 0 else []
+
+    # Lấy hash commit mới nhất từ remote
+    rem_code, rem_hash = _get_git_output(["rev-parse", "--short", "origin/main"])
+
+    if behind_count > 0:
+        return CheckUpdateResponse(
+            ok=True,
+            has_update=True,
+            current_version=cur_ver,
+            latest_remote_commit=rem_hash if rem_code == 0 else None,
+            commits_behind=behind_count,
+            commit_messages=commit_msgs,
+            message=f"Đã tìm thấy {behind_count} bản cập nhật mới trên GitHub! Sẵn sàng nâng cấp.",
+        )
+    else:
+        return CheckUpdateResponse(
+            ok=True,
+            has_update=False,
+            current_version=cur_ver,
+            latest_remote_commit=rem_hash if rem_code == 0 else None,
+            commits_behind=0,
+            commit_messages=[],
+            message="Ứng dụng của bạn đang ở phiên bản mới nhất!",
+        )
+
+
+@router.post("/perform-update", response_model=PerformUpdateResponse, summary="Tiến hành kéo code cập nhật phần mềm")
+async def perform_update_endpoint():
+    """
+    Thực hiện kéo code từ GitHub (git pull origin main) và cập nhật hệ thống:
+    - Kéo mã nguồn mới nhất
+    - Cài đặt thư viện bổ sung nếu có
+    - Đọc lại thông tin phiên bản mới
+    """
+    logs: list[str] = []
+
+    # 1. Git pull
+    logs.append("🚀 [1/3] Đang kéo mã nguồn mới nhất từ GitHub (git pull)...")
+    pull_code, pull_out = _get_git_output(["pull", "origin", "main"], timeout=30.0)
+    if pull_code != 0:
+        pull_code, pull_out = _get_git_output(["pull"], timeout=30.0)
+
+    logs.append(pull_out)
+
+    if pull_code != 0:
+        return PerformUpdateResponse(
+            ok=False,
+            message="Không thể kéo mã nguồn từ GitHub. Hãy kiểm tra kết nối mạng hoặc xung đột Git.",
+            logs=logs,
+            error=pull_out,
+        )
+
+    # 2. Cài đặt thư viện phụ thuộc nếu có file requirements.txt
+    req_file = BASE_DIR / "requirements.txt"
+    if req_file.exists():
+        logs.append("📦 [2/3] Kiểm tra và cập nhật thư viện Python phụ thuộc...")
+        try:
+            pip_cmd = [sys.executable, "-m", "pip", "install", "-r", str(req_file), "--quiet"]
+            res = subprocess.run(pip_cmd, cwd=str(BASE_DIR), capture_output=True, text=True, timeout=90.0)
+            if res.returncode == 0:
+                logs.append("✅ Thư viện Python đã được đồng bộ chuẩn xác.")
+            else:
+                logs.append(f"⚠️ Cảnh báo pip: {res.stderr[:200]}")
+        except Exception as pe:
+            logs.append(f"⚠️ Bỏ qua cập nhật pip: {pe}")
+
+    # 3. Đọc lại version mới
+    new_ver = "2.9.0"
+    if VERSION_FILE.exists():
+        try:
+            import json
+            with open(VERSION_FILE, "r", encoding="utf-8") as f:
+                new_ver = json.load(f).get("version", new_ver)
+        except Exception:
+            pass
+
+    logs.append(f"🎉 [3/3] Nâng cấp hoàn tất thành công! Phiên bản hiện tại: v{new_ver}")
+
+    return PerformUpdateResponse(
+        ok=True,
+        message=f"Cập nhật thành công lên phiên bản v{new_ver}!",
+        new_version=new_ver,
+        logs=logs,
+    )
+
+

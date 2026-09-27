@@ -53,6 +53,32 @@ async def fetch_all_voices() -> list[dict]:
     return voices
 
 
+def clean_audio_sample(input_path: Path, output_path: Path) -> Path:
+    """
+    Tách lọc nhạc nền và tạp âm cho mẫu giọng nói bằng bộ lọc FFmpeg âm thanh chuyên nghiệp:
+    - Highpass 80Hz: Khử rung ù tần số thấp
+    - Lowpass 10000Hz: Khử tiếng rít chói tai
+    - Afftdn: Khử nhiễu nền
+    - Dynaudnorm: Cân bằng biên độ âm học
+    """
+    try:
+        import subprocess
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(input_path),
+            "-af", "highpass=f=80,lowpass=f=10000,afftdn=nf=-25dB,dynaudnorm=p=0.9:m=10.0",
+            "-ar", "24000",
+            "-ac", "1",
+            str(output_path),
+        ]
+        res = subprocess.run(cmd, capture_output=True)
+        if res.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+            return output_path
+    except Exception as e:
+        logger.warning(f"Lỗi lọc tạp âm FFmpeg: {e}, dùng file gốc thay thế.")
+    return input_path
+
+
 async def clone_custom_voice(
     files: list[UploadFile] | UploadFile,
     name: str,
@@ -61,6 +87,7 @@ async def clone_custom_voice(
     description: str = "Giọng tự tạo",
     gender: str = "all",
     icon: str = "record_voice_over",
+    separate_vocals: bool = False,
 ) -> dict:
     """
     Clone giọng đọc từ 1 hoặc nhiều mẫu âm thanh tham chiếu (Multi-Sample Reference).
@@ -107,8 +134,15 @@ async def clone_custom_voice(
             with open(temp_path, "wb") as buffer:
                 shutil.copyfileobj(f.file, buffer)
 
+            # Nếu bật tùy chọn tách nhạc nền & tạp âm
+            load_target = temp_path
+            if separate_vocals:
+                cleaned_path = BASE_DIR / f"clean_{custom_id}_{idx}.wav"
+                temp_paths.append(cleaned_path)
+                load_target = clean_audio_sample(temp_path, cleaned_path)
+
             # Load audio về 24,000Hz mono
-            y, _ = librosa.load(str(temp_path), sr=SAMPLE_RATE)
+            y, _ = librosa.load(str(load_target), sr=SAMPLE_RATE)
             if len(y) > 0:
                 # 1. Peak Normalize từng mẫu để cân bằng âm lượng
                 peak = np.max(np.abs(y))

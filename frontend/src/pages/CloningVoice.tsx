@@ -129,6 +129,7 @@ export default function CloningVoice() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("Giọng tự tạo (Đa mẫu)");
   const [gender, setGender] = useState("all");
+  const [separateVocals, setSeparateVocals] = useState(true);
 
   // Random & Guided Voice Design state
   const [randomMode, setRandomMode] = useState<"guided" | "random">("guided");
@@ -357,6 +358,7 @@ export default function CloningVoice() {
       // Đẩy mảng transcript tương ứng
       const transcriptsList = samples.map((s) => s.transcript.trim());
       formData.append("transcripts", JSON.stringify(transcriptsList));
+      formData.append("separate_vocals", separateVocals ? "true" : "false");
 
       toast.loading("Đang trích xuất VoiceClonePrompt đa mẫu (OmniVoice/Whisper)...", { id: toastId });
       const res = await fetch("http://localhost:8000/api/voices/clone", {
@@ -787,7 +789,7 @@ export default function CloningVoice() {
                             type="text"
                             value={s.transcript}
                             onChange={(e) => handleUpdateTranscript(s.id, e.target.value)}
-                            placeholder={`Văn bản mẫu #${idx + 1} (Tùy chọn, để trống Whisper sẽ tự bóc băng)...`}
+                            placeholder={`Văn bản mẫu #${idx + 1} (Tùy chọn, để trống Whisper sẽ tự nhận diện câu thoại)...`}
                             className="w-full bg-black/30 border border-white/5 rounded-lg px-3 py-1.5 text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors"
                           />
                         </div>
@@ -840,6 +842,28 @@ export default function CloningVoice() {
                   <option value="male">Nam</option>
                   <option value="female">Nữ</option>
                 </select>
+              </div>
+
+              {/* Tùy chọn Tách nhạc nền & Lọc tạp âm */}
+              <div className="md:col-span-2 bg-surface-dim/70 border border-primary/20 rounded-2xl p-3.5 flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+                    <Sparkles className="w-3.5 h-3.5 text-primary" />
+                    <span>Tách nhạc nền & lọc tạp âm (Chỉ giữ Voice sạch)</span>
+                  </div>
+                  <p className="text-[11px] text-on-surface-variant/80">
+                    Tự động loại bỏ tiếng nhạc nền (BGM), tiếng ồn môi trường và chuẩn hóa âm lượng giọng nói trước khi học giọng AI.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                  <input
+                    type="checkbox"
+                    checked={separateVocals}
+                    onChange={(e) => setSeparateVocals(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                </label>
               </div>
             </div>
 

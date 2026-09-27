@@ -4,10 +4,26 @@ Add-Type -AssemblyName System.Drawing
 # Đảm bảo chỉ có DUY NHẤT một tiến trình Tray Manager hoạt động trên hệ thống
 $mutexName = "Global\VoiceSyncAI_TrayManager_SingleInstance"
 $createdNew = $false
-$script:singleInstanceMutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$createdNew)
+$script:singleInstanceMutex = $null
+
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+        $script:singleInstanceMutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$createdNew)
+        if ($createdNew) { break }
+    } catch {}
+
+    # Nếu mutex đang bị tiến trình cũ chưa kịp giải phóng, dọn dẹp các instance cũ
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessId -ne $PID -and $_.CommandLine -like "*tray_manager.ps1*"
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+    Start-Sleep -Milliseconds 400
+}
+
 if (-not $createdNew) {
-    Write-Host "⚡ Đã có một tiến trình Tray Manager đang chạy ngầm. Bỏ qua để tránh xung đột!" -ForegroundColor Yellow
-    exit 0
+    Write-Host "⚡ Đã có một tiến trình Tray Manager đang hoạt động. Chuyển sang chế độ bảo vệ..." -ForegroundColor Yellow
+    # TUYỆT ĐỐI KHÔNG exit 0 ở đây vì Concurrently sẽ giết toàn bộ Backend & Frontend!
+    while ($true) { Start-Sleep -Seconds 3600 }
 }
 
 $cSource = @"
@@ -61,14 +77,7 @@ if (Test-Path $envFile) {
         $colabUrl = "https://colab.research.google.com/github/tranvankha1989/VoxCPM-TTS/blob/main/notebooks/OmniVoice_Colab_T4.ipynb"
     }
 
-    # Nếu USE_REMOTE_GPU=true và REMOTE_GPU_URL có dạng ngrok-free.dev (không trỏ đến Hugging Face)
-    if ($useRemote -and ($remoteUrl -like "*ngrok-free.dev*" -or $remoteUrl -like "*ngrok-free.app*") -and ($remoteUrl -notlike "*hf.space*") -and ($remoteUrl -notlike "*huggingface*")) {
-        Write-Host "⚡ Phat hien Remote GPU dang dung Ngrok ($remoteUrl)." -ForegroundColor Yellow
-        Write-Host "👉 Tu dong mo Google Colab de ban bam khoi dong GPU..." -ForegroundColor Cyan
-        Start-Process $colabUrl
-    } elseif ($useRemote -and ($remoteUrl -like "*hf.space*" -or $remoteUrl -like "*huggingface*")) {
-        Write-Host "⚡ Remote GPU dang tro den Hugging Face ($remoteUrl). Khoi dong Backend & Frontend binh thuong!" -ForegroundColor Green
-    }
+    # check_online_gpu.ps1 da tu dong quan ly viec mo Google Colab va dem nguoc 60 giay
 }
 
 # 1. Tìm Handle của cửa sổ Terminal
@@ -276,12 +285,14 @@ $timer.add_Tick({
                 return
             }
         } catch {
-            # Nếu backend đang reload hoặc tạm thời chưa phản hồi khi F5, chờ tối đa 60 giây
-            $beCon = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
-            if (-not $beCon) {
+            # Chỉ coi là backend đã tắt nếu tiến trình Python backend thực sự không còn tồn tại
+            $beProc = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+                $_.CommandLine -like "*uvicorn*main:app*" -or ($_.Name -eq "python.exe" -and $_.CommandLine -like "*self-tts*backend*")
+            }
+            if (-not $beProc) {
                 $script:backendDeadSeconds += 3
                 if ($script:backendDeadSeconds -ge 60) {
-                    Write-Host "Backend da tat qua lau (60s). Dang tu dong dong Terminal..." -ForegroundColor Gray
+                    Write-Host "Tien trinh Backend da tat. Dang tu dong dong Terminal..." -ForegroundColor Gray
                     & $script:ExitApplication
                     return
                 }

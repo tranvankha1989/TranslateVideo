@@ -28,6 +28,8 @@ async def clone_voice(
     description: str = Form("Giọng tự tạo"),
     gender: str = Form("all"),
     icon: str = Form("record_voice_over"),
+    separate_vocals: bool = Form(False),
+    remove_bgm: bool = Form(False),
 ):
     # Tập hợp các file tải lên
     uploaded_files: list[UploadFile] = []
@@ -40,6 +42,8 @@ async def clone_voice(
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Vui lòng cung cấp ít nhất 1 file âm thanh mẫu (.wav, .mp3, .m4a)")
 
+    do_separate = bool(separate_vocals or remove_bgm)
+
     return await clone_custom_voice(
         files=uploaded_files,
         name=name,
@@ -48,6 +52,7 @@ async def clone_voice(
         description=description,
         gender=gender,
         icon=icon,
+        separate_vocals=do_separate,
     )
 
 

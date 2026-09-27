@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 import edge_tts
 import soundfile as sf
+from pydub import AudioSegment
+from pydub.silence import detect_leading_silence
 
 from app.core.config import (
     OUTPUTS_DIR,
@@ -28,6 +30,30 @@ from model_handler import generate_audio, VoiceClonePrompt
 
 DUBBING_OUTPUT_DIR = OUTPUTS_DIR / "dubbing"
 DUBBING_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def trim_audio_file_silence(file_path: Path | str, silence_threshold: int = -42, margin_ms: int = 35) -> None:
+    """Tự động cắt sạch khoảng lặng tĩnh ở đầu và cuối file MP3 do Edge-TTS chèn vào để giọng đọc nói ngay không bị trễ."""
+    try:
+        p = Path(file_path)
+        if not p.exists() or p.stat().st_size < 500:
+            return
+        audio = AudioSegment.from_file(str(p))
+        if len(audio) < 120:
+            return
+        start_trim = detect_leading_silence(audio, silence_threshold=silence_threshold)
+        end_trim = detect_leading_silence(audio.reverse(), silence_threshold=silence_threshold)
+
+        start_pos = max(0, start_trim - margin_ms)
+        end_pos = max(start_pos + 60, len(audio) - max(0, end_trim - margin_ms))
+
+        trimmed = audio[start_pos:end_pos]
+        if len(trimmed) >= 60:
+            trimmed = trimmed.fade_in(15).fade_out(15)
+            trimmed.export(str(p), format="mp3")
+    except Exception as e:
+        logger.warning(f"Không thể trim silence file {file_path}: {e}")
+
 
 # Danh sách các giọng Edge-TTS được tuyển chọn chất lượng cao nhất theo từng ngôn ngữ
 CURATED_EDGE_VOICES = [
@@ -134,10 +160,12 @@ class DubbingService:
                 with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
                     customs = json.load(f)
                     for c in customs:
+                        v_name = c.get("name", "")
+                        c_lang = "en" if "english" in v_name.lower() or "tiếng anh" in v_name.lower() else (c.get("lang") or "vi")
                         studio_voices.append({
                             "id": f"omnivoice:{c['id']}",
                             "name": f"✨ {c['name']} (Giọng Clone tự tạo)",
-                            "lang": "vi",
+                            "lang": c_lang,
                             "gender": (c.get("gender") or "all").capitalize(),
                             "engine": "omnivoice",
                             "type": "custom",
@@ -154,10 +182,10 @@ class DubbingService:
 
         if lang and lang.lower() != "all":
             clean_lang = lang.lower().split("-")[0]
-            # Giọng phòng thu (OmniVoice) luôn hỗ trợ tiếng Việt và tương thích video
+            # Giữ lại giọng khớp mã ngôn ngữ hoặc giọng Clone tự tạo đa ngôn ngữ
             voices = [
                 v for v in voices
-                if v["lang"].lower().startswith(clean_lang) or v["engine"] == "omnivoice"
+                if v["lang"].lower().startswith(clean_lang) or v.get("type") == "custom" or (clean_lang == "vi" and v["engine"] == "omnivoice")
             ]
 
         return voices
@@ -184,6 +212,7 @@ class DubbingService:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        synthesized = False
         is_omnivoice = (engine.lower() == "omnivoice" or voice_id.startswith("omnivoice"))
 
         if is_omnivoice:
@@ -214,7 +243,6 @@ class DubbingService:
                 elif wav_preset.exists():
                     ref_audio = str(wav_preset)
 
-            synthesized = False
             if prompt_obj is not None or ref_audio is not None:
                 try:
                     logger.info(f"🎙️ Sinh câu bằng OmniVoice ({raw_id}): {text[:30]}...")
@@ -233,25 +261,79 @@ class DubbingService:
                 except Exception as oe:
                     logger.warning(f"OmniVoice dubbing lỗi: {oe}. Sẽ fallback sang Edge-TTS...")
 
-            if not synthesized:
-                logger.info(f"Fallback sang Edge-TTS vi-VN-HoaiMyNeural cho câu: {text[:30]}...")
-                communicate = edge_tts.Communicate(
-                    text=text.strip(),
-                    voice="vi-VN-HoaiMyNeural",
-                    rate=rate,
-                    pitch=pitch,
-                    volume=volume,
-                )
-                await communicate.save(str(output_path))
+        # Chuẩn hóa các tham số SSML cho Edge-TTS (tránh lỗi NoAudioReceived do truyền float vào volume/rate)
+        clean_rate = rate if isinstance(rate, str) and rate.endswith("%") else "+0%"
+        clean_pitch = pitch if isinstance(pitch, str) and pitch.endswith("Hz") else "+0Hz"
+        if isinstance(volume, (int, float)):
+            clean_volume = f"{int(round((float(volume) - 1.0) * 100)):+d}%" if volume != 1.0 else "+0%"
+        elif isinstance(volume, str):
+            if volume.endswith("%"):
+                clean_volume = volume
+            else:
+                try:
+                    f_vol = float(volume)
+                    clean_volume = f"{int(round((f_vol - 1.0) * 100)):+d}%" if f_vol != 1.0 else "+0%"
+                except Exception:
+                    clean_volume = "+0%"
         else:
-            communicate = edge_tts.Communicate(
-                text=text.strip(),
-                voice=voice_id,
-                rate=rate,
-                pitch=pitch,
-                volume=volume,
-            )
-            await communicate.save(str(output_path))
+            clean_volume = "+0%"
+
+        if not synthesized:
+            # Xác định giọng đọc fallback phù hợp theo ngôn ngữ đích hoặc giọng được yêu cầu
+            target_voice = voice_id
+            if is_omnivoice or not target_voice or target_voice.startswith("omnivoice:"):
+                # Nhận diện ngôn ngữ từ text hoặc tên voice_id
+                clean_t = text.lower()
+                is_en = any(k in voice_id.lower() for k in ["en", "english"]) or any(w in clean_t for w in [" the ", " is ", " are ", " and ", " you ", " what ", " to ", " of ", " with ", " for ", " this "])
+                is_zh = any(k in voice_id.lower() for k in ["zh", "chinese"]) or any("\u4e00" <= ch <= "\u9fff" for ch in text)
+                is_ja = any(k in voice_id.lower() for k in ["ja", "japanese"]) or any("\u3040" <= ch <= "\u30ff" for ch in text)
+                is_ko = any(k in voice_id.lower() for k in ["ko", "korean"]) or any("\uac00" <= ch <= "\ud7af" for ch in text)
+
+                if is_en:
+                    target_voice = "en-US-JennyNeural"
+                elif is_zh:
+                    target_voice = "zh-CN-XiaoxiaoNeural"
+                elif is_ja:
+                    target_voice = "ja-JP-NanamiNeural"
+                elif is_ko:
+                    target_voice = "ko-KR-SunHiNeural"
+                else:
+                    target_voice = "vi-VN-HoaiMyNeural"
+
+            clean_text = text.strip()
+            success = False
+            for attempt in range(4):
+                try:
+                    try_voice = target_voice
+                    try_text = clean_text if attempt < 2 else clean_text.rstrip(",;:").strip()
+                    if not try_text.endswith((".", "!", "?", "…")):
+                        try_text += "."
+
+                    communicate = edge_tts.Communicate(
+                        text=try_text,
+                        voice=try_voice,
+                        rate=clean_rate,
+                        pitch=clean_pitch,
+                        volume=clean_volume,
+                    )
+                    await communicate.save(str(output_path))
+                    if output_path.exists() and output_path.stat().st_size > 200:
+                        success = True
+                        break
+                except Exception as edge_err:
+                    if attempt == 3:
+                        logger.warning(f"Edge-TTS không thể sinh câu '{clean_text[:30]}' sau 4 lần thử: {edge_err}. Tạo audio khoảng lặng...")
+                    await asyncio.sleep(0.4 * (attempt + 1))
+
+            if not success or not output_path.exists() or output_path.stat().st_size <= 200:
+                # Tạo audio khoảng lặng fallback an toàn để không đứt gãy timeline
+                from pydub import AudioSegment
+                dur_ms = int(max(0.5, target_duration or 1.0) * 1000)
+                silent_seg = AudioSegment.silent(duration=dur_ms, frame_rate=24000)
+                silent_seg.export(str(output_path), format="mp3")
+
+        # Tự động cắt sạch khoảng lặng chết để câu nói phát mượt mà không bị ngập ngừng
+        trim_audio_file_silence(output_path)
 
         actual_duration = get_audio_duration(output_path)
         rate_ratio = (actual_duration / target_duration) if target_duration and target_duration > 0 else 1.0
@@ -280,6 +362,7 @@ class DubbingService:
         pitch: str = "+0Hz",
         volume: str = "+0%",
         session_id: str | None = None,
+        progress_callback: Any | None = None,
     ) -> dict[str, Any]:
         """Lồng tiếng hàng loạt cho toàn bộ danh sách các câu phụ đề đã dịch."""
         if not session_id:
@@ -290,6 +373,7 @@ class DubbingService:
 
         dubbed_segments = []
         total_duration = 0.0
+        total_segs = len(segments)
 
         for i, seg in enumerate(segments):
             seg_id = seg.get("id", i + 1)
@@ -306,13 +390,36 @@ class DubbingService:
             # Tự động phân vai giọng Nam / Nữ theo nhân vật đối thoại (nếu dùng Edge-TTS)
             cur_voice = voice_id
             speaker = str(seg.get("speaker", "")).lower()
-            if engine == "edge-tts" and speaker:
+            if engine == "edge-tts" and speaker and not voice_id.startswith("omnivoice:"):
+                prefix = voice_id[:2].lower()
                 is_male = any(k in speaker for k in ["nam", "lục", "anh", "ông", "bố", "cha", "chàng", "sếp", "bác trai", "boy", "man", "male"])
                 is_female = any(k in speaker for k in ["nữ", "mẹ", "cô", "chị", "bà", "hứa", "em", "gái", "girl", "woman", "female"])
-                if is_male and not is_female:
-                    cur_voice = "vi-VN-NamMinhNeural"
-                elif is_female and not is_male:
-                    cur_voice = "vi-VN-HoaiMyNeural"
+                
+                if prefix == "en":
+                    if is_male and not is_female:
+                        cur_voice = "en-US-GuyNeural"
+                    elif is_female and not is_male:
+                        cur_voice = "en-US-JennyNeural"
+                elif prefix == "zh":
+                    if is_male and not is_female:
+                        cur_voice = "zh-CN-YunxiNeural"
+                    elif is_female and not is_male:
+                        cur_voice = "zh-CN-XiaoxiaoNeural"
+                elif prefix == "ja":
+                    if is_male and not is_female:
+                        cur_voice = "ja-JP-KeitaNeural"
+                    elif is_female and not is_male:
+                        cur_voice = "ja-JP-NanamiNeural"
+                elif prefix == "ko":
+                    if is_male and not is_female:
+                        cur_voice = "ko-KR-InJoonNeural"
+                    elif is_female and not is_male:
+                        cur_voice = "ko-KR-SunHiNeural"
+                elif prefix == "vi":
+                    if is_male and not is_female:
+                        cur_voice = "vi-VN-NamMinhNeural"
+                    elif is_female and not is_male:
+                        cur_voice = "vi-VN-HoaiMyNeural"
 
             try:
                 res = await cls.synthesize_single(
@@ -340,8 +447,17 @@ class DubbingService:
             except Exception as e:
                 logger.error(f"[Dubbing Batch] Lỗi khi sinh câu {seg_id}: {e}")
 
+            if progress_callback:
+                try:
+                    if asyncio.iscoroutinefunction(progress_callback):
+                        await progress_callback(i + 1, total_segs, text)
+                    else:
+                        progress_callback(i + 1, total_segs, text)
+                except Exception as p_err:
+                    logger.debug(f"Lỗi progress callback: {p_err}")
+
             # Khoảng nghỉ nhẹ tránh nghẽn
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.04)
 
         return {
             "session_id": session_id,

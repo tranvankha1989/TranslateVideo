@@ -112,15 +112,17 @@ def _remote_headers() -> dict[str, str]:
 
 
 _has_warmed_up = False
+_is_remote_gpu_online = False
 
 
 def load_model() -> None:
     """
     Load OmniVoice vào VRAM / RAM.
     Gọi hàm này duy nhất một lần trong FastAPI lifespan startup.
-    Nếu bật USE_REMOTE_GPU, sẽ kiểm tra kết nối Cloud GPU và không tải model vào RAM máy local.
+    Nếu bật USE_REMOTE_GPU, sẽ kiểm tra kết nối Cloud GPU. Nếu kết nối thành công, không tải local model.
+    Nếu Cloud GPU offline hoặc lỗi, TỰ ĐỘNG FALLBACK tải mô hình vào GPU/CPU máy local.
     """
-    global _model
+    global _model, _is_remote_gpu_online
     if _model is not None:
         logger.info("Mô hình OmniVoice đã được tải trước đó, bỏ qua.")
         return
@@ -132,7 +134,7 @@ def load_model() -> None:
         try:
             # pyrefly: ignore [missing-import]
             import httpx
-            resp = httpx.get(target_health, headers=_remote_headers(), timeout=10.0)
+            resp = httpx.get(target_health, headers=_remote_headers(), timeout=3.0)
             if resp.status_code == 200:
                 try:
                     data = resp.json()
@@ -143,15 +145,16 @@ def load_model() -> None:
                 except Exception:
                     logger.info("🚀 Kết nối Cloud GPU thành công! (Cloud Worker đang hoạt động)")
                 logger.info("⚡ Máy local KHÔNG cần tải mô hình vào RAM — toàn bộ tác vụ TTS sẽ gửi sang Cloud GPU.")
+                _is_remote_gpu_online = True
                 return
             else:
                 logger.warning(f"⚠️ Kiểm tra Cloud GPU trả về mã {resp.status_code}: {resp.text}")
         except Exception as e:
             logger.warning(
-                f"⚠️ Chưa thể kết nối tới Cloud GPU ({e}). "
-                f"Vui lòng kiểm tra lại REMOTE_GPU_URL trong .env!"
+                f"⚠️ Không thể kết nối tới GPU Online ({e}). "
+                f"🔄 TỰ ĐỘNG CHUYỂN SANG DÙNG GPU/CPU CỤC BỘ TRÊN MÁY (Local Fallback)!"
             )
-        return
+        _is_remote_gpu_online = False
 
     # Xác định thiết bị tính toán cục bộ
     if OMNIVOICE_DEVICE == "cuda" and torch.cuda.is_available():
@@ -260,8 +263,11 @@ def create_voice_prompt(ref_audio: str, ref_text: str | None = None) -> VoiceClo
     Trích xuất đặc trưng âm thanh và tạo VoiceClonePrompt.
     Nếu ref_text là None hoặc rỗng, OmniVoice sẽ tự động dùng Whisper ASR để bóc băng.
     """
-    if is_remote_gpu_enabled() and get_remote_gpu_url():
-        return _create_voice_prompt_remote(ref_audio, ref_text)
+    if is_remote_gpu_enabled() and get_remote_gpu_url() and _is_remote_gpu_online:
+        try:
+            return _create_voice_prompt_remote(ref_audio, ref_text)
+        except Exception as e:
+            logger.warning(f"⚠️ Trích xuất giọng bằng GPU Online thất bại ({e}), tự động chuyển sang trích xuất bằng GPU/CPU máy local...")
 
     with _model_lock:
         model = get_model()
@@ -828,28 +834,41 @@ def generate_audio(
     if num_step is None:
         num_step = int(os.getenv("DEFAULT_NUM_STEP", str(DEFAULT_NUM_STEP)))
 
-    # ─── Nếu bật Remote Cloud GPU: Uỷ quyền xử lý sang Hugging Face / Colab ─
-    if is_remote_gpu_enabled() and get_remote_gpu_url():
-        with _remote_semaphore:
-            _generate_audio_remote(
-                text=text,
-                output_path=output_path,
-                mode=mode,
-                voice_clone_prompt=voice_clone_prompt,
-                ref_audio=ref_audio,
-                ref_text=ref_text,
-                instruct=instruct,
-                cfg_value=cfg_value,
-                num_step=num_step,
-                seed=seed,
-                speed=speed,
-                pitch=pitch,
-                audio_format=audio_format,
-                enhance_audio=enhance_audio,
-            )
-        return
+    # Đảm bảo model hoặc kết nối Cloud GPU đã được khởi tạo trước khi kiểm tra
+    if _model is None and not _is_remote_gpu_online:
+        load_model()
 
-    # ─── Chế độ Local: Khóa đồng bộ 1 luồng duy nhất để bảo vệ GPU / RAM ────
+    # ─── Nếu bật Remote Cloud GPU và GPU Online đang hoạt động ─
+    if is_remote_gpu_enabled() and get_remote_gpu_url() and _is_remote_gpu_online:
+        try:
+            with _remote_semaphore:
+                _generate_audio_remote(
+                    text=text,
+                    output_path=output_path,
+                    mode=mode,
+                    voice_clone_prompt=voice_clone_prompt,
+                    ref_audio=ref_audio,
+                    ref_text=ref_text,
+                    instruct=instruct,
+                    cfg_value=cfg_value,
+                    num_step=num_step,
+                    seed=seed,
+                    speed=speed,
+                    pitch=pitch,
+                    audio_format=audio_format,
+                    enhance_audio=enhance_audio,
+                )
+            return
+        except Exception as remote_err:
+            logger.warning(f"⚠️ Gọi GPU Online thất bại ({remote_err}), tự động chuyển sang sinh âm thanh bằng GPU/CPU máy local...")
+
+    # ─── Chế độ Local: Đảm bảo model đã nạp và khóa 1 luồng bảo vệ GPU/RAM ────
+    if _model is None:
+        load_model()
+
+    if _model is None:
+        raise RuntimeError("Mô hình OmniVoice cục bộ chưa được nạp và Cloud GPU không khả dụng.")
+
     with _model_lock:
         _generate_audio_local(
             text=text,
@@ -867,3 +886,4 @@ def generate_audio(
             audio_format=audio_format,
             enhance_audio=enhance_audio,
         )
+

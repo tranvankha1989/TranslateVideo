@@ -18,6 +18,9 @@ class StartTranslationRequest(BaseModel):
     translation_api_key: str | None = Field(None, description="API Key nếu dùng LLM")
     translation_model: str = Field("gemini-2.5-flash", description="Mô hình dịch: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash, gemini-2.5-flash-lite")
     translation_temperature: float = Field(0.2, description="Nhiệt độ sáng tạo (0.0 -> 1.0, mặc định 0.2)")
+    output_resolution: str = Field("720p", description="Độ phân giải video đầu ra: 720p, 1080p, 480p, original")
+    start_time: float = Field(0.0, description="Mốc thời gian bắt đầu cắt video (giây)")
+    end_time: float | None = Field(None, description="Mốc thời gian kết thúc cắt video (giây)")
 
 
 class TranslationTaskStatus(BaseModel):
@@ -29,12 +32,15 @@ class TranslationTaskStatus(BaseModel):
     source_lang: str | None = None
     target_lang: str | None = None
     total_segments: int = 0
+    start_time: float | None = 0.0
+    end_time: float | None = None
     video_url: str | None = None
     audio_url: str | None = None
     subtitles_srt_url: str | None = None
     subtitles_original_srt_url: str | None = None
     elapsed_time: float | None = Field(None, description="Tổng thời gian xử lý tính bằng giây")
     elapsed_str: str | None = Field(None, description="Thời gian dịch hoàn thành (vd: 2 phút 15 giây)")
+    output_resolution: str | None = Field("720p", description="Độ phân giải đầu ra")
     error: str | None = None
 
 
@@ -57,6 +63,7 @@ class RedubTaskRequest(BaseModel):
     bgm_volume: float | None = Field(None, description="Âm lượng thuyết minh nền")
     subtitle_mode: str | None = Field(None, description="Kiểu gắn phụ đề: hard_target, hard_dual, none")
     max_speed_rate: float | None = Field(None, description="Tốc độ tăng tối đa")
+    output_resolution: str | None = Field(None, description="Độ phân giải video đầu ra: 720p, 1080p, 480p, original")
 
 
 class StudioRedubSegmentRequest(BaseModel):
@@ -69,12 +76,40 @@ class StudioRedubSegmentRequest(BaseModel):
     voice_volume: float | None = Field(None, description="Âm lượng giọng đọc")
 
 
+class StudioUpdateSegmentRequest(BaseModel):
+    segment_id: int = Field(..., description="ID câu thoại (1, 2, 3...)")
+    text: str | None = Field(None, description="Văn bản phụ đề đã chỉnh sửa")
+    start: float | None = Field(None, description="Mốc thời gian bắt đầu mới (giây)")
+    end: float | None = Field(None, description="Mốc thời gian kết thúc mới (giây)")
+
+
 class StudioRemuxRequest(BaseModel):
     subtitle_mode: str | None = Field(None, description="Chế độ phụ đề: none, hard_target, hard_dual")
     preserve_bgm: bool | None = Field(None, description="Giữ nhạc nền BGM")
     bgm_volume: float | None = Field(None, description="Âm lượng BGM")
     voice_volume: float | None = Field(None, description="Âm lượng giọng đọc")
     max_speed_rate: float | None = Field(None, description="Tốc độ co giãn tối đa")
+    output_resolution: str | None = Field(None, description="Độ phân giải video đầu ra: 720p, 1080p, 480p, original")
+
+
+class VideoTranslationProjectItem(BaseModel):
+    task_id: str
+    video_name: str
+    source_lang: str = "auto"
+    target_lang: str = "vi"
+    voice_id: str = "vi-VN-HoaiMyNeural"
+    engine: str = "edge-tts"
+    status: str
+    progress: int = 0
+    created_at: float = 0
+    duration: float = 0
+    elapsed_str: str | None = None
+    output_resolution: str = "720p"
+    video_url: str | None = None
+    subtitles_srt_url: str | None = None
+    subtitles_original_srt_url: str | None = None
+    file_size_mb: float = 0
+
 
 
 

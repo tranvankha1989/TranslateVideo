@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Sparkles, Cpu, Cloud, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SyncBadge } from "@/components/sync/SyncBadge";
-import { HardwareBadge } from "@/components/hardware/HardwareBadge";
 import { useTTSStore } from "@/store/useTTSStore";
 import { APP_VERSION } from "@/constants/version";
+import { AppUpdateModal } from "@/components/AppUpdateModal";
 
 
 const NAV_ITEMS = [
@@ -20,6 +19,9 @@ const NAV_ITEMS = [
 export function MainLayout() {
   const location = useLocation();
   const checkStorageStatus = useTTSStore((state) => state.checkStorageStatus);
+  const hardwareConfig = useTTSStore((state) => state.hardwareConfig);
+  const syncStatus = useTTSStore((state) => state.syncStatus);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   // Tự động kiểm tra trạng thái lưu trữ đám mây / local trên toàn ứng dụng khi tải trang hoặc F5
   useEffect(() => {
@@ -38,6 +40,7 @@ export function MainLayout() {
       return next;
     });
   };
+
 
   return (
     <div className="text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden">
@@ -164,9 +167,9 @@ export function MainLayout() {
           })}
         </ul>
 
-        {/* Sync & Hardware Status Footer */}
+        {/* Hardware Status & Settings Footer */}
         <div className="mt-auto pt-3 border-t border-white/10 w-full space-y-2">
-          {/* Nút Cài đặt & GPU được dời xuống ngay trên HardwareBadge */}
+          {/* Nút Cài đặt & GPU */}
           <Link
             to="/settings"
             className={cn(
@@ -204,16 +207,67 @@ export function MainLayout() {
               </div>
             )}
           </Link>
-
-          {!isCollapsed && (
-            <div className="px-1 flex justify-center">
-              <HardwareBadge />
-            </div>
-          )}
-          <SyncBadge isCollapsed={isCollapsed} />
         </div>
       </nav>
 
+
+      {/* Top Right Header Action Center */}
+      <header className="hidden md:flex fixed top-4 right-6 z-40 items-center gap-2.5">
+        {/* GPU Mode Badge */}
+        <Link
+          to="/settings"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface/70 hover:bg-surface-variant/70 backdrop-blur-xl border border-white/10 text-[11px] font-mono text-on-surface-variant hover:text-on-surface transition-all shadow-sm group"
+          title="Cấu hình phần cứng & GPU"
+        >
+          <span
+            className={cn(
+              "w-2 h-2 rounded-full",
+              hardwareConfig?.use_remote_gpu
+                ? "bg-amber-400 animate-pulse"
+                : hardwareConfig?.cuda_available
+                ? "bg-emerald-400"
+                : "bg-blue-400"
+            )}
+          />
+          <Cpu className="w-3.5 h-3.5 text-primary" />
+          <span>{hardwareConfig?.use_remote_gpu ? "Cloud GPU" : hardwareConfig?.cuda_device_name ? "NVIDIA GPU" : "CPU"}</span>
+        </Link>
+
+        {/* Cloud Sync Status */}
+        {syncStatus?.mode === "cloud" && (
+          <Link
+            to="/settings"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface/70 hover:bg-surface-variant/70 backdrop-blur-xl border border-white/10 text-[11px] font-mono text-on-surface-variant hover:text-on-surface transition-all shadow-sm"
+            title="Trạng thái đồng bộ đám mây"
+          >
+            <Cloud className="w-3.5 h-3.5 text-accent" />
+            <span>Atlas Cloud</span>
+          </Link>
+        )}
+
+        {/* Nút Cập Nhật Ứng Dụng (Top-Right Update Button) */}
+        <button
+          type="button"
+          onClick={() => setIsUpdateModalOpen(true)}
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 hover:border-primary/50 text-[11px] font-semibold transition-all shadow-sm shadow-primary/10 group cursor-pointer"
+          title="Kiểm tra & Cập nhật phiên bản mới nhất"
+        >
+          <Sparkles className="w-3.5 h-3.5 transition-transform group-hover:rotate-12 group-hover:scale-110" />
+          <span>Cập nhật</span>
+          <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary font-normal">
+            v{APP_VERSION}
+          </span>
+        </button>
+
+        {/* Quick Settings Icon Button */}
+        <Link
+          to="/settings"
+          className="w-8 h-8 rounded-full bg-surface/70 hover:bg-surface-variant/70 backdrop-blur-xl border border-white/10 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-all shadow-sm"
+          title="Cài đặt hệ thống"
+        >
+          <SettingsIcon className="w-4 h-4" />
+        </Link>
+      </header>
 
       {/* Main Content Area (Tự động mở rộng vùng làm việc theo trạng thái sidebar) */}
       <main
@@ -229,6 +283,13 @@ export function MainLayout() {
       >
         <Outlet />
       </main>
+
+      {/* Modal Cập Nhật Phần Mềm Tích Hợp Xác Nhận */}
+      <AppUpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+      />
+
 
       {/* Mobile Navigation (Bottom) */}
       <nav className="md:hidden fixed bottom-0 w-full bg-surface-container-lowest/90 backdrop-blur-md border-t border-white/5 z-50 pb-safe">
