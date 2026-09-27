@@ -148,6 +148,7 @@ interface VideoTranslateState {
   updateStudioSegmentTiming: (id: number, start?: number, end?: number) => void;
   setStudioSegmentRedubbing: (id: number, isRedubbing: boolean) => void;
   updateSingleStudioSegment: (id: number, patch: Partial<StudioSegment>) => void;
+  removeStudioSegment: (id: number) => void;
   setActiveStudioSegmentId: (id: number | null) => void;
   setIsLoadingStudioSegments: (val: boolean) => void;
   setIsRemuxingStudioVideo: (val: boolean) => void;
@@ -286,6 +287,10 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       updateSingleStudioSegment: (id, patch) =>
         set((state) => ({
           studioSegments: state.studioSegments.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+        })),
+      removeStudioSegment: (id) =>
+        set((state) => ({
+          studioSegments: state.studioSegments.filter((s) => s.id !== id),
         })),
       setActiveStudioSegmentId: (activeStudioSegmentId) => set({ activeStudioSegmentId }),
       setIsLoadingStudioSegments: (isLoadingStudioSegments) => set({ isLoadingStudioSegments }),

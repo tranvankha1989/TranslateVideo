@@ -176,6 +176,7 @@ export default function VideoTranslate() {
     updateStudioSegmentTiming,
     setStudioSegmentRedubbing,
     updateSingleStudioSegment,
+    removeStudioSegment,
     setActiveStudioSegmentId,
     setIsLoadingStudioSegments,
     setIsRemuxingStudioVideo,
@@ -189,6 +190,7 @@ export default function VideoTranslate() {
 
   const [studioSearch, setStudioSearch] = React.useState("");
   const [playingAudioSegId, setPlayingAudioSegId] = React.useState<number | null>(null);
+  const [deletingSegId, setDeletingSegId] = React.useState<number | null>(null);
 
   const filteredStudioSegments = studioSegments.filter((s) => {
     if (!studioSearch.trim()) return true;
@@ -947,6 +949,33 @@ export default function VideoTranslate() {
     audio.onended = () => setPlayingAudioSegId(null);
     audio.onerror = () => setPlayingAudioSegId(null);
     audio.play().catch(() => setPlayingAudioSegId(null));
+  };
+
+  // Xóa một câu thoại/phụ đề khỏi timeline Studio
+  const handleDeleteStudioSegment = async (segId: number) => {
+    const currentId = taskStatus?.task_id || taskId;
+    if (!currentId) return;
+
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa đoạn phụ đề #${segId} này không? Đoạn này sẽ không còn xuất hiện trong video thành phẩm.`)) {
+      return;
+    }
+
+    setDeletingSegId(segId);
+    try {
+      const res = await fetch(`http://localhost:8000/api/video-translate/studio-delete-segment/${currentId}/${segId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Không thể xóa câu này");
+      }
+      removeStudioSegment(segId);
+      toast.success(`🗑️ Đã xóa đoạn #${segId} thành công!`);
+    } catch (err: any) {
+      toast.error("Lỗi khi xóa câu: " + err.message);
+    } finally {
+      setDeletingSegId(null);
+    }
   };
 
   // Trộn lại audio & mux video siêu tốc (chỉ 2-5s)
@@ -2623,9 +2652,25 @@ export default function VideoTranslate() {
                                   ) : (
                                     <>
                                       <Mic className="w-3 h-3 text-primary" />
-                                      <span>Thu lại câu này</span>
+                                      <span>Thu lại</span>
                                     </>
                                   )}
+                                </button>
+
+                                {/* Xóa đoạn phụ đề / câu thoại này */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteStudioSegment(seg.id)}
+                                  disabled={deletingSegId === seg.id}
+                                  className="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                  title="Xóa bỏ hoàn toàn câu này khỏi video (lời thoại và phụ đề)"
+                                >
+                                  {deletingSegId === seg.id ? (
+                                    <Loader2 className="w-3 h-3 animate-spin text-rose-400" />
+                                  ) : (
+                                    <Trash2 className="w-3 h-3 text-rose-400" />
+                                  )}
+                                  <span>Xóa</span>
                                 </button>
                               </div>
                             </div>

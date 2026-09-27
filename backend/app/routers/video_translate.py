@@ -1137,6 +1137,20 @@ async def studio_update_segment_endpoint(task_id: str, req: StudioUpdateSegmentR
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.delete("/studio-delete-segment/{task_id}/{segment_id}")
+async def studio_delete_segment_endpoint(task_id: str, segment_id: int):
+    """
+    Xóa một câu thoại/phụ đề khỏi timeline Studio.
+    """
+    try:
+        return await VideoTranslationPipeline.delete_segment(
+            task_id=task_id,
+            segment_id=segment_id,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/studio-quick-remux/{task_id}")
 async def studio_quick_remux_endpoint(task_id: str, req: StudioRemuxRequest | None = None):
     """

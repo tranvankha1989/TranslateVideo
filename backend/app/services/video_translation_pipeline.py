@@ -1436,6 +1436,44 @@ class VideoTranslationPipeline:
         }
 
     @classmethod
+    async def delete_segment(
+        cls,
+        task_id: str,
+        segment_id: int,
+    ) -> dict[str, Any]:
+        """
+        Xóa hoàn toàn một câu thoại/đoạn phụ đề khỏi timeline và danh sách Studio.
+        """
+        task_dir = TRANSLATE_OUTPUT_DIR / task_id
+        if not task_dir.exists():
+            raise RuntimeError(f"Tác vụ {task_id} không tồn tại.")
+
+        dubbed_file = task_dir / "dubbed_segments.json"
+        studio_data = cls.get_studio_segments(task_id)
+        segments = studio_data["segments"]
+        task_meta = studio_data.get("meta", {})
+
+        initial_len = len(segments)
+        segments = [s for s in segments if s.get("id") != segment_id]
+        if len(segments) == initial_len:
+            raise RuntimeError(f"Không tìm thấy câu thoại ID {segment_id} để xóa")
+
+        # Lưu lại dubbed_segments.json
+        dubbed_file.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Cập nhật lại file phụ đề subtitles.srt
+        srt_file = task_dir / "subtitles.srt"
+        generate_srt_file(segments, srt_file, mode=task_meta.get("subtitle_mode", "hard_target"))
+
+        logger.info(f"🗑️ [Studio Delete] Đã xóa câu #{segment_id} khỏi timeline tác vụ {task_id}")
+        return {
+            "status": "ok",
+            "segment_id": segment_id,
+            "remaining_segments": len(segments),
+            "message": f"Đã xóa câu #{segment_id} thành công!",
+        }
+
+    @classmethod
     async def quick_remux_video(
         cls,
         task_id: str,
