@@ -25,7 +25,7 @@ from app.services.dubbing_service import DubbingService, get_audio_duration, DUB
 from app.services.translator_service import TranslationService, GoogleTranslator
 from app.services.alignment_service import AlignmentService
 from app.services.ad_filter_service import AdFilterService
-from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local, sanitize_word_timestamps, CLAUSE_ENDINGS
+from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local, sanitize_word_timestamps
 
 TRANSLATE_OUTPUT_DIR = OUTPUTS_DIR / "video_translate"
 TRANSLATE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -52,53 +52,6 @@ def format_srt_time(seconds: float) -> str:
     secs = (total_ms % 60000) // 1000
     millis = total_ms % 1000
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-
-
-def merge_incomplete_clauses(segments: list[dict[str, Any]], max_gap_seconds: float = 2.0) -> list[dict[str, Any]]:
-    """
-    Tự động gộp các vế câu ngắn, hô ngữ (ví dụ: 'Sư tổ,', 'Đại ca,') hoặc các câu bị ngắt lửng bởi dấu phẩy
-    vào câu thoại chính kế tiếp nếu khoảng cách thời gian giữa 2 câu <= max_gap_seconds.
-    Giúp AI dịch đúng trọn vẹn ngữ cảnh và TTS đọc liền mạch tự nhiên.
-    """
-    if not segments or len(segments) <= 1:
-        return segments
-
-    merged: list[dict[str, Any]] = []
-    i = 0
-    while i < len(segments):
-        cur = dict(segments[i])
-        while i + 1 < len(segments):
-            nxt = segments[i + 1]
-            c_text = str(cur.get("text", "")).strip()
-            n_text = str(nxt.get("text", "")).strip()
-            c_end = float(cur.get("end", 0.0))
-            n_start = float(nxt.get("start", c_end))
-            gap = n_start - c_end
-
-            # Điều kiện gộp:
-            # 1. Câu hiện tại kết thúc bằng dấu phẩy / dấu ngắt (,, ，, 、, ;, ；, —, -)
-            # 2. Hoặc câu hiện tại là hô ngữ/từ xưng hô ngắn (<= 3 từ hoặc <= 6 ký tự)
-            # 3. Và khoảng cách tới câu tiếp theo hợp lý (-0.2s <= gap <= max_gap_seconds)
-            is_clause_end = bool(CLAUSE_ENDINGS.search(c_text))
-            is_short_vocative = len(c_text.split()) <= 2 or len(c_text) <= 6
-
-            if (is_clause_end or is_short_vocative) and (-0.2 <= gap <= max_gap_seconds):
-                is_cjk = any('\u4e00' <= char <= '\u9fff' or '\u3040' <= char <= '\u30ff' for char in c_text + n_text)
-                sep = "" if is_cjk and not c_text.endswith((",", "，", " ")) else " "
-                
-                cur["end"] = nxt.get("end")
-                cur["text"] = f"{c_text}{sep}{n_text}"
-                if "words" in cur and "words" in nxt:
-                    cur["words"] = cur.get("words", []) + nxt.get("words", [])
-                i += 1
-            else:
-                break
-
-        cur["id"] = len(merged) + 1
-        merged.append(cur)
-        i += 1
-
-    return merged
 
 
 def generate_srt_file(segments: list[dict[str, Any]], output_srt_path: Path, mode: str = "hard_target") -> Path:
@@ -493,9 +446,6 @@ class VideoTranslationPipeline:
             original_segments, removed_ad_cnt = AdFilterService.filter_subtitle_segments(original_segments)
             if removed_ad_cnt > 0:
                 logger.info(f"🛡️ [Pipeline] Đã loại bỏ {removed_ad_cnt} câu quảng cáo/rác/câu bỏ qua khỏi phụ đề gốc.")
-
-            # Tự động gộp các vế câu ngắn / hô ngữ ('Sư tổ,', 'Đại ca,') bị ngắt phẩy thành câu hoàn chỉnh
-            original_segments = merge_incomplete_clauses(original_segments, max_gap_seconds=2.0)
 
             if not original_segments:
                 raise RuntimeError("Không phát hiện được câu thoại nào rõ ràng trong video.")
@@ -927,9 +877,6 @@ class VideoTranslationPipeline:
             original_segments, removed_ad_cnt = AdFilterService.filter_subtitle_segments(original_segments)
             if removed_ad_cnt > 0:
                 logger.info(f"🛡️ [Manual Pipeline] Đã loại bỏ {removed_ad_cnt} câu quảng cáo/rác/câu bỏ qua khỏi phụ đề gốc.")
-
-            # Tự động gộp các vế câu ngắn / hô ngữ ('Sư tổ,', 'Đại ca,') bị ngắt phẩy thành câu hoàn chỉnh
-            original_segments = merge_incomplete_clauses(original_segments, max_gap_seconds=2.0)
 
             if not original_segments:
                 raise RuntimeError("Không phát hiện được câu thoại nào rõ ràng trong video.")
