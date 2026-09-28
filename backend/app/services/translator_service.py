@@ -735,11 +735,6 @@ class GoogleAIStudioTranslator:
                                             logger.warning(f"ID {i+1} vẫn còn tiếng Việt khi đích là tiếng Anh: '{trans_text}'. Đang fallback qua Google...")
                                             needs_fallback = True
 
-                                        # 3. Nếu output rỗng hoàn toàn mà câu gốc có thoại thực sự
-                                        elif not trans_text and len(chunk[i].strip()) > 3:
-                                            logger.warning(f"ID {i+1} bị rỗng nội dung. Đang fallback qua Google...")
-                                            needs_fallback = True
-
                                         if needs_fallback:
                                             fallback_text = await GoogleTranslator.translate_single_text(chunk[i], source_lang=source_lang, target_lang=target_lang)
                                             results[start_idx + i] = clean_translated_text(fallback_text)
