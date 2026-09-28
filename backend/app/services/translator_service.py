@@ -59,6 +59,23 @@ GOOGLE_LANG_MAP = {
     "auto": "auto",
 }
 
+def clean_translated_text(text: str) -> str:
+    """Loại bỏ toàn bộ mã trích dẫn / citation của AI (như [cite: 11], [1], 【...】) và markdown rác."""
+    if not text:
+        return ""
+    # 1. Bỏ trích dẫn AI [cite: 11], [cite: 1, 2], [citation: ...]
+    text = re.sub(r"\[cite:\s*[\d,\s]+\]", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\[citation:\s*[\d,\s]+\]", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"【\d+†source】", "", text)
+    text = re.sub(r"\[\d+\]", "", text)
+    # 2. Bỏ markdown in đậm/nghiêng nếu có
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"\*([^*]+)\*", r"\1", text)
+    # 3. Chuẩn hóa khoảng trắng và dấu câu
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\s+([,\.\?!;:])", r"\1", text)
+    return text.strip()
+
 LANGUAGE_NAMES = {
     "vi": "Tiếng Việt",
     "en": "English",
@@ -725,13 +742,13 @@ class GoogleAIStudioTranslator:
 
                                         if needs_fallback:
                                             fallback_text = await GoogleTranslator.translate_single_text(chunk[i], source_lang=source_lang, target_lang=target_lang)
-                                            results[start_idx + i] = fallback_text
+                                            results[start_idx + i] = clean_translated_text(fallback_text)
                                         else:
-                                            results[start_idx + i] = trans_text
+                                            results[start_idx + i] = clean_translated_text(trans_text)
                                     else:
                                         logger.warning(f"ID {i+1} bị thiếu trong JSON. Đang fallback...")
                                         fallback_text = await GoogleTranslator.translate_single_text(chunk[i], source_lang=source_lang, target_lang=target_lang)
-                                        results[start_idx + i] = fallback_text
+                                        results[start_idx + i] = clean_translated_text(fallback_text)
 
                                     if (i + 1) in id_to_spk and id_to_spk[i + 1]:
                                         speakers[start_idx + i] = id_to_spk[i + 1]
@@ -857,7 +874,8 @@ class TranslationService:
 
         new_segments = []
         for i, seg in enumerate(segments):
-            translated_text = translated_texts[i] if i < len(translated_texts) else seg.get("text", "")
+            raw_trans = translated_texts[i] if i < len(translated_texts) else seg.get("text", "")
+            translated_text = clean_translated_text(raw_trans)
             seg_copy = dict(seg)
             seg_copy["text"] = translated_text
             # Ghi nhớ câu gốc để phục vụ song ngữ hoặc đối chiếu
