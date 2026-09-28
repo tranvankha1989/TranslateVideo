@@ -596,11 +596,12 @@ class VideoTranslationPipeline:
 
                 ffmpeg_cmd.extend(["-vf", vf_filter])
                 ffmpeg_cmd.extend([
+                    "-threads", "0",
                     "-map", "0:v:0",
                     "-map", "1:a:0",
                     "-c:v", "libx264",
                     "-pix_fmt", "yuv420p",
-                    "-preset", "fast",
+                    "-preset", "veryfast",
                     "-crf", "19",
                     "-c:a", "aac",
                     "-b:a", "192k",
@@ -612,11 +613,12 @@ class VideoTranslationPipeline:
                 if scale_filter:
                     ffmpeg_cmd.extend([
                         "-vf", scale_filter,
+                        "-threads", "0",
                         "-map", "0:v:0",
                         "-map", "1:a:0",
                         "-c:v", "libx264",
                         "-pix_fmt", "yuv420p",
-                        "-preset", "fast",
+                        "-preset", "veryfast",
                         "-crf", "19",
                         "-c:a", "aac",
                         "-b:a", "192k",

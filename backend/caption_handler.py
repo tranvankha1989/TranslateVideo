@@ -40,11 +40,18 @@ def get_whisper_model(model_size: str | None = None) -> WhisperModel:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
+    cpu_threads = max(1, os.cpu_count() or 4)
 
     logger.info(
-        f"🎙️ Đang tải Faster-Whisper model '{target_size}' trên {device} (compute={compute_type}) …"
+        f"🎙️ Đang tải Faster-Whisper model '{target_size}' trên {device} (compute={compute_type}, cpu_threads={cpu_threads}) …"
     )
-    _whisper_model = WhisperModel(target_size, device=device, compute_type=compute_type)
+    _whisper_model = WhisperModel(
+        target_size,
+        device=device,
+        compute_type=compute_type,
+        cpu_threads=cpu_threads,
+        num_workers=2 if device == "cpu" else 1,
+    )
     _current_model_size = target_size
     logger.info("✅ Tải Faster-Whisper thành công.")
     return _whisper_model
