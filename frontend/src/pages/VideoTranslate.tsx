@@ -36,6 +36,9 @@ import {
   Clock,
   Plus,
   Minus,
+  Clipboard,
+  ClipboardPaste,
+  Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
@@ -85,6 +88,8 @@ export default function VideoTranslate() {
   const segmentPlaybackTargetRef = React.useRef<{ end: number; segId: number } | null>(null);
 
   const [manualSrtFile, setManualSrtFile] = React.useState<File | null>(null);
+  const [manualSrtMode, setManualSrtMode] = React.useState<"file" | "text">("file");
+  const [manualSrtText, setManualSrtText] = React.useState<string>("");
   const [manualUploadedCount, setManualUploadedCount] = React.useState<number | null>(null);
   const [isUploadingManualSrt, setIsUploadingManualSrt] = React.useState(false);
   const manualSrtFileInputRef = React.useRef<HTMLInputElement>(null);
@@ -687,6 +692,54 @@ export default function VideoTranslate() {
     }
   };
 
+  // 3b. Dán văn bản từ Clipboard
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.trim()) {
+        setManualSrtText(text);
+        toast.success("📋 Đã dán nội dung từ clipboard!");
+      } else {
+        toast.info("Clipboard rỗng hoặc không có văn bản.");
+      }
+    } catch (err) {
+      toast.error("Không thể đọc Clipboard trình duyệt tự động. Vui lòng bấm Ctrl + V vào ô văn bản bên dưới.");
+    }
+  };
+
+  // 3c. Xử lý nạp văn bản phụ đề dịch (Text Paste)
+  const handleManualSrtTextSubmit = async () => {
+    const currentId = taskStatus?.task_id || taskId;
+    if (!currentId) {
+      toast.error("Chưa có tác vụ tạo phụ đề tương ứng.");
+      return;
+    }
+
+    if (!manualSrtText.trim()) {
+      toast.error("Vui lòng dán nội dung phụ đề trước khi áp dụng.");
+      return;
+    }
+
+    setIsUploadingManualSrt(true);
+    const formData = new FormData();
+    formData.append("srt_content", manualSrtText.trim());
+
+    try {
+      const res = await fetch(`http://localhost:8000/api/video-translate/manual/upload-translated-srt/${currentId}`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Lỗi khi nạp nội dung phụ đề");
+      setManualUploadedCount(data.segments_count || null);
+      toast.success(`✅ ${data.message}`);
+    } catch (err: any) {
+      toast.error(err.message || "Lỗi khi nạp nội dung phụ đề");
+    } finally {
+      setIsUploadingManualSrt(false);
+    }
+  };
+
   // 4. Tiếp tục quy trình: Lồng tiếng & Render Video
   const handleResumeManualPipeline = async () => {
     const currentId = taskStatus?.task_id || taskId;
@@ -711,8 +764,10 @@ export default function VideoTranslate() {
     formData.append("max_speed_rate", maxSpeedRate.toString());
     formData.append("output_resolution", outputResolution);
 
-    if (manualSrtFile) {
+    if (manualSrtMode === "file" && manualSrtFile) {
       formData.append("srt_file", manualSrtFile);
+    } else if (manualSrtMode === "text" && manualSrtText.trim()) {
+      formData.append("srt_content", manualSrtText.trim());
     }
 
     try {
@@ -1350,8 +1405,21 @@ export default function VideoTranslate() {
             )}
           </div>
 
-          {/* Tab Switcher: Chế độ Dịch Tự Động vs Chế độ Thủ Công */}
+          {/* Tab Switcher: Chế độ Dịch Thủ Công vs Chế độ Dịch Tự Động */}
           <div className="flex items-center p-1.5 bg-surface-variant/40 border border-white/10 rounded-2xl gap-1.5">
+            <button
+              type="button"
+              onClick={() => setTranslationMode("manual")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer",
+                translationMode === "manual"
+                  ? "bg-primary text-black shadow-lg shadow-primary/20"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              )}
+            >
+              <FileText className="w-4 h-4" />
+              <span>✍️ Dịch Thủ Công (Tạo Phụ Đề & Nạp SRT)</span>
+            </button>
             <button
               type="button"
               onClick={() => setTranslationMode("auto")}
@@ -1364,19 +1432,6 @@ export default function VideoTranslate() {
             >
               <Sparkles className="w-4 h-4" />
               <span>⚡ Dịch Tự Động (Full AI)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTranslationMode("manual")}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer",
-                translationMode === "manual"
-                  ? "bg-primary text-black shadow-lg shadow-primary/20"
-                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-              )}
-            >
-              <FileText className="w-4 h-4" />
-              <span>✍️ Thủ Công (Tạo Phụ Đề & Nạp SRT)</span>
             </button>
           </div>
 
@@ -2042,6 +2097,7 @@ export default function VideoTranslate() {
               </div>
 
               {/* Bước 3: Nạp file SRT đã dịch */}
+              {/* Bước 3: Nạp lại file phụ đề đã dịch (.srt) hoặc Dán trực tiếp văn bản */}
               <div className={cn(
                 "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all",
                 manualUploadedCount ? "border-green-500/30" : "border-white/10"
@@ -2049,7 +2105,7 @@ export default function VideoTranslate() {
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <FileEdit className="w-4 h-4 text-amber-400" />
-                    Bước 3: Nạp Lại File Phụ Đề Đã Dịch (.srt)
+                    Bước 3: Nạp Lại Phụ Đề Đã Dịch
                   </h2>
                   {manualUploadedCount !== null ? (
                     <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 font-medium flex items-center gap-1">
@@ -2063,54 +2119,152 @@ export default function VideoTranslate() {
                   ) : null}
                 </div>
 
-                <input
-                  ref={manualSrtFileInputRef}
-                  type="file"
-                  accept=".srt"
-                  className="hidden"
-                  disabled={isTranscribingOriginal}
-                  onChange={handleManualSrtFileChange}
-                />
-
-                <div
-                  onClick={() => {
-                    if (!isTranscribingOriginal) {
-                      manualSrtFileInputRef.current?.click();
-                    } else {
-                      toast.info("Vui lòng chờ tạo phụ đề thoại xong trước khi nạp file dịch.");
-                    }
-                  }}
-                  className={cn(
-                    "border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all group",
-                    isTranscribingOriginal
-                      ? "border-white/10 bg-surface-variant/10 opacity-50 cursor-not-allowed"
-                      : "border-white/20 hover:border-primary/50 cursor-pointer bg-surface-variant/20 hover:bg-surface-variant/40"
-                  )}
-                >
-                  {isUploadingManualSrt ? (
-                    <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                  ) : (
-                    <Upload className="w-6 h-6 text-primary group-hover:scale-110 transition-transform" />
-                  )}
-                  <p className="text-xs font-medium text-on-surface">
-                    {isUploadingManualSrt
-                      ? "Đang phân tích cú pháp file SRT..."
-                      : manualSrtFile
-                      ? manualSrtFile.name
-                      : isTranscribingOriginal
-                      ? "Tạm thời khóa khi đang tạo phụ đề video..."
-                      : "Nhấp để chọn hoặc kéo thả file .SRT đã dịch vào đây"}
-                  </p>
-                  {manualSrtFile && !isUploadingManualSrt ? (
-                    <p className="text-[11px] text-green-400 font-medium">
-                      ✅ Đã nạp: {manualSrtFile.name} ({(manualSrtFile.size / 1024).toFixed(1)} KB)
-                    </p>
-                  ) : (
-                    <p className="text-[10px] text-on-surface-variant">
-                      Chấp nhận file định dạng SubRip (.srt) chuẩn UTF-8
-                    </p>
-                  )}
+                {/* Tab chuyển đổi giữa Tải File .SRT và Dán Text trực tiếp */}
+                <div className="flex p-1 bg-surface-variant/40 rounded-xl border border-white/5 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setManualSrtMode("file")}
+                    className={cn(
+                      "flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                      manualSrtMode === "file"
+                        ? "bg-primary text-on-primary shadow-sm"
+                        : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+                    )}
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>📁 Tải file .SRT</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualSrtMode("text")}
+                    className={cn(
+                      "flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                      manualSrtMode === "text"
+                        ? "bg-primary text-on-primary shadow-sm"
+                        : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+                    )}
+                  >
+                    <Clipboard className="w-3.5 h-3.5" />
+                    <span>📋 Dán văn bản (Copy/Paste)</span>
+                  </button>
                 </div>
+
+                {/* Chế độ 1: Tải file .SRT */}
+                {manualSrtMode === "file" && (
+                  <div className="space-y-2">
+                    <input
+                      ref={manualSrtFileInputRef}
+                      type="file"
+                      accept=".srt"
+                      className="hidden"
+                      disabled={isTranscribingOriginal}
+                      onChange={handleManualSrtFileChange}
+                    />
+
+                    <div
+                      onClick={() => {
+                        if (!isTranscribingOriginal) {
+                          manualSrtFileInputRef.current?.click();
+                        } else {
+                          toast.info("Vui lòng chờ tạo phụ đề thoại xong trước khi nạp file dịch.");
+                        }
+                      }}
+                      className={cn(
+                        "border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all group",
+                        isTranscribingOriginal
+                          ? "border-white/10 bg-surface-variant/10 opacity-50 cursor-not-allowed"
+                          : "border-white/20 hover:border-primary/50 cursor-pointer bg-surface-variant/20 hover:bg-surface-variant/40"
+                      )}
+                    >
+                      {isUploadingManualSrt ? (
+                        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                      ) : (
+                        <Upload className="w-6 h-6 text-primary group-hover:scale-110 transition-transform" />
+                      )}
+                      <p className="text-xs font-medium text-on-surface text-center">
+                        {isUploadingManualSrt
+                          ? "Đang phân tích cú pháp file SRT..."
+                          : manualSrtFile
+                          ? manualSrtFile.name
+                          : isTranscribingOriginal
+                          ? "Tạm thời khóa khi đang tạo phụ đề video..."
+                          : "Nhấp để chọn hoặc kéo thả file .SRT đã dịch vào đây"}
+                      </p>
+                      {manualSrtFile && !isUploadingManualSrt ? (
+                        <p className="text-[11px] text-green-400 font-medium">
+                          ✅ Đã nạp: {manualSrtFile.name} ({(manualSrtFile.size / 1024).toFixed(1)} KB)
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-on-surface-variant">
+                          Chấp nhận file định dạng SubRip (.srt) chuẩn UTF-8
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Chế độ 2: Dán trực tiếp văn bản SRT / Copy từ ChatGPT/Xoppy/Notepad */}
+                {manualSrtMode === "text" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handlePasteFromClipboard}
+                          className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <ClipboardPaste className="w-3.5 h-3.5" />
+                          <span>Dán từ Clipboard</span>
+                        </button>
+                        {manualSrtText && (
+                          <button
+                            type="button"
+                            onClick={() => setManualSrtText("")}
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-rose-500/20 text-on-surface-variant hover:text-rose-400 border border-white/10 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Xóa</span>
+                          </button>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-on-surface-variant">
+                        {manualSrtText ? `${manualSrtText.split("\n").length} dòng • ${manualSrtText.length} ký tự` : "Hỗ trợ định dạng SRT chuẩn"}
+                      </span>
+                    </div>
+
+                    <textarea
+                      value={manualSrtText}
+                      onChange={(e) => setManualSrtText(e.target.value)}
+                      placeholder={`1\n00:00:01,000 --> 00:00:04,500\nXin chào các bạn, đây là phụ đề đã dịch...\n\n2\n00:00:05,000 --> 00:00:08,200\nNội dung câu tiếp theo...`}
+                      rows={7}
+                      className="w-full bg-surface-variant/40 border border-white/10 focus:border-primary rounded-xl p-3 text-xs font-mono text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none transition-colors resize-y leading-relaxed"
+                    />
+
+                    <button
+                      type="button"
+                      disabled={isUploadingManualSrt || !manualSrtText.trim()}
+                      onClick={handleManualSrtTextSubmit}
+                      className={cn(
+                        "w-full py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm",
+                        !manualSrtText.trim()
+                          ? "bg-white/5 text-on-surface-variant/40 border border-white/5 cursor-not-allowed"
+                          : "bg-primary text-on-primary hover:bg-primary/90 hover:shadow-primary/25"
+                      )}
+                    >
+                      {isUploadingManualSrt ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Đang phân tích cú pháp phụ đề...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Áp Dụng Nội Dung Phụ Đề Này</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
 
                 {manualUploadedCount !== null && (
                   <div className="pt-1">

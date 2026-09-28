@@ -192,7 +192,7 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       whisperModel: "large-v3",
       showAdvanced: false,
 
-      translationMode: "auto",
+      translationMode: "manual",
       setTranslationMode: (translationMode) => set({ translationMode }),
 
       isProcessing: false,

@@ -1,12 +1,17 @@
 export const convertToWav = async (file: Blob | File): Promise<Blob> => {
-  const arrayBuffer = await file.arrayBuffer();
-  // Khởi tạo AudioContext với sampleRate 24000 (chuẩn của OmniVoice)
-  const audioContext = new (
-    window.AudioContext || (window as any).webkitAudioContext
-  )({ sampleRate: 24000 });
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    // Khởi tạo AudioContext với sampleRate 24000 (chuẩn của OmniVoice)
+    const audioContext = new (
+      window.AudioContext || (window as any).webkitAudioContext
+    )({ sampleRate: 24000 });
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-  return audioBufferToWav(audioBuffer);
+    return audioBufferToWav(audioBuffer);
+  } catch (err) {
+    console.warn("⚠️ Trình duyệt không hỗ trợ AudioContext 24kHz, gửi file gốc lên Backend:", err);
+    return file;
+  }
 };
 
 function audioBufferToWav(buffer: AudioBuffer): Blob {

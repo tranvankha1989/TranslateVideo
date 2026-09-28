@@ -24,7 +24,7 @@ from app.core.config import OUTPUTS_DIR, logger
 from app.services.dubbing_service import DubbingService, get_audio_duration, DUBBING_OUTPUT_DIR
 from app.services.translator_service import TranslationService, GoogleTranslator
 from app.services.alignment_service import AlignmentService
-from caption_handler import extract_audio, get_whisper_model
+from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local
 
 TRANSLATE_OUTPUT_DIR = OUTPUTS_DIR / "video_translate"
 TRANSLATE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -304,11 +304,13 @@ class VideoTranslationPipeline:
                         "-i", str(video_path),
                         "-vn", "-sn", "-dn",
                         "-map", "0:a:0?",
+                        "-af", "aresample=async=1",
                         "-acodec", "pcm_s16le",
                         "-ar", "44100",
                         "-ac", "2",
                         str(bgm_raw),
                         "-map", "0:a:0?",
+                        "-af", "aresample=async=1",
                         "-acodec", "pcm_s16le",
                         "-ar", "16000",
                         "-ac", "1",
@@ -354,34 +356,19 @@ class VideoTranslationPipeline:
 
             lang_arg = None if source_lang == "auto" else source_lang.split("-")[0]
 
-            # Chạy whisper và nạp mô hình trong thread riêng để không block event loop
             def run_whisper():
                 logger.info(
                     f"🎙️ [Whisper STT] Bắt đầu bóc băng video gốc '{video_path.name}' bằng mô hình '{whisper_model.upper()}' (Audio: {raw_audio_path.name}, Lang: {lang_arg or 'auto'})"
                 )
-                whisper = get_whisper_model(whisper_model)
-                initial_prompt = None
-                if lang_arg == "zh":
-                    initial_prompt = "这是一段影视对白，包含口语、人名与专有名词。请使用简体中文和正确的现代标点符号完整记录。"
-                elif lang_arg == "vi":
-                    initial_prompt = "Đây là đoạn hội thoại video tiếng Việt, xin hãy ghi lại đầy đủ và chính xác với dấu câu."
-                elif lang_arg == "en":
-                    initial_prompt = "This is a movie dialogue. Please transcribe accurately with proper capitalization and punctuation."
-
-                segs, info = whisper.transcribe(
-                    str(raw_audio_path),
-                    language=lang_arg,
-                    initial_prompt=initial_prompt,
+                return transcribe_with_remote_or_local(
+                    audio_path=raw_audio_path,
+                    language=source_lang,
+                    model_size=whisper_model,
+                    initial_prompt=None,
+                    vad_filter=False,
                     beam_size=3,
-                    best_of=3,
-                    condition_on_previous_text=False,
-                    repetition_penalty=1.2,
-                    no_speech_threshold=0.6,
-                    compression_ratio_threshold=2.4,
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=400),
+                    word_timestamps=True,
                 )
-                return list(segs), info.language
 
             cls.update_task(
                 task_id,
@@ -395,18 +382,44 @@ class VideoTranslationPipeline:
 
             original_segments = []
             for s in segments_raw:
-                txt = s.text.strip()
+                if isinstance(s, dict):
+                    txt = str(s.get("text", "")).strip()
+                    words = s.get("words", [])
+                    if words and isinstance(words, list) and len(words) > 0:
+                        w0 = words[0]
+                        w1 = words[-1]
+                        s_start = float(w0.get("start", s.get("start", 0.0))) if isinstance(w0, dict) else float(getattr(w0, "start", s.get("start", 0.0)))
+                        s_end = float(w1.get("end", s.get("end", 0.0))) if isinstance(w1, dict) else float(getattr(w1, "end", s.get("end", 0.0)))
+                    else:
+                        s_start = float(s.get("start", 0.0))
+                        s_end = float(s.get("end", 0.0))
+                else:
+                    txt = str(getattr(s, "text", "")).strip()
+                    words = getattr(s, "words", None)
+                    if words and len(words) > 0:
+                        s_start = float(getattr(words[0], "start", getattr(s, "start", 0.0)))
+                        s_end = float(getattr(words[-1], "end", getattr(s, "end", 0.0)))
+                    else:
+                        s_start = float(getattr(s, "start", 0.0))
+                        s_end = float(getattr(s, "end", 0.0))
+
                 if not txt:
                     continue
-                # Chống ảo giác lặp lại liên tiếp (Whisper Hallucination Repetition Loop)
-                if original_segments and txt.lower() == original_segments[-1]["text"].lower():
-                    logger.warning(f"[Whisper Hallucination Filter] Bỏ qua câu lặp ảo giác liên tiếp: '{txt}' tại [{s.start:.2f}s -> {s.end:.2f}s]")
-                    continue
+
+                # Chống ảo giác lặp lại liên tiếp trong khoảng thời gian sát nhau (< 1.5s)
+                if original_segments:
+                    prev_seg = original_segments[-1]
+                    if txt.lower() == prev_seg["text"].lower() and abs(s_start - prev_seg["end"]) < 1.5:
+                        logger.warning(f"[Whisper Hallucination Filter] Bỏ qua câu lặp ảo giác liên tiếp: '{txt}' tại [{s_start:.2f}s -> {s_end:.2f}s]")
+                        continue
+
+                if s_end <= s_start:
+                    s_end = round(s_start + 0.3, 3)
 
                 original_segments.append({
                     "id": len(original_segments) + 1,
-                    "start": round(s.start, 3),
-                    "end": round(s.end, 3),
+                    "start": round(s_start, 3),
+                    "end": round(s_end, 3),
                     "text": txt,
                 })
 
@@ -761,44 +774,59 @@ class VideoTranslationPipeline:
 
             def run_whisper():
                 logger.info(f"🎙️ [Manual Whisper STT] Bắt đầu tạo phụ đề gốc video '{video_path.name}' bằng '{whisper_model}'")
-                whisper = get_whisper_model(whisper_model)
-                initial_prompt = None
-                if lang_arg == "zh":
-                    initial_prompt = "这是一段影视对白，包含口语、人名与专有名词。请使用简体中文和正确的现代标点符号完整记录。"
-                elif lang_arg == "vi":
-                    initial_prompt = "Đây là đoạn hội thoại video tiếng Việt, xin hãy ghi lại đầy đủ và chính xác với dấu câu."
-                elif lang_arg == "en":
-                    initial_prompt = "This is a movie dialogue. Please transcribe accurately with proper capitalization and punctuation."
-
-                segs, info = whisper.transcribe(
-                    str(raw_audio_path),
-                    language=lang_arg,
-                    initial_prompt=initial_prompt,
+                return transcribe_with_remote_or_local(
+                    audio_path=raw_audio_path,
+                    language=source_lang,
+                    model_size=whisper_model,
+                    initial_prompt=None,
+                    vad_filter=False,
                     beam_size=3,
-                    best_of=3,
-                    condition_on_previous_text=False,
-                    repetition_penalty=1.2,
-                    no_speech_threshold=0.6,
-                    compression_ratio_threshold=2.4,
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=400),
+                    word_timestamps=True,
                 )
-                return list(segs), info.language
 
             segments_raw, detected_lang = await asyncio.to_thread(run_whisper)
             detected_source_lang = source_lang if source_lang != "auto" else detected_lang
 
             original_segments = []
             for s in segments_raw:
-                txt = s.text.strip()
+                if isinstance(s, dict):
+                    txt = str(s.get("text", "")).strip()
+                    words = s.get("words", [])
+                    if words and isinstance(words, list) and len(words) > 0:
+                        w0 = words[0]
+                        w1 = words[-1]
+                        s_start = float(w0.get("start", s.get("start", 0.0))) if isinstance(w0, dict) else float(getattr(w0, "start", s.get("start", 0.0)))
+                        s_end = float(w1.get("end", s.get("end", 0.0))) if isinstance(w1, dict) else float(getattr(w1, "end", s.get("end", 0.0)))
+                    else:
+                        s_start = float(s.get("start", 0.0))
+                        s_end = float(s.get("end", 0.0))
+                else:
+                    txt = str(getattr(s, "text", "")).strip()
+                    words = getattr(s, "words", None)
+                    if words and len(words) > 0:
+                        s_start = float(getattr(words[0], "start", getattr(s, "start", 0.0)))
+                        s_end = float(getattr(words[-1], "end", getattr(s, "end", 0.0)))
+                    else:
+                        s_start = float(getattr(s, "start", 0.0))
+                        s_end = float(getattr(s, "end", 0.0))
+
                 if not txt:
                     continue
-                if original_segments and txt.lower() == original_segments[-1]["text"].lower():
-                    continue
+
+                # Chống ảo giác lặp lại liên tiếp trong khoảng thời gian sát nhau (< 1.5s)
+                if original_segments:
+                    prev_seg = original_segments[-1]
+                    if txt.lower() == prev_seg["text"].lower() and abs(s_start - prev_seg["end"]) < 1.5:
+                        logger.warning(f"[Whisper Hallucination Filter] Bỏ qua câu lặp ảo giác liên tiếp: '{txt}' tại [{s_start:.2f}s -> {s_end:.2f}s]")
+                        continue
+
+                if s_end <= s_start:
+                    s_end = round(s_start + 0.3, 3)
+
                 original_segments.append({
                     "id": len(original_segments) + 1,
-                    "start": round(s.start, 3),
-                    "end": round(s.end, 3),
+                    "start": round(s_start, 3),
+                    "end": round(s_end, 3),
                     "text": txt,
                 })
 

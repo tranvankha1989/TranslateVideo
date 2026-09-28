@@ -13,10 +13,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.core.config import OUTPUTS_DIR, PRESETS_DIR, APP_VERSION, logger
+import sys
+from app.core.config import OUTPUTS_DIR, PRESETS_DIR, APP_VERSION, APP_LOG_FILE, logger
 from app.core.database import connect_db, close_db
 from app.routers import api_router
-from model_handler import load_model
+from model_handler import load_model, is_remote_gpu_enabled, get_remote_gpu_url
 
 
 import asyncio
@@ -24,7 +25,10 @@ from app.routers.health import monitor_browser_lifetime
 
 
 async def _prewarm_whisper():
-    """Tải trước mô hình Faster-Whisper vào VRAM/RAM để khi người dùng dịch video không phải chờ 30-40s."""
+    """Tải trước mô hình Faster-Whisper vào VRAM/RAM (chỉ khi chạy local)."""
+    if is_remote_gpu_enabled():
+        logger.info("🌐 [Pre-warm] Đang bật chế độ GPU Online - Bỏ qua tải trước Faster-Whisper vào GPU/RAM local để tiết kiệm 100% VRAM.")
+        return
     try:
         from caption_handler import get_whisper_model
         logger.info("🎙️ [Pre-warm] Đang tải trước Faster-Whisper vào GPU/RAM...")
@@ -37,7 +41,20 @@ async def _prewarm_whisper():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load mô hình OmniVoice và kết nối cơ sở dữ liệu nếu có cấu hình."""
-    logger.info("🚀 Server đang khởi động — nạp mô hình OmniVoice (24kHz) …")
+    logger.info("=" * 70)
+    logger.info(f"🚀 VoiceSync AI (OmniVoice Studio) v{APP_VERSION} đang khởi động...")
+    logger.info(f"💻 Hệ điều hành: {sys.platform} | Python: {sys.version.split()[0]}")
+    logger.info(f"📄 Nhật ký Logfile: {APP_LOG_FILE}")
+    try:
+        import torch
+        cuda_avail = torch.cuda.is_available()
+        dev_name = torch.cuda.get_device_name(0) if cuda_avail else "CPU Only"
+        logger.info(f"⚡ Phần cứng đồ hoạ: CUDA={cuda_avail} ({dev_name})")
+    except Exception:
+        pass
+    logger.info(f"🌐 GPU Online Worker: Enabled={is_remote_gpu_enabled()} | URL='{get_remote_gpu_url()}'")
+    logger.info("=" * 70)
+
     load_model()
     await connect_db()
     # Khởi động nạp trước Faster-Whisper trong nền (không chặn khởi động server)
@@ -47,7 +64,7 @@ async def lifespan(app: FastAPI):
     whisper_warm_task.cancel()
     monitor_task.cancel()
     await close_db()
-    logger.info("🛑 Server đang tắt.")
+    logger.info("🛑 Server đang tắt hoàn tất.")
 
 
 

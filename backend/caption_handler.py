@@ -66,6 +66,8 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
         "-vn",
         "-sn",
         "-dn",
+        "-af",
+        "aresample=async=1",
         "-acodec",
         "pcm_s16le",
         "-ar",
@@ -355,6 +357,126 @@ def align_words_with_reference(
     return new_segments
 
 
+def transcribe_with_remote_or_local(
+    audio_path: Path,
+    language: str | None = None,
+    model_size: str | None = None,
+    initial_prompt: str | None = None,
+    vad_filter: bool = False,
+    beam_size: int = 3,
+    word_timestamps: bool = True,
+) -> tuple[list[dict[str, Any]], str]:
+    """
+    Nhận diện giọng nói STT thông minh:
+    - Nếu USE_REMOTE_GPU=True: Gửi audio WAV lên Cloud GPU Colab (Tesla T4) để nhận diện,
+      giải phóng 100% VRAM card đồ họa máy local.
+    - Nếu mất kết nối hoặc USE_REMOTE_GPU=False: Tự động dùng Faster-Whisper local.
+    Trả về: (segments_list, detected_language)
+    """
+    from model_handler import is_remote_gpu_enabled, get_remote_gpu_url
+
+    target_size = model_size or WHISPER_MODEL_SIZE
+    lang_arg = None if (not language or language == "auto") else language.split("-")[0]
+
+    # 1. Thử gửi lên Remote GPU Worker nếu được bật
+    if is_remote_gpu_enabled():
+        remote_url = get_remote_gpu_url()
+        logger.info(
+            f"🌐 [Remote STT] Gửi audio '{audio_path.name}' lên Cloud GPU T4: {remote_url} (Lang={lang_arg or 'auto'}, Model={target_size})..."
+        )
+        try:
+            import httpx
+            with open(audio_path, "rb") as af:
+                files = {"audio_file": (audio_path.name, af, "audio/wav")}
+                data = {
+                    "language": lang_arg or "",
+                    "model_size": target_size,
+                    "initial_prompt": initial_prompt or "",
+                    "vad_filter": "true" if vad_filter else "false",
+                    "beam_size": str(beam_size),
+                }
+                with httpx.Client(timeout=300.0) as client:
+                    resp = client.post(f"{remote_url}/api/remote/transcribe", files=files, data=data)
+
+            if resp.status_code == 200:
+                res_data = resp.json()
+                detected_lang = res_data.get("language") or lang_arg or "vi"
+                segments = res_data.get("segments", [])
+                logger.info(
+                    f"🎉 [Remote STT] Nhận diện thành công {len(segments)} câu trên Cloud GPU (Ngôn ngữ: {detected_lang})!"
+                )
+                return segments, detected_lang
+            else:
+                logger.warning(
+                    f"⚠️ [Remote STT] Cloud Colab trả về HTTP {resp.status_code}: {resp.text[:200]}, chuyển sang Whisper Local..."
+                )
+        except Exception as e:
+            logger.warning(f"⚠️ [Remote STT] Không thể kết nối Cloud GPU ({e}), tự động chuyển sang Faster-Whisper Local...")
+
+    # 2. Chạy Local nếu không dùng Remote hoặc Remote bị lỗi
+    logger.info(f"💻 [Local STT] Đang chạy Faster-Whisper '{target_size}' trên máy tính...")
+    model = get_whisper_model(target_size)
+    segments_gen, info = model.transcribe(
+        str(audio_path),
+        language=lang_arg,
+        initial_prompt=initial_prompt,
+        beam_size=beam_size,
+        best_of=beam_size,
+        condition_on_previous_text=False,
+        repetition_penalty=1.2,
+        no_speech_threshold=0.85,
+        log_prob_threshold=-1.5,
+        compression_ratio_threshold=2.8,
+        vad_filter=vad_filter,
+        vad_parameters=dict(
+            threshold=0.35,
+            min_speech_duration_ms=200,
+            min_silence_duration_ms=800,
+            speech_pad_ms=400,
+        ) if vad_filter else None,
+        word_timestamps=word_timestamps,
+    )
+
+    result_segments = []
+    for i, s in enumerate(segments_gen):
+        words_data = []
+        if getattr(s, "words", None):
+            for w in s.words:
+                w_text = getattr(w, "word", "").strip()
+                if not w_text:
+                    continue
+                words_data.append({
+                    "word": w_text,
+                    "start": round(getattr(w, "start", 0.0), 3),
+                    "end": round(getattr(w, "end", 0.0), 3),
+                    "probability": round(getattr(w, "probability", 1.0), 2),
+                })
+        txt = s.text.strip()
+        if not txt and not words_data:
+            continue
+
+        # Lấy mốc thời gian chuẩn xác từ từ vựng (Word timestamps) để khớp 100% với giọng nói thực tế
+        if words_data:
+            seg_start = words_data[0]["start"]
+            seg_end = words_data[-1]["end"]
+        else:
+            seg_start = round(s.start, 3)
+            seg_end = round(s.end, 3)
+
+        if seg_end <= seg_start:
+            seg_end = round(seg_start + 0.3, 3)
+
+        result_segments.append({
+            "id": i + 1,
+            "start": round(seg_start, 3),
+            "end": round(seg_end, 3),
+            "text": txt,
+            "words": words_data,
+        })
+
+    return result_segments, info.language
+
+
 def transcribe_video_audio(
     audio_path: Path,
     language: str = "vi",
@@ -365,58 +487,18 @@ def transcribe_video_audio(
     Phân tích âm thanh và trích xuất mốc thời gian chi tiết từng từ (Word-level timestamps).
     Hỗ trợ kịch bản đối chiếu (reference_script) để Whisper nhận diện chính xác 100% chính tả.
     """
-    model = get_whisper_model(model_size)
-    logger.info(f"Bắt đầu nhận diện giọng nói cho: {audio_path.name} (Lang={language})")
-
     prompt_snippet = None
     if reference_script and reference_script.strip():
         prompt_snippet = reference_script.strip()[:450]
 
-    segments_gen, info = model.transcribe(
-        str(audio_path),
-        language=language if language != "auto" else None,
-        word_timestamps=True,
-        vad_filter=True,
-        vad_parameters=dict(
-            threshold=0.3,
-            min_silence_duration_ms=400,
-            speech_pad_ms=400,
-        ),
+    result_segments, _ = transcribe_with_remote_or_local(
+        audio_path=audio_path,
+        language=language,
+        model_size=model_size,
         initial_prompt=prompt_snippet,
+        vad_filter=True,
+        word_timestamps=True,
     )
-
-    result_segments: list[dict[str, Any]] = []
-    seg_id = 1
-
-    for seg in segments_gen:
-        words_data: list[dict[str, Any]] = []
-        if seg.words:
-            for w in seg.words:
-                cleaned_word = w.word.strip()
-                if not cleaned_word:
-                    continue
-                words_data.append(
-                    {
-                        "word": cleaned_word,
-                        "start": round(w.start, 2),
-                        "end": round(w.end, 2),
-                        "probability": round(getattr(w, "probability", 1.0), 2),
-                    }
-                )
-
-        if not words_data and not seg.text.strip():
-            continue
-
-        result_segments.append(
-            {
-                "id": seg_id,
-                "start": round(seg.start, 2),
-                "end": round(seg.end, 2),
-                "text": seg.text.strip(),
-                "words": words_data,
-            }
-        )
-        seg_id += 1
 
     # Nếu có kịch bản đối chiếu, tự động so khớp và chia nhỏ câu
     if reference_script and reference_script.strip():

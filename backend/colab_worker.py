@@ -45,8 +45,8 @@ MODEL_ID = os.getenv("OMNIVOICE_MODEL_ID", "k2-fsa/OmniVoice")
 
 app = FastAPI(
     title="OmniVoice Colab GPU Worker",
-    description="GPU Inference Worker phục vụ ứng dụng self-tts qua Cloudflare Tunnel",
-    version="1.0.0",
+    description="GPU Inference Worker phục vụ ứng dụng self-tts qua Ngrok / Cloudflare Tunnel",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -58,10 +58,12 @@ app.add_middleware(
 )
 
 _model: OmniVoice | None = None
+_whisper_model = None
+_whisper_model_size: str | None = None
 
 
 def get_gpu_info() -> dict:
-    """Lấy thông tin card đồ hoạ đang hoạt động."""
+    """Lấy thông tin card đồ hoạ và VRAM khả dụng."""
     if not torch.cuda.is_available():
         return {
             "device": "cpu",
@@ -82,6 +84,33 @@ def get_gpu_info() -> dict:
     }
 
 
+def clean_vram():
+    """Giải phóng bộ nhớ VRAM và thu dọn rác (Smart VRAM Management)."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+
+
+def get_whisper(model_size: str = "large-v3"):
+    """Nạp động Faster-Whisper trên GPU với cơ chế lazy load và float16."""
+    global _whisper_model, _whisper_model_size
+    target = model_size.strip().lower()
+    if _whisper_model is not None and _whisper_model_size == target:
+        return _whisper_model
+
+    from faster_whisper import WhisperModel
+    dev_str = "cuda" if torch.cuda.is_available() else "cpu"
+    compute_type = "float16" if torch.cuda.is_available() else "int8"
+    logger.info(f"🎙️ [Whisper STT] Đang tải Faster-Whisper '{target}' lên {dev_str} ({compute_type})...")
+    
+    clean_vram()
+    _whisper_model = WhisperModel(target, device=dev_str, compute_type=compute_type)
+    _whisper_model_size = target
+    logger.info("✅ Tải Faster-Whisper thành công!")
+    return _whisper_model
+
+
 def load_worker_model() -> None:
     """Tải mô hình OmniVoice vào GPU VRAM."""
     global _model
@@ -99,6 +128,7 @@ def load_worker_model() -> None:
         f"🚀 Đang tải mô hình {MODEL_ID} lên {device} ({gpu_info.get('gpu_name')}) [dtype={dtype}]..."
     )
 
+    clean_vram()
     _model = OmniVoice.from_pretrained(
         MODEL_ID,
         device_map=device,
@@ -119,7 +149,9 @@ def health_check():
     return {
         "status": "ok",
         "model_loaded": _model is not None,
+        "whisper_loaded": _whisper_model is not None,
         "sample_rate": SAMPLE_RATE,
+        "provider": "Google Colab Worker",
         **gpu,
     }
 
@@ -217,6 +249,109 @@ async def create_prompt_endpoint(
             os.remove(tmp_audio_path)
         except OSError:
             pass
+        clean_vram()
+
+
+@app.post("/api/remote/transcribe")
+async def transcribe_endpoint(
+    audio_file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+    model_size: str | None = Form(default="large-v3"),
+    initial_prompt: str | None = Form(default=None),
+    vad_filter: bool = Form(default=False),
+    beam_size: int = Form(default=3),
+):
+    """
+    Bóc tách phụ đề và nhận diện giọng nói sử dụng Faster-Whisper trên Colab GPU.
+    Áp dụng Smart VRAM: Nạp mô hình theo nhu cầu và dọn sạch VRAM sau khi hoàn thành.
+    """
+    suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_audio:
+        content = await audio_file.read()
+        tmp_audio.write(content)
+        tmp_audio_path = tmp_audio.name
+
+    try:
+        whisper = get_whisper(model_size or "large-v3")
+        lang_arg = None if (not language or language == "auto") else language.split("-")[0]
+        
+        logger.info(
+            f"🎙️ [Colab Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size})..."
+        )
+
+        segments_gen, info = whisper.transcribe(
+            tmp_audio_path,
+            language=lang_arg,
+            initial_prompt=initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None,
+            beam_size=beam_size,
+            best_of=beam_size,
+            condition_on_previous_text=False,
+            repetition_penalty=1.2,
+            no_speech_threshold=0.85,
+            log_prob_threshold=-1.5,
+            compression_ratio_threshold=2.8,
+            vad_filter=vad_filter,
+            vad_parameters=dict(
+                threshold=0.35,
+                min_speech_duration_ms=200,
+                min_silence_duration_ms=800,
+                speech_pad_ms=400,
+            ) if vad_filter else None,
+            word_timestamps=True,
+        )
+
+        result_segments = []
+        for i, s in enumerate(segments_gen):
+            words_data = []
+            if getattr(s, "words", None):
+                for w in s.words:
+                    w_text = getattr(w, "word", "").strip()
+                    if not w_text:
+                        continue
+                    words_data.append({
+                        "word": w_text,
+                        "start": round(getattr(w, "start", 0.0), 3),
+                        "end": round(getattr(w, "end", 0.0), 3),
+                        "probability": round(getattr(w, "probability", 1.0), 2),
+                    })
+
+            txt = s.text.strip()
+            if not txt and not words_data:
+                continue
+
+            # Mốc thời gian chính xác theo từ
+            if words_data:
+                seg_start = words_data[0]["start"]
+                seg_end = words_data[-1]["end"]
+            else:
+                seg_start = round(s.start, 3)
+                seg_end = round(s.end, 3)
+
+            if seg_end <= seg_start:
+                seg_end = round(seg_start + 0.3, 3)
+
+            result_segments.append({
+                "id": i + 1,
+                "start": round(seg_start, 3),
+                "end": round(seg_end, 3),
+                "text": txt,
+                "words": words_data,
+            })
+
+        logger.info(f"✅ [Colab Whisper STT] Đã nhận diện {len(result_segments)} câu (Ngôn ngữ: {info.language})!")
+        return {
+            "status": "ok",
+            "language": info.language,
+            "language_probability": round(info.language_probability, 3) if hasattr(info, "language_probability") else 1.0,
+            "duration": round(info.duration, 2) if hasattr(info, "duration") else 0.0,
+            "segments": result_segments,
+        }
+    finally:
+        try:
+            os.remove(tmp_audio_path)
+        except OSError:
+            pass
+        clean_vram()
 
 
 @app.post("/api/remote/generate")
@@ -349,8 +484,7 @@ async def generate_endpoint(
                 os.remove(tmp_ref_path)
             except OSError:
                 pass
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        clean_vram()
 
 
 if __name__ == "__main__":

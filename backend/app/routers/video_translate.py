@@ -35,6 +35,7 @@ from app.services.video_translation_pipeline import (
     TRANSLATE_OUTPUT_DIR,
     _TASK_STORE,
     format_duration_vietnamese,
+    generate_srt_file,
 )
 
 router = APIRouter(prefix="/api/video-translate", tags=["Video Translation"])
@@ -52,6 +53,9 @@ async def verify_gemini_key_endpoint(req: VerifyKeyRequest):
 @router.get("/warmup")
 async def warmup_whisper():
     """Endpoint cho phép kiểm tra hoặc kích hoạt nạp trước Faster-Whisper."""
+    from model_handler import is_remote_gpu_enabled
+    if is_remote_gpu_enabled():
+        return {"status": "ready", "message": "Chế độ GPU Online đang bật (Whisper sẽ chạy trên Cloud GPU)"}
     try:
         from caption_handler import get_whisper_model
         await asyncio.to_thread(get_whisper_model)

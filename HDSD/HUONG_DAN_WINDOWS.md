@@ -5,7 +5,7 @@ Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn
 ---
 
 ## 📋 Mục Lục
-1. [Chuẩn bị môi trường phần mềm bắt buộc](#1-chuẩn-bị-môi-trường-phần-mềm-bắt-buộc)
+1. [Chuẩn bị môi trường phần mềm & tài khoản AI](#1-chuẩn-bị-môi-trường-phần-mềm--tài-khoản-ai-bắt-buộc)
 2. [Kéo code từ GitHub về máy mới](#2-kéo-code-từ-github-về-máy-mới)
 3. [Cài đặt Backend (Python)](#3-cài-đặt-backend-python)
 4. [Cài đặt Frontend (React + Vite)](#4-cài-đặt-frontend-react--vite)
@@ -15,9 +15,9 @@ Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn
 
 ---
 
-## 1. Chuẩn Bị Môi Trường Phần Mềm Bắt Buộc
+## 1. Chuẩn Bị Môi Trường Phần Mềm & Tài Khoản AI Bắt Buộc
 
-Trước khi kéo code, bạn cần cài đặt 4 công cụ nền tảng sau trên máy tính Windows mới:
+Trước khi kéo code, bạn cần cài đặt 4 công cụ nền tảng trên máy tính và chuẩn bị 2 tài khoản dịch vụ AI trực tuyến:
 
 ### 1.1. Cài đặt Git (Quản lý mã nguồn)
 * Tải bản cài đặt Git for Windows tại: [https://git-scm.com/download/win](https://git-scm.com/download/win)
@@ -46,6 +46,23 @@ Hệ thống AI xử lý tách, ghép, chuẩn hóa âm thanh bắt buộc phả
   ffmpeg -version
   ```
   *(Nếu hiện ra thông tin phiên bản là thành công).*
+
+### 1.5. Chuẩn Bị Tài Khoản Google Colab & Ngrok (Dành cho Cloud GPU)
+Dành cho máy tính không có card rời NVIDIA hoặc muốn mượn card đồ họa T4 (16GB VRAM) mạnh mẽ trên đám mây để không làm nóng máy và tiết kiệm RAM:
+* **Tài khoản Google (Gmail):** Dùng để truy cập [Google Colab](https://colab.research.google.com/) và chạy file sổ tay `notebooks/OmniVoice_Colab_T4.ipynb`.
+* **Tài khoản Ngrok (Tạo đường hầm kết nối Cloud GPU về máy local):**
+  1. Đăng ký tài khoản miễn phí tại: [https://ngrok.com/](https://ngrok.com/)
+  2. Truy cập [https://dashboard.ngrok.com/get-started/your-authtoken](https://dashboard.ngrok.com/get-started/your-authtoken) để copy mã `Authtoken`.
+  3. Mã này sẽ được dán vào Colab để sinh ra đường dẫn API công khai (dạng `https://xxxx.ngrok-free.dev`) kết nối với ứng dụng trên máy bạn.
+
+### 1.6. Chuẩn Bị API Key Google AI Studio (Dành cho Dịch Thuật Video Bằng Gemini)
+Dự án sử dụng mô hình Gemini thế hệ mới để dịch phụ đề, chuyển ngữ kịch bản video và tối ưu hóa câu từ tự nhiên:
+1. Truy cập cổng Google AI Studio: [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+2. Đăng nhập bằng tài khoản Google.
+3. Bấm **Create API key** (hoặc *Tạo khóa API*) ➔ Chọn một dự án Google Cloud hoặc tạo mới.
+4. Sao chép khóa API (dạng chuỗi `AIzaSy...`) và lưu lại.
+   * Khóa này dùng để dán trực tiếp vào giao diện tab **Dịch Video** hoặc lưu vào mục **Cài Đặt** của phần mềm.
+   * *Google AI Studio cung cấp gói miễn phí lên tới 1.500 lượt yêu cầu/ngày đối với các model Gemini Flash.*
 
 ---
 
@@ -211,3 +228,5 @@ pnpm install
 | `ffmpeg: command not found` | FFmpeg chưa thêm vào biến môi trường PATH | Chạy `winget install Gyan.FFmpeg`, sau đó khởi động lại máy hoặc tắt mở lại Terminal. |
 | `Port 8000 or 5173 already in use` | Phiên làm việc trước chưa tắt hẳn | Mở Task Manager tắt các tiến trình `python.exe` và `node.exe` đang chạy ngầm rồi mở lại `start.bat`. |
 | `CUDA out of memory` | Card rời bị tràn bộ nhớ VRAM | Đổi trong file `.env`: `OMNIVOICE_DTYPE=float16`, giảm `DEFAULT_NUM_STEP=16` hoặc chuyển sang dùng Colab GPU (`USE_REMOTE_GPU=true`). |
+| `Gặp lỗi lạ khác / Cần hỗ trợ` | Lỗi phát sinh trong quá trình chạy | Vào trang **Cài Đặt ➔ Tab "Nhật Ký & Báo Lỗi" ➔ Bấm nút "Tải File Log Báo Lỗi (.log)"** để gửi file `app.log` cho kỹ thuật viên chẩn đoán và sửa lỗi ngay. |
+

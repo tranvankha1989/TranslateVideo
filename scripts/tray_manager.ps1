@@ -177,6 +177,13 @@ $menuOpenWeb.add_Click({
     Start-Process "http://localhost:5173"
 })
 
+$menuOpenLogs = $contextMenu.Items.Add("Mở Thư Mục Logs Báo Lỗi")
+$menuOpenLogs.add_Click({
+    $logsPath = Join-Path $projectDir "logs"
+    if (-not (Test-Path $logsPath)) { New-Item -ItemType Directory -Path $logsPath -Force | Out-Null }
+    Start-Process "explorer.exe" $logsPath
+})
+
 $menuToggle = $contextMenu.Items.Add("Hiện / Ẩn Terminal")
 $menuToggle.add_Click({
     if ($script:isWindowHidden) {

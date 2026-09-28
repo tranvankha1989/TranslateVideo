@@ -22,6 +22,12 @@ import {
   ArrowRight,
   ShieldCheck,
   Terminal,
+  Download,
+  FolderOpen,
+  Copy,
+  Trash2,
+  Search,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -45,7 +51,7 @@ export default function Settings() {
     fetchAppVersion,
   } = useTTSStore();
 
-  const [activeTab, setActiveTab] = useState<"hardware" | "guide" | "sync" | "studio" | "update">("hardware");
+  const [activeTab, setActiveTab] = useState<"hardware" | "guide" | "sync" | "studio" | "update" | "logs">("hardware");
   const [useRemoteGpu, setUseRemoteGpu] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [concurrency, setConcurrency] = useState(2);
@@ -55,6 +61,75 @@ export default function Settings() {
   const [isOpeningEnv, setIsOpeningEnv] = useState(false);
   const [isReloadingBackend, setIsReloadingBackend] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+
+  // ── State Quản Lý Nhật Ký Hệ Thống (Logs) ──────────────────────────────────
+  const [logContent, setLogContent] = useState("");
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [logSearch, setLogSearch] = useState("");
+  const [logLinesCount, setLogLinesCount] = useState(300);
+  const [logStats, setLogStats] = useState<{ total_lines: number; file_size_kb: number; log_path: string } | null>(null);
+
+  const fetchLogContent = async (lines = logLinesCount) => {
+    setIsLoadingLogs(true);
+    try {
+      const res = await fetch(`http://localhost:8000/api/settings/logs/content?lines=${lines}`);
+      if (res.ok) {
+        const data = await res.json();
+        setLogContent(data.content || "");
+        setLogStats({
+          total_lines: data.total_lines || 0,
+          file_size_kb: data.file_size_kb || 0,
+          log_path: data.log_path || "",
+        });
+      }
+    } catch (err) {
+      console.warn("Lỗi khi tải nhật ký:", err);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  const handleDownloadLog = () => {
+    window.open("http://localhost:8000/api/settings/logs/download", "_blank");
+    toast.success("Đang tải file log báo lỗi về máy...");
+  };
+
+  const handleOpenLogsFolder = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/settings/logs/open-folder", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "Đã mở thư mục logs.");
+      } else {
+        toast.error(data.detail || "Không thể mở thư mục logs.");
+      }
+    } catch (err: any) {
+      toast.error("Lỗi khi mở thư mục logs: " + err.message);
+    }
+  };
+
+  const handleCopyLogs = () => {
+    if (!logContent) {
+      toast.error("Không có nội dung log để sao chép.");
+      return;
+    }
+    navigator.clipboard.writeText(logContent);
+    toast.success("Đã sao chép toàn bộ nhật ký vào Clipboard!");
+  };
+
+  const handleClearLogs = async () => {
+    if (!confirm("Bạn có chắc chắn muốn xóa toàn bộ nội dung nhật ký cũ không?")) return;
+    try {
+      const res = await fetch("http://localhost:8000/api/settings/logs/clear", { method: "POST" });
+      if (res.ok) {
+        toast.success("Đã xóa sạch nội dung nhật ký cũ.");
+        await fetchLogContent();
+      }
+    } catch (err: any) {
+      toast.error("Lỗi khi xóa log: " + err.message);
+    }
+  };
+
 
 
   const handleOpenEnv = async () => {
@@ -301,6 +376,21 @@ export default function Settings() {
         >
           <Sparkles className="w-4 h-4" />
           Phiên Bản & Cập Nhật
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab("logs");
+            fetchLogContent();
+          }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-xs md:text-sm transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === "logs"
+              ? "bg-primary text-black font-semibold shadow-md shadow-primary/20"
+              : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          Nhật Ký & Báo Lỗi (Logs)
         </button>
       </div>
 
@@ -596,6 +686,56 @@ export default function Settings() {
                 >
                   <RefreshCw className={cn("w-4 h-4", (isReloadingBackend || isLoadingHardware) && "animate-spin")} />
                   Làm mới Backend
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Card Xuất File Log Báo Lỗi & Chẩn Đoán Hệ Thống */}
+          <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-primary" />
+                  <span>Xuất File Log Báo Lỗi & Chẩn Đoán</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
+                    app.log
+                  </span>
+                </h3>
+                <p className="text-xs text-on-surface-variant max-w-xl">
+                  Tải file nhật ký hoạt động của AI, GPU và lỗi hệ thống để gửi cho kỹ thuật viên chẩn đoán và khắc phục nhanh chóng.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleDownloadLog}
+                  className="px-4 py-2.5 rounded-2xl bg-primary hover:brightness-110 text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-primary/20 transition-all cursor-pointer hover:scale-[1.02]"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Tải File Log (.log)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenLogsFolder}
+                  className="px-4 py-2.5 rounded-2xl bg-surface-variant hover:bg-surface-variant/80 border border-white/10 hover:border-white/20 text-on-surface text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer hover:scale-[1.02]"
+                >
+                  <FolderOpen className="w-4 h-4 text-amber-300" />
+                  <span>Mở Thư Mục Logs</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("logs");
+                    fetchLogContent();
+                  }}
+                  className="px-4 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-on-surface text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer"
+                >
+                  <Search className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Xem Live Log</span>
                 </button>
               </div>
             </div>
@@ -956,6 +1096,166 @@ export default function Settings() {
             <p className="text-xs text-on-surface-variant leading-relaxed">
               Nếu bạn muốn cập nhật trực tiếp ngoài màn hình hoặc khi không mở trình duyệt, bạn chỉ cần chạy tệp <code className="text-primary font-mono bg-black/40 px-1.5 py-0.5 rounded border border-white/10">update.bat</code> trong thư mục gốc của phần mềm. File này sẽ tự động chạy lệnh git pull và cập nhật các gói thư viện.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 6: Nhật Ký & Báo Lỗi (System Logs & Diagnostic) */}
+      {activeTab === "logs" && (
+        <div className="space-y-6">
+          {/* Card Tiêu Đề & Thống Kê */}
+          <div className="p-6 md:p-8 rounded-3xl bg-surface-variant/30 border border-white/5 space-y-4 relative overflow-hidden">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-lg md:text-xl font-bold text-on-surface">
+                    Nhật Ký Hệ Thống & Chẩn Đoán Lỗi (Logfile)
+                  </h2>
+                </div>
+                <p className="text-xs text-on-surface-variant max-w-2xl">
+                  Ghi lại toàn bộ tiến trình của AI, GPU, kết nối mạng và lỗi chi tiết. Khi cần hỗ trợ kỹ thuật, bạn chỉ cần bấm nút tải file hoặc sao chép nhật ký gửi cho người phát triển.
+                </p>
+              </div>
+
+              {logStats && (
+                <div className="flex items-center gap-2 text-xs font-mono">
+                  <span className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-on-surface">
+                    📊 Dung lượng: <strong className="text-primary">{logStats.file_size_kb} KB</strong>
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-on-surface">
+                    📝 Tổng: <strong className="text-primary">{logStats.total_lines} dòng</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Thanh công cụ hành động (Action Toolbar) */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/5">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadLog}
+                  className="px-4 py-2.5 rounded-xl bg-primary hover:brightness-110 text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-primary/20 transition-all cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Tải File Log Báo Lỗi (.log)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenLogsFolder}
+                  className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-on-surface font-semibold text-xs flex items-center gap-2 border border-white/10 transition-all cursor-pointer"
+                >
+                  <FolderOpen className="w-4 h-4 text-amber-300" />
+                  <span>Mở Thư Mục Chứa Log</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fetchLogContent()}
+                  disabled={isLoadingLogs}
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface text-xs flex items-center gap-2 border border-white/10 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5", isLoadingLogs && "animate-spin text-primary")} />
+                  <span>Làm Mới</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyLogs}
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface text-xs flex items-center gap-2 border border-white/10 transition-all cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Sao Chép Tất Cả</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleClearLogs}
+                className="px-3.5 py-2 rounded-xl text-rose-400 hover:bg-rose-500/10 text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-rose-500/20"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Xóa Nhật Ký Cũ</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Hộp Tìm Kiếm & Live Log Console */}
+          <div className="p-5 md:p-6 rounded-3xl bg-black/60 border border-white/10 space-y-3.5 shadow-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={logSearch}
+                  onChange={(e) => setLogSearch(e.target.value)}
+                  placeholder="Lọc từ khóa: ERROR, WARNING, CUDA, Colab, Prompt..."
+                  className="w-full pl-9 pr-4 py-2 rounded-xl bg-surface-variant/40 border border-white/10 text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary/50"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-on-surface-variant">Hiển thị:</span>
+                <select
+                  value={logLinesCount}
+                  onChange={(e) => {
+                    const l = parseInt(e.target.value, 10);
+                    setLogLinesCount(l);
+                    fetchLogContent(l);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-surface-variant/50 border border-white/10 text-xs text-on-surface focus:outline-none"
+                >
+                  <option value={100}>100 dòng cuối</option>
+                  <option value={300}>300 dòng cuối</option>
+                  <option value={500}>500 dòng cuối</option>
+                  <option value={1000}>1000 dòng cuối</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Màn Hình Terminal Console */}
+            <div className="relative rounded-2xl bg-[#0a0d14] border border-white/10 p-4 font-mono text-[11px] md:text-xs leading-relaxed max-h-[500px] overflow-y-auto select-text scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+              {isLoadingLogs ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2 text-on-surface-variant">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  <span>Đang đọc file nhật ký app.log...</span>
+                </div>
+              ) : !logContent ? (
+                <div className="py-12 text-center text-on-surface-variant/60">
+                  Chưa có dữ liệu nhật ký nào. Hãy tạo thử giọng hoặc dịch video để ghi nhận hoạt động.
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {logContent
+                    .split("\n")
+                    .filter((line) => !logSearch.trim() || line.toLowerCase().includes(logSearch.toLowerCase()))
+                    .map((line, idx) => {
+                      const isError = line.includes("[ERROR]") || line.includes("Exception") || line.includes("Traceback") || line.includes("Error:") || line.includes("❌");
+                      const isWarn = line.includes("[WARNING]") || line.includes("[WARN]") || line.includes("⚠️");
+                      const isSuccess = line.includes("✅") || line.includes("🚀") || line.includes("SUCCESS") || line.includes("thành công");
+
+                      return (
+                        <div
+                          key={idx}
+                          className={cn(
+                            "py-0.5 px-1.5 rounded transition-colors whitespace-pre-wrap break-all",
+                            isError && "bg-rose-500/15 text-rose-300 font-semibold border-l-2 border-rose-500",
+                            isWarn && "bg-amber-500/10 text-amber-300 border-l-2 border-amber-500",
+                            isSuccess && "text-emerald-300",
+                            !isError && !isWarn && !isSuccess && "text-slate-300 hover:bg-white/5"
+                          )}
+                        >
+                          {line}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

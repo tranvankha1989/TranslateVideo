@@ -263,14 +263,20 @@ def create_voice_prompt(ref_audio: str, ref_text: str | None = None) -> VoiceClo
     Trích xuất đặc trưng âm thanh và tạo VoiceClonePrompt.
     Nếu ref_text là None hoặc rỗng, OmniVoice sẽ tự động dùng Whisper ASR để bóc băng.
     """
-    if is_remote_gpu_enabled() and get_remote_gpu_url() and _is_remote_gpu_online:
-        try:
-            return _create_voice_prompt_remote(ref_audio, ref_text)
-        except Exception as e:
-            logger.warning(f"⚠️ Trích xuất giọng bằng GPU Online thất bại ({e}), tự động chuyển sang trích xuất bằng GPU/CPU máy local...")
+    global _is_remote_gpu_online
+    if is_remote_gpu_enabled() and get_remote_gpu_url():
+        if not _is_remote_gpu_online and _model is None:
+            load_model()
+        if _is_remote_gpu_online:
+            try:
+                return _create_voice_prompt_remote(ref_audio, ref_text)
+            except Exception as e:
+                logger.warning(f"⚠️ Trích xuất giọng bằng GPU Online thất bại ({e}), tự động chuyển sang trích xuất bằng GPU/CPU máy local...")
 
     with _model_lock:
-        model = get_model()
+        model = get_model(force_local=True)
+        if model is None:
+            raise RuntimeError("Không thể nạp mô hình OmniVoice cục bộ để trích xuất giọng nói.")
         logger.info(f"Đang tạo VoiceClonePrompt từ ref_audio='{ref_audio}', ref_text={ref_text}")
         prompt = model.create_voice_clone_prompt(
             ref_audio=ref_audio,
