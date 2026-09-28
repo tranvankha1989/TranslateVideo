@@ -89,10 +89,15 @@ async def start_video_translation(
     translation_style: str = Form("auto"),
     translation_model: str = Form("gemini-2.5-flash"),
     translation_temperature: float = Form(0.2),
-    whisper_model: str = Form("large-v3"),
+    whisper_model: str = Form("large-v3-turbo"),
     output_resolution: str = Form("720p"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
+    vad_threshold: float = Form(0.35),
+    speech_pad_ms: int = Form(400),
+    min_speech_duration_ms: int = Form(150),
+    beam_size: int = Form(3),
+    filter_hallucinations: bool = Form(False),
 ):
     """
     Tiếp nhận video tải lên và kích hoạt Pipeline dịch & lồng tiếng tự động chạy ngầm.
@@ -115,11 +120,16 @@ async def start_video_translation(
     trans_style = str(_form_val(translation_style, "auto"))
     trans_model = str(_form_val(translation_model, "gemini-2.5-flash"))
     trans_temp = float(_form_val(translation_temperature, 0.2))
-    w_model = str(_form_val(whisper_model, "large-v3"))
+    w_model = str(_form_val(whisper_model, "large-v3-turbo"))
     out_res = str(_form_val(output_resolution, "720p"))
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
     c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None
+    v_thresh = float(_form_val(vad_threshold, 0.35))
+    s_pad = int(_form_val(speech_pad_ms, 400))
+    m_speech = int(_form_val(min_speech_duration_ms, 150))
+    b_size = int(_form_val(beam_size, 3))
+    f_halluc = bool(_form_val(filter_hallucinations, False))
 
     if trans_provider.lower() in ["gemini", "google_ai_studio", "google-ai-studio"]:
         effective_key = trans_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_STUDIO_API_KEY")
@@ -193,6 +203,11 @@ async def start_video_translation(
             output_resolution=out_res,
             clip_start=c_start,
             clip_end=c_end,
+            vad_threshold=v_thresh,
+            speech_pad_ms=s_pad,
+            min_speech_duration_ms=m_speech,
+            beam_size=b_size,
+            filter_hallucinations=f_halluc,
         )
     )
     _BACKGROUND_TASKS.add(bg_task)
@@ -210,9 +225,14 @@ async def start_manual_transcription(
     video: UploadFile = File(..., description="File video cần tạo phụ đề gốc"),
     source_lang: str = Form("auto"),
     target_lang: str = Form("vi"),
-    whisper_model: str = Form("large-v3"),
+    whisper_model: str = Form("large-v3-turbo"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
+    vad_threshold: float = Form(0.35),
+    speech_pad_ms: int = Form(400),
+    min_speech_duration_ms: int = Form(150),
+    beam_size: int = Form(3),
+    filter_hallucinations: bool = Form(False),
 ):
     """
     Giai đoạn 1 (Chế độ thủ công):
@@ -221,10 +241,15 @@ async def start_manual_transcription(
     """
     s_lang = str(_form_val(source_lang, "auto"))
     t_lang = str(_form_val(target_lang, "vi"))
-    w_model = str(_form_val(whisper_model, "large-v3"))
+    w_model = str(_form_val(whisper_model, "large-v3-turbo"))
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
     c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None
+    v_thresh = float(_form_val(vad_threshold, 0.35))
+    s_pad = int(_form_val(speech_pad_ms, 400))
+    m_speech = int(_form_val(min_speech_duration_ms, 150))
+    b_size = int(_form_val(beam_size, 3))
+    f_halluc = bool(_form_val(filter_hallucinations, False))
 
     task_id = uuid.uuid4().hex[:12]
     task_dir = TRANSLATE_OUTPUT_DIR / task_id
@@ -272,6 +297,11 @@ async def start_manual_transcription(
             whisper_model=w_model,
             clip_start=c_start,
             clip_end=c_end,
+            vad_threshold=v_thresh,
+            speech_pad_ms=s_pad,
+            min_speech_duration_ms=m_speech,
+            beam_size=b_size,
+            filter_hallucinations=f_halluc,
         )
     )
     _BACKGROUND_TASKS.add(bg_task)
@@ -854,6 +884,24 @@ async def get_subtitles_content(task_id: str):
         return {"content": content, "file_path": str(srt_file)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi đọc file phụ đề: {str(e)}")
+
+
+@router.get("/subtitles-original-content/{task_id}")
+async def get_subtitles_original_content(task_id: str):
+    """
+    Lấy toàn bộ nội dung văn bản thô của file phụ đề gốc subtitles_original.srt để sao chép nhanh (Quick Copy).
+    """
+    task_dir = TRANSLATE_OUTPUT_DIR / task_id
+    srt_file = task_dir / "subtitles_original.srt"
+    if not srt_file.exists():
+        srt_file = task_dir / "subtitles.srt"
+    if not srt_file.exists():
+        raise HTTPException(status_code=404, detail="File phụ đề gốc chưa được tạo.")
+    try:
+        content = srt_file.read_text(encoding="utf-8")
+        return {"content": content, "file_path": str(srt_file)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi đọc file phụ đề gốc: {str(e)}")
 
 
 @router.post("/subtitles-content/{task_id}")

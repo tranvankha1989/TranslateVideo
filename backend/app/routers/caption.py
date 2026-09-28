@@ -89,8 +89,13 @@ def cleanup_caption_sessions(exclude_session_id: str | None = None) -> tuple[int
 async def transcribe_video(
     video: UploadFile = File(...),
     language: str = Form("vi"),
-    model_size: str = Form("base"),
+    model_size: str = Form("large-v3-turbo"),
     reference_script: str | None = Form(None),
+    vad_threshold: float = Form(0.35),
+    speech_pad_ms: int = Form(400),
+    min_speech_duration_ms: int = Form(150),
+    beam_size: int = Form(3),
+    filter_hallucinations: bool = Form(False),
 ):
     session_id = uuid.uuid4().hex[:12]
 
@@ -120,6 +125,11 @@ async def transcribe_video(
             language=language,
             model_size=model_size,
             reference_script=reference_script,
+            vad_threshold=vad_threshold,
+            min_speech_duration_ms=min_speech_duration_ms,
+            speech_pad_ms=speech_pad_ms,
+            beam_size=beam_size,
+            filter_hallucinations=filter_hallucinations,
         )
 
         raw_json_path = session_dir / "subtitles_raw.json"

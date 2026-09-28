@@ -84,6 +84,14 @@ interface VideoTranslateState {
   whisperModel: string;
   showAdvanced: boolean;
 
+  // Transcribe & VAD Config
+  vadThreshold: number;
+  speechPadMs: number;
+  minSpeechDurationMs: number;
+  beamSize: number;
+  filterHallucinations: boolean;
+  showTranscribeAdvanced: boolean;
+
   // Mode
   translationMode: "auto" | "manual";
   setTranslationMode: (mode: "auto" | "manual") => void;
@@ -126,6 +134,12 @@ interface VideoTranslateState {
   setGeminiTemperature: (temp: number) => void;
   setWhisperModel: (model: string) => void;
   setShowAdvanced: (val: boolean) => void;
+  setVadThreshold: (val: number) => void;
+  setSpeechPadMs: (val: number) => void;
+  setMinSpeechDurationMs: (val: number) => void;
+  setBeamSize: (val: number) => void;
+  setFilterHallucinations: (val: boolean) => void;
+  setShowTranscribeAdvanced: (val: boolean) => void;
 
   setIsProcessing: (val: boolean) => void;
   setIsCleaning: (val: boolean) => void;
@@ -189,8 +203,15 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       geminiApiKey: typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") || "" : "",
       geminiModel: "gemini-3.8-flash",
       geminiTemperature: 0.2,
-      whisperModel: "large-v3",
+      whisperModel: "large-v3-turbo",
       showAdvanced: false,
+
+      vadThreshold: 0.35,
+      speechPadMs: 400,
+      minSpeechDurationMs: 150,
+      beamSize: 3,
+      filterHallucinations: false,
+      showTranscribeAdvanced: false,
 
       translationMode: "manual",
       setTranslationMode: (translationMode) => set({ translationMode }),
@@ -247,6 +268,12 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setGeminiTemperature: (geminiTemperature) => set({ geminiTemperature }),
       setWhisperModel: (whisperModel) => set({ whisperModel }),
       setShowAdvanced: (showAdvanced) => set({ showAdvanced }),
+      setVadThreshold: (vadThreshold) => set({ vadThreshold }),
+      setSpeechPadMs: (speechPadMs) => set({ speechPadMs }),
+      setMinSpeechDurationMs: (minSpeechDurationMs) => set({ minSpeechDurationMs }),
+      setBeamSize: (beamSize) => set({ beamSize }),
+      setFilterHallucinations: (filterHallucinations) => set({ filterHallucinations }),
+      setShowTranscribeAdvanced: (showTranscribeAdvanced) => set({ showTranscribeAdvanced }),
 
       setIsProcessing: (isProcessing) => set({ isProcessing }),
       setIsCleaning: (isCleaning) => set({ isCleaning }),
@@ -361,6 +388,12 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
         geminiModel: state.geminiModel,
         geminiTemperature: state.geminiTemperature,
         whisperModel: state.whisperModel,
+        vadThreshold: state.vadThreshold,
+        speechPadMs: state.speechPadMs,
+        minSpeechDurationMs: state.minSpeechDurationMs,
+        beamSize: state.beamSize,
+        filterHallucinations: state.filterHallucinations,
+        showTranscribeAdvanced: state.showTranscribeAdvanced,
         taskId: state.taskId,
         taskStatus: state.taskStatus,
         isProcessing: state.isProcessing,

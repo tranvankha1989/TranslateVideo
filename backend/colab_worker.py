@@ -256,9 +256,13 @@ async def create_prompt_endpoint(
 async def transcribe_endpoint(
     audio_file: UploadFile = File(...),
     language: str | None = Form(default=None),
-    model_size: str | None = Form(default="large-v3"),
+    model_size: str | None = Form(default="large-v3-turbo"),
     initial_prompt: str | None = Form(default=None),
-    vad_filter: bool = Form(default=False),
+    vad_filter: bool = Form(default=True),
+    vad_threshold: float = Form(default=0.35),
+    min_speech_duration_ms: int = Form(default=150),
+    min_silence_duration_ms: int = Form(default=500),
+    speech_pad_ms: int = Form(default=400),
     beam_size: int = Form(default=3),
 ):
     """
@@ -272,17 +276,20 @@ async def transcribe_endpoint(
         tmp_audio_path = tmp_audio.name
 
     try:
-        whisper = get_whisper(model_size or "large-v3")
+        whisper = get_whisper(model_size or "large-v3-turbo")
         lang_arg = None if (not language or language == "auto") else language.split("-")[0]
+        chinese_prompt = initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None
+        if lang_arg == "zh" and not chinese_prompt:
+            chinese_prompt = "以下是普通话的句子，请用简体中文输出。"
         
         logger.info(
-            f"🎙️ [Colab Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size})..."
+            f"🎙️ [Colab Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size or 'large-v3-turbo'}, VAD Threshold: {vad_threshold})..."
         )
 
         segments_gen, info = whisper.transcribe(
             tmp_audio_path,
             language=lang_arg,
-            initial_prompt=initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None,
+            initial_prompt=chinese_prompt,
             beam_size=beam_size,
             best_of=beam_size,
             condition_on_previous_text=False,
@@ -292,10 +299,10 @@ async def transcribe_endpoint(
             compression_ratio_threshold=2.8,
             vad_filter=vad_filter,
             vad_parameters=dict(
-                threshold=0.35,
-                min_speech_duration_ms=200,
-                min_silence_duration_ms=800,
-                speech_pad_ms=400,
+                threshold=vad_threshold,
+                min_speech_duration_ms=min_speech_duration_ms,
+                min_silence_duration_ms=min_silence_duration_ms,
+                speech_pad_ms=speech_pad_ms,
             ) if vad_filter else None,
             word_timestamps=True,
         )
@@ -319,8 +326,25 @@ async def transcribe_endpoint(
             if not txt and not words_data:
                 continue
 
-            # Mốc thời gian chính xác theo từ
+            # Mốc thời gian chính xác theo từ (không bị trễ đầu và cắt cụt đuôi)
             if words_data:
+                # Khắc phục hiện tượng Whisper kéo dãn mốc 'end' của từ qua khoảng lặng dài
+                for wi in range(len(words_data)):
+                    w_item = words_data[wi]
+                    wt = w_item.get("word", "").strip()
+                    ws = float(w_item.get("start", 0.0))
+                    we = float(w_item.get("end", ws + 0.3))
+                    wdur = max(0.1, we - ws)
+                    is_c = any('\u4e00' <= ch <= '\u9fff' or '\u3040' <= ch <= '\u30ff' for ch in wt)
+                    wmax = max(0.65, len(wt) * 0.45 + 0.3) if is_c else max(0.85, len(wt) * 0.25 + 0.4)
+                    if wdur > wmax:
+                        if wi + 1 < len(words_data):
+                            nxt_s = float(words_data[wi + 1].get("start", we))
+                            if nxt_s > ws + wmax:
+                                w_item["end"] = round(ws + wmax, 3)
+                        else:
+                            w_item["end"] = round(ws + wmax, 3)
+
                 seg_start = words_data[0]["start"]
                 seg_end = words_data[-1]["end"]
             else:

@@ -101,7 +101,7 @@ async def get_hardware_settings():
 
 @router.post("/hardware", response_model=HardwareSettingsResponse, summary="Cập nhật cấu hình phần cứng (.env)")
 async def update_hardware_settings(req: UpdateHardwareSettingsRequest):
-    url_cleaned = req.remote_gpu_url.strip().rstrip("/")
+    url_cleaned = model_handler.normalize_remote_gpu_url(req.remote_gpu_url)
     updates = {
         "USE_REMOTE_GPU": "true" if req.use_remote_gpu else "false",
         "REMOTE_GPU_URL": url_cleaned,
@@ -122,15 +122,21 @@ async def update_hardware_settings(req: UpdateHardwareSettingsRequest):
 
 @router.post("/hardware/test", response_model=TestRemoteGpuResponse, summary="Kiểm tra kết nối tới Cloud GPU Worker")
 async def test_remote_gpu(req: TestRemoteGpuRequest):
-    base_url = req.remote_gpu_url.strip().rstrip("/")
+    base_url = model_handler.normalize_remote_gpu_url(req.remote_gpu_url)
     if not base_url:
         return TestRemoteGpuResponse(ok=False, error="Vui lòng nhập đường dẫn URL của Cloud GPU Worker.")
 
-    endpoint = f"{base_url}/api/remote/health"
+    endpoints_to_try = []
     if "hf.space" in base_url.lower():
-        endpoint = f"{base_url}/gradio_api/remote/health"
-    elif "/remote/" in base_url:
-        endpoint = f"{base_url}/health"
+        endpoints_to_try = [
+            f"{base_url}/gradio_api/remote/health",
+            f"{base_url}/api/remote/health",
+        ]
+    else:
+        endpoints_to_try = [
+            f"{base_url}/api/remote/health",
+            f"{base_url}/gradio_api/remote/health",
+        ]
 
     headers = {
         "ngrok-skip-browser-warning": "1",
@@ -138,71 +144,65 @@ async def test_remote_gpu(req: TestRemoteGpuRequest):
     }
 
     start_time = time.time()
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(endpoint, headers=headers)
-            elapsed_ms = int((time.time() - start_time) * 1000)
+    last_error = None
 
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                    gpu_name = data.get("gpu_name", "GPU Sẵn sàng")
-                    vram = float(data.get("vram_total_gb", 0)) if data.get("vram_total_gb") else None
-                    provider = data.get("provider", "Cloud GPU Worker")
-                    return TestRemoteGpuResponse(
-                        ok=True,
-                        gpu_name=gpu_name,
-                        vram_total_gb=vram,
-                        provider=provider,
-                        ping_ms=elapsed_ms,
-                    )
-                except Exception:
-                    return TestRemoteGpuResponse(
-                        ok=True,
-                        gpu_name="Cloud Worker",
-                        provider="Cloud GPU",
-                        ping_ms=elapsed_ms,
-                    )
-            elif resp.status_code == 404:
-                body_sample = resp.text[:300]
-                if "ERR_NGROK_3200" in body_sample or "ngrok" in body_sample.lower():
-                    return TestRemoteGpuResponse(
-                        ok=False,
-                        error="Mã lỗi ERR_NGROK_3200: Đường hầm Ngrok chưa mở hoặc Google Colab chưa được bấm chạy Run!",
-                        ping_ms=elapsed_ms,
-                    )
-                return TestRemoteGpuResponse(
-                    ok=False,
-                    error=f"Máy chủ trả về mã HTTP 404 (Không tìm thấy endpoint). Vui lòng kiểm tra lại đường dẫn!",
-                    ping_ms=elapsed_ms,
-                )
-            elif resp.status_code in (502, 503, 504):
-                return TestRemoteGpuResponse(
-                    ok=False,
-                    error=f"Máy chủ Cloud GPU đang khởi động hoặc chưa sẵn sàng (HTTP {resp.status_code}). Vui lòng chờ 30 giây rồi thử lại!",
-                    ping_ms=elapsed_ms,
-                )
-            else:
-                return TestRemoteGpuResponse(
-                    ok=False,
-                    error=f"Máy chủ trả về mã HTTP {resp.status_code}: {resp.text[:150]}",
-                    ping_ms=elapsed_ms,
-                )
-    except httpx.ConnectError as ce:
-        return TestRemoteGpuResponse(
-            ok=False,
-            error=f"Không thể kết nối đến máy chủ ({ce}). Hãy kiểm tra xem tab Google Colab có đang chạy không!",
-        )
-    except httpx.TimeoutException:
-        return TestRemoteGpuResponse(
-            ok=False,
-            error="Quá thời gian chờ (Timeout 10s). Máy chủ không phản hồi.",
-        )
-    except Exception as e:
-        return TestRemoteGpuResponse(
-            ok=False,
-            error=f"Lỗi kết nối: {str(e)}",
-        )
+    for endpoint in endpoints_to_try:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(endpoint, headers=headers)
+                elapsed_ms = int((time.time() - start_time) * 1000)
+
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        gpu_name = data.get("gpu_name", "GPU Sẵn sàng")
+                        vram = float(data.get("vram_total_gb", 0)) if data.get("vram_total_gb") else None
+                        provider = data.get("provider")
+                        if not provider:
+                            if "hf.space" in base_url.lower():
+                                provider = "Hugging Face Spaces (ZeroGPU A100)"
+                            elif "ngrok" in base_url.lower():
+                                provider = "Google Colab (Ngrok)"
+                            elif "trycloudflare" in base_url.lower():
+                                provider = "Cloudflare Tunnel"
+                            else:
+                                provider = "Cloud GPU Worker"
+
+                        return TestRemoteGpuResponse(
+                            ok=True,
+                            gpu_name=gpu_name,
+                            vram_total_gb=vram,
+                            provider=provider,
+                            ping_ms=elapsed_ms,
+                        )
+                    except Exception:
+                        return TestRemoteGpuResponse(
+                            ok=True,
+                            gpu_name="Cloud Worker",
+                            provider="Cloud GPU",
+                            ping_ms=elapsed_ms,
+                        )
+                elif resp.status_code == 404:
+                    body_sample = resp.text[:300]
+                    if "ERR_NGROK_3200" in body_sample or "ngrok" in body_sample.lower():
+                        return TestRemoteGpuResponse(
+                            ok=False,
+                            error="Mã lỗi ERR_NGROK_3200: Đường hầm Ngrok chưa mở hoặc Google Colab chưa được bấm chạy Run!",
+                            ping_ms=elapsed_ms,
+                        )
+                    last_error = f"Máy chủ trả về mã HTTP 404 (Không tìm thấy endpoint). Vui lòng kiểm tra lại đường dẫn!"
+                elif resp.status_code in (502, 503, 504):
+                    last_error = f"Máy chủ Cloud GPU đang khởi động hoặc chưa sẵn sàng (HTTP {resp.status_code})."
+                else:
+                    last_error = f"Máy chủ trả về lỗi HTTP {resp.status_code}."
+        except Exception as e:
+            last_error = f"Lỗi kết nối ({e})"
+
+    return TestRemoteGpuResponse(
+        ok=False,
+        error=last_error or "Không thể kết nối tới Cloud GPU. Vui lòng kiểm tra lại đường dẫn!",
+        ping_ms=int((time.time() - start_time) * 1000),
+    )
 
 
 @router.post("/open-env", summary="Mở file .env bằng Notepad để chỉnh sửa")
@@ -563,6 +563,74 @@ async def clear_logs():
     except Exception as e:
         logger.error(f"Lỗi khi làm mới file log: {e}")
         raise HTTPException(status_code=500, detail=f"Không thể xóa log: {e}")
+
+
+# ─── BỘ LỌC QUẢNG CÁO & DẠY AI BỎ QUA TỪ/CÂU TÙY CHỈNH (AD FILTER RULES) ────
+
+class AdFilterRulesRequest(BaseModel):
+    rules: list[str]
+
+
+class AddAdFilterRuleRequest(BaseModel):
+    phrase: str
+
+
+class DeleteAdFilterRuleRequest(BaseModel):
+    phrase: str
+
+
+@router.get("/ad-filter-rules", summary="Lấy danh sách các từ/câu dạy cho AI bỏ qua")
+async def get_ad_filter_rules():
+    from app.services.ad_filter_service import AdFilterService
+    return {
+        "status": "ok",
+        "rules": AdFilterService.get_custom_rules(),
+    }
+
+
+@router.post("/ad-filter-rules", summary="Lưu toàn bộ danh sách quy tắc lọc quảng cáo tùy chỉnh")
+async def save_ad_filter_rules(req: AdFilterRulesRequest):
+    from app.services.ad_filter_service import AdFilterService
+    ok = AdFilterService.save_custom_rules(req.rules)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Không thể lưu danh sách quy tắc lọc quảng cáo.")
+    return {
+        "status": "ok",
+        "message": f"Đã lưu thành công {len(req.rules)} quy tắc lọc quảng cáo/từ bỏ qua!",
+        "rules": AdFilterService.get_custom_rules(),
+    }
+
+
+@router.post("/ad-filter-rules/add", summary="Dạy AI một từ hoặc câu mới cần loại bỏ")
+async def add_ad_filter_rule(req: AddAdFilterRuleRequest):
+    from app.services.ad_filter_service import AdFilterService
+    p = req.phrase.strip()
+    if not p:
+        raise HTTPException(status_code=400, detail="Cụm từ không được để trống.")
+    ok = AdFilterService.add_custom_rule(p)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Không thể thêm quy tắc.")
+    return {
+        "status": "ok",
+        "message": f"Đã dạy cho AI bỏ qua câu: '{p}'",
+        "rules": AdFilterService.get_custom_rules(),
+    }
+
+
+@router.post("/ad-filter-rules/delete", summary="Xóa một từ hoặc câu khỏi danh sách lọc")
+async def delete_ad_filter_rule(req: DeleteAdFilterRuleRequest):
+    from app.services.ad_filter_service import AdFilterService
+    p = req.phrase.strip()
+    if not p:
+        raise HTTPException(status_code=400, detail="Cụm từ không được để trống.")
+    ok = AdFilterService.delete_custom_rule(p)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Không thể xóa quy tắc.")
+    return {
+        "status": "ok",
+        "message": f"Đã xóa quy tắc: '{p}'",
+        "rules": AdFilterService.get_custom_rules(),
+    }
 
 
 

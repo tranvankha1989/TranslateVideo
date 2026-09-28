@@ -27,7 +27,7 @@ _whisper_model: WhisperModel | None = None
 _current_model_size: str | None = None
 
 # Đọc cấu hình Whisper từ .env (Kích hoạt large-v3 làm mô hình chuẩn cao cấp)
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3").strip().lower()
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3-turbo").strip().lower()
 
 
 def get_whisper_model(model_size: str | None = None) -> WhisperModel:
@@ -60,6 +60,7 @@ def get_whisper_model(model_size: str | None = None) -> WhisperModel:
 def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
     """
     Trích xuất âm thanh từ video sang định dạng WAV 16kHz Mono (chuẩn tối ưu cho Whisper).
+    Không dùng filter aresample async để bảo toàn 100% độ đồng bộ mốc thời gian chuẩn xác với video.
     Nếu video không có luồng âm thanh nào (video câm), tự động tạo âm thanh im lặng (silent audio) để không crash.
     """
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,8 +74,6 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
         "-vn",
         "-sn",
         "-dn",
-        "-af",
-        "aresample=async=1",
         "-acodec",
         "pcm_s16le",
         "-ar",
@@ -83,7 +82,7 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
         "1",
         str(output_audio_path),
     ]
-    logger.info(f"Trích xuất âm thanh từ {video_path.name} -> {output_audio_path.name}")
+    logger.info(f"Trích xuất âm thanh chuẩn mốc thời gian: {video_path.name} -> {output_audio_path.name}")
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         # Nếu video không có stream âm thanh (video câm), tạo file audio im lặng thay vì báo lỗi
@@ -112,8 +111,33 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
     return output_audio_path
 
 
-SENTENCE_ENDINGS = re.compile(r"[.!?]+['\"]?$")
-CLAUSE_ENDINGS = re.compile(r"[,;:\-–—]+['\"]?$")
+SENTENCE_ENDINGS = re.compile(r"[.!?。！？…]+['\"”’]?$")
+CLAUSE_ENDINGS = re.compile(r"[,;:\-–—，、；：]+['\"”’]?$")
+
+
+def sanitize_word_timestamps(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Khắc phục hiện tượng Whisper kéo dãn mốc 'end' của từ qua các khoảng lặng dài / đoạn nhạc.
+    Giới hạn thời lượng tối đa hợp lý cho từng từ dựa theo số lượng âm tiết / ký tự thực tế.
+    """
+    if not words:
+        return words
+    for i in range(len(words)):
+        w = words[i]
+        w_text = w.get("word", "").strip()
+        start = float(w.get("start", 0.0))
+        end = float(w.get("end", start + 0.3))
+        dur = max(0.1, end - start)
+        is_cjk = any('\u4e00' <= char <= '\u9fff' or '\u3040' <= char <= '\u30ff' for char in w_text)
+        max_dur = max(0.65, len(w_text) * 0.45 + 0.3) if is_cjk else max(0.85, len(w_text) * 0.25 + 0.4)
+        if dur > max_dur:
+            if i + 1 < len(words):
+                next_start = float(words[i + 1].get("start", end))
+                if next_start > start + max_dur:
+                    w["end"] = round(start + max_dur, 3)
+            else:
+                w["end"] = round(start + max_dur, 3)
+    return words
 
 
 def resegment_words(
@@ -123,17 +147,20 @@ def resegment_words(
     min_silence_split: float = 0.38,
 ) -> list[dict[str, Any]]:
     """
-    Chia nhỏ toàn bộ danh sách từ thành các câu phụ đề ngắn, chuẩn độ dài cho Shorts/Reels/Video (4-9 từ).
-    Thuật toán ngắt thông minh:
-    1. Ngắt ngay khi kết thúc câu bằng dấu chấm, hỏi chấm, chấm than (. ? !)
-    2. Ngắt ở dấu phẩy hoặc dấu gạch nối khi câu đã đủ dài (>= 4 từ)
-    3. Ngắt ở khoảng lặng tự nhiên giữa 2 từ >= 0.38s khi câu đã có từ 4 từ trở lên
-    4. Giới hạn độ dài tối đa 9 từ hoặc 46 ký tự
-    5. Chống từ mồ côi (orphan word prevention): nếu chỉ còn 1-2 từ là hết câu thì gộp nốt thay vì ngắt lơ lửng.
+    Chia nhỏ toàn bộ danh sách từ thành các câu phụ đề ngắn, chuẩn độ dài cho Shorts/Reels/Video.
+    Hỗ trợ đầy đủ tiếng Trung/Nhật/Hàn (CJK) và các ngôn ngữ có dấu câu đa dạng.
     """
     valid_words = [w for w in all_words if w.get("word", "").strip()]
     if not valid_words:
         return []
+
+    valid_words = sanitize_word_timestamps(valid_words)
+
+    # Kiểm tra xem có phải tiếng Trung / CJK hay không
+    sample_text = "".join(w.get("word", "") for w in valid_words[:20])
+    is_cjk = any('\u4e00' <= char <= '\u9fff' or '\u3040' <= char <= '\u30ff' for char in sample_text)
+    effective_max_words = 16 if is_cjk else max_words
+    effective_max_chars = 42 if is_cjk else max_chars
 
     new_segments: list[dict[str, Any]] = []
     current_words: list[dict[str, Any]] = []
@@ -158,44 +185,48 @@ def resegment_words(
         if not has_next:
             should_split = True
         else:
-            # 1. Kết thúc câu bằng dấu câu (. ! ?)
+            # 1. Kết thúc câu bằng dấu câu (. ! ? 。 ！ ？ …)
             if SENTENCE_ENDINGS.search(word_text):
                 should_split = True
 
-            # Nếu chỉ còn 1-2 từ nữa là kết thúc câu, gộp nốt thay vì ngắt lơ lửng (cho phép dãn max_words lên 11 từ)
-            elif words_until_sentence_end <= 2 and len(current_words) < 11:
+            # Nếu chỉ còn 1-2 từ nữa là kết thúc câu, gộp nốt thay vì ngắt lơ lửng
+            elif words_until_sentence_end <= 2 and len(current_words) < (effective_max_words + 4):
                 should_split = False
 
-            # 2. Khoảng lặng tự nhiên giữa 2 từ >= min_silence_split khi đã có ít nhất 4 từ
+            # 2. Khoảng lặng tự nhiên giữa 2 từ >= min_silence_split khi đã có ít nhất 3 từ
             elif (
-                len(current_words) >= 4
+                len(current_words) >= (3 if is_cjk else 4)
                 and next_w
                 and (next_w["start"] - w["end"] >= min_silence_split)
             ):
                 should_split = True
 
-            # 3. Dấu phẩy khi câu đã có từ 4 từ trở lên
-            elif len(current_words) >= 4 and CLAUSE_ENDINGS.search(word_text):
+            # 3. Dấu phẩy / dấu ngắt vế khi câu đã có từ 3 từ trở lên
+            elif len(current_words) >= (3 if is_cjk else 4) and CLAUSE_ENDINGS.search(word_text):
                 should_split = True
 
             # 4. Quá giới hạn từ hoặc ký tự
-            elif len(current_words) >= max_words:
+            elif len(current_words) >= effective_max_words:
                 should_split = True
             elif (
-                sum(len(cw.get("word", "")) for cw in current_words) + len(current_words) - 1 >= max_chars
-                and len(current_words) >= 4
+                sum(len(cw.get("word", "")) for cw in current_words) >= effective_max_chars
+                and len(current_words) >= (3 if is_cjk else 4)
             ):
                 should_split = True
 
         if should_split and current_words:
             seg_start = current_words[0]["start"]
             seg_end = current_words[-1]["end"]
-            seg_text = " ".join(cw.get("word", "").strip() for cw in current_words)
+            if is_cjk:
+                seg_text = "".join(cw.get("word", "").strip() for cw in current_words)
+            else:
+                seg_text = " ".join(cw.get("word", "").strip() for cw in current_words)
+
             new_segments.append(
                 {
                     "id": seg_id,
-                    "start": round(seg_start, 2),
-                    "end": round(seg_end, 2),
+                    "start": round(seg_start, 3),
+                    "end": round(seg_end, 3),
                     "text": seg_text,
                     "words": current_words,
                 }
@@ -369,9 +400,14 @@ def transcribe_with_remote_or_local(
     language: str | None = None,
     model_size: str | None = None,
     initial_prompt: str | None = None,
-    vad_filter: bool = False,
+    vad_filter: bool = True,
+    vad_threshold: float = 0.35,
+    min_speech_duration_ms: int = 150,
+    min_silence_duration_ms: int = 500,
+    speech_pad_ms: int = 400,
     beam_size: int = 3,
     word_timestamps: bool = True,
+    filter_hallucinations: bool = False,
 ) -> tuple[list[dict[str, Any]], str]:
     """
     Nhận diện giọng nói STT thông minh:
@@ -380,56 +416,63 @@ def transcribe_with_remote_or_local(
     - Nếu mất kết nối hoặc USE_REMOTE_GPU=False: Tự động dùng Faster-Whisper local.
     Trả về: (segments_list, detected_language)
     """
-    from model_handler import is_remote_gpu_enabled, get_remote_gpu_url
+    from model_handler import (
+        is_remote_gpu_enabled,
+        get_remote_gpu_url,
+        _remote_url,
+        _remote_headers,
+    )
 
     target_size = model_size or WHISPER_MODEL_SIZE
     lang_arg = None if (not language or language == "auto") else language.split("-")[0]
+    if lang_arg == "zh" and (not initial_prompt or not initial_prompt.strip()):
+        initial_prompt = "以下是普通话的句子，请用简体中文输出。"
 
-    # 1. Thử gửi lên Remote GPU Worker nếu được bật
+    # 1. Thử gửi lên Remote GPU Worker nếu là Colab/Kaggle có hỗ trợ STT
     if is_remote_gpu_enabled():
         remote_url = get_remote_gpu_url()
-        logger.info(
-            f"🌐 [Remote STT] Gửi audio '{audio_path.name}' lên Cloud GPU T4: {remote_url} (Lang={lang_arg or 'auto'}, Model={target_size})..."
-        )
-        try:
-            import httpx
-            with open(audio_path, "rb") as af:
-                files = {"audio_file": (audio_path.name, af, "audio/wav")}
-                data = {
-                    "language": lang_arg or "",
-                    "model_size": target_size,
-                    "initial_prompt": initial_prompt or "",
-                    "vad_filter": "true" if vad_filter else "false",
-                    "beam_size": str(beam_size),
-                }
-                with httpx.Client(timeout=300.0) as client:
-                    resp = client.post(f"{remote_url}/api/remote/transcribe", files=files, data=data)
-
-            if resp.status_code == 200:
-                res_data = resp.json()
-                detected_lang = res_data.get("language") or lang_arg or "vi"
-                segments = res_data.get("segments", [])
-                logger.info(
-                    f"🎉 [Remote STT] Nhận diện thành công {len(segments)} câu trên Cloud GPU (Ngôn ngữ: {detected_lang})!"
-                )
-                return segments, detected_lang
-            else:
-                err_msg = f"Cloud GPU Worker ({remote_url}) phản hồi lỗi HTTP {resp.status_code}: {resp.text[:200]}"
-                logger.error(f"❌ [Remote STT] {err_msg}")
-                raise RuntimeError(
-                    f"Không thể xử lý bóc băng trên GPU Online Worker. {err_msg}. Vui lòng kiểm tra lại phiên Colab / Kaggle hoặc tắt chế độ GPU Online trong Cài đặt nếu bạn muốn chạy Local."
-                )
-        except Exception as e:
-            if isinstance(e, RuntimeError):
-                raise
-            err_msg = f"Không thể kết nối đến GPU Online Worker tại '{remote_url}'. Chi tiết lỗi: {e}"
-            logger.error(f"❌ [Remote STT] {err_msg}")
-            raise RuntimeError(
-                f"{err_msg}. Vui lòng kiểm tra xem phiên Google Colab / Kaggle có đang chạy (nút Play xoay) hay không, hoặc tắt chế độ GPU Online trong Cài đặt nếu muốn chạy Local."
+        # Hugging Face Space chuẩn ban đầu chỉ phục vụ TTS (không có Whisper), nên tự động chạy Whisper trên máy để render video mượt mà
+        if "hf.space" not in remote_url.lower():
+            endpoint = _remote_url("transcribe")
+            headers = _remote_headers()
+            logger.info(
+                f"🌐 [Remote STT] Gửi audio '{audio_path.name}' lên Cloud GPU: {endpoint} (Lang={lang_arg or 'auto'}, Model={target_size})..."
             )
+            try:
+                import httpx
+                with open(audio_path, "rb") as af:
+                    files = {"audio_file": (audio_path.name, af, "audio/wav")}
+                    data = {
+                        "language": lang_arg or "",
+                        "model_size": target_size,
+                        "initial_prompt": initial_prompt or "",
+                        "vad_filter": "true" if vad_filter else "false",
+                        "vad_threshold": str(vad_threshold),
+                        "min_speech_duration_ms": str(min_speech_duration_ms),
+                        "min_silence_duration_ms": str(min_silence_duration_ms),
+                        "speech_pad_ms": str(speech_pad_ms),
+                        "beam_size": str(beam_size),
+                    }
+                    with httpx.Client(timeout=600.0) as client:
+                        resp = client.post(endpoint, files=files, data=data, headers=headers)
 
-    # 2. Chạy Local (CHỈ KHI NGƯỜI DÙNG TẮT CHẾ ĐỘ GPU ONLINE)
-    logger.info(f"💻 [Local STT] Đang chạy Faster-Whisper '{target_size}' trên máy tính...")
+                if resp.status_code == 200:
+                    res_data = resp.json()
+                    detected_lang = res_data.get("language") or lang_arg or "vi"
+                    segments = res_data.get("segments", [])
+                    logger.info(
+                        f"🎉 [Remote STT] Nhận diện thành công {len(segments)} câu trên Cloud GPU (Ngôn ngữ: {detected_lang})!"
+                    )
+                    return segments, detected_lang
+                elif resp.status_code == 404:
+                    logger.info(f"ℹ️ Cloud GPU Worker không hỗ trợ endpoint STT, tự động chuyển sang chạy Faster-Whisper trên máy...")
+                else:
+                    logger.warning(f"⚠️ Cloud GPU Worker ({endpoint}) trả về HTTP {resp.status_code}, chuyển sang chạy Faster-Whisper trên máy...")
+            except Exception as e:
+                logger.warning(f"⚠️ Kết nối Cloud STT ({e}), chuyển sang chạy Faster-Whisper trên máy...")
+
+    # 2. Chạy Faster-Whisper trên máy tính với Silero VAD nhạy bén, không nuốt chữ
+    logger.info(f"💻 [Local STT] Đang chạy Faster-Whisper '{target_size}' trên máy tính (VAD Threshold={vad_threshold}, Pad={speech_pad_ms}ms)...")
     model = get_whisper_model(target_size)
     segments_gen, info = model.transcribe(
         str(audio_path),
@@ -439,21 +482,30 @@ def transcribe_with_remote_or_local(
         best_of=beam_size,
         condition_on_previous_text=False,
         repetition_penalty=1.2,
-        no_speech_threshold=0.85,
-        log_prob_threshold=-1.5,
+        no_speech_threshold=0.85 if not filter_hallucinations else 0.60,
+        log_prob_threshold=-1.5 if not filter_hallucinations else -1.1,
         compression_ratio_threshold=2.8,
         vad_filter=vad_filter,
         vad_parameters=dict(
-            threshold=0.35,
-            min_speech_duration_ms=200,
-            min_silence_duration_ms=800,
-            speech_pad_ms=400,
+            threshold=vad_threshold,
+            min_speech_duration_ms=min_speech_duration_ms,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms,
         ) if vad_filter else None,
         word_timestamps=word_timestamps,
     )
 
     result_segments = []
     for i, s in enumerate(segments_gen):
+        no_speech_p = getattr(s, "no_speech_prob", 0.0)
+        avg_logprob = getattr(s, "avg_logprob", 0.0)
+        txt = s.text.strip()
+
+        # Nếu bật lọc ảo giác chặt chẽ: bỏ qua các đoạn nhạc không lời
+        if filter_hallucinations and (no_speech_p > 0.70 or avg_logprob < -1.3):
+            logger.info(f"🚫 [Lọc ảo giác nhạc nền] Bỏ qua đoạn nhạc không có lời thoại (no_speech={no_speech_p:.2f}): '{txt}'")
+            continue
+
         words_data = []
         if getattr(s, "words", None):
             for w in s.words:
@@ -466,12 +518,13 @@ def transcribe_with_remote_or_local(
                     "end": round(getattr(w, "end", 0.0), 3),
                     "probability": round(getattr(w, "probability", 1.0), 2),
                 })
-        txt = s.text.strip()
+
         if not txt and not words_data:
             continue
 
         # Lấy mốc thời gian chuẩn xác từ từ vựng (Word timestamps) để khớp 100% với giọng nói thực tế
         if words_data:
+            words_data = sanitize_word_timestamps(words_data)
             seg_start = words_data[0]["start"]
             seg_end = words_data[-1]["end"]
         else:
@@ -482,7 +535,7 @@ def transcribe_with_remote_or_local(
             seg_end = round(seg_start + 0.3, 3)
 
         result_segments.append({
-            "id": i + 1,
+            "id": len(result_segments) + 1,
             "start": round(seg_start, 3),
             "end": round(seg_end, 3),
             "text": txt,
@@ -497,6 +550,11 @@ def transcribe_video_audio(
     language: str = "vi",
     model_size: str | None = None,
     reference_script: str | None = None,
+    vad_threshold: float = 0.35,
+    min_speech_duration_ms: int = 150,
+    speech_pad_ms: int = 400,
+    beam_size: int = 3,
+    filter_hallucinations: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Phân tích âm thanh và trích xuất mốc thời gian chi tiết từng từ (Word-level timestamps).
@@ -512,7 +570,12 @@ def transcribe_video_audio(
         model_size=model_size,
         initial_prompt=prompt_snippet,
         vad_filter=True,
+        vad_threshold=vad_threshold,
+        min_speech_duration_ms=min_speech_duration_ms,
+        speech_pad_ms=speech_pad_ms,
+        beam_size=beam_size,
         word_timestamps=True,
+        filter_hallucinations=filter_hallucinations,
     )
 
     # Nếu có kịch bản đối chiếu, tự động so khớp và chia nhỏ câu
@@ -525,6 +588,15 @@ def transcribe_video_audio(
             all_words_flat.extend(s.get("words", []))
         if all_words_flat:
             result_segments = resegment_words(all_words_flat, max_words=7, max_chars=36)
+
+    # Tự động lọc quảng cáo, watermark và danh sách từ/câu dạy cho AI bỏ qua
+    try:
+        from app.services.ad_filter_service import AdFilterService
+        result_segments, removed_cnt = AdFilterService.filter_subtitle_segments(result_segments)
+        if removed_cnt > 0:
+            logger.info(f"🛡️ [Ad Filter] Đã loại bỏ {removed_cnt} câu quảng cáo/rác/câu bỏ qua.")
+    except Exception as e:
+        logger.warning(f"⚠️ Bỏ qua lọc quảng cáo ({e})")
 
     logger.info(f"Nhận diện hoàn tất: {len(result_segments)} câu có phụ đề chi tiết.")
     return result_segments

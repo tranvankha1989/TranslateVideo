@@ -39,6 +39,8 @@ import {
   Clipboard,
   ClipboardPaste,
   Copy,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
@@ -129,6 +131,18 @@ export default function VideoTranslate() {
     setWhisperModel,
     showAdvanced,
     setShowAdvanced,
+    vadThreshold,
+    setVadThreshold,
+    speechPadMs,
+    setSpeechPadMs,
+    minSpeechDurationMs,
+    setMinSpeechDurationMs,
+    beamSize,
+    setBeamSize,
+    filterHallucinations,
+    setFilterHallucinations,
+    showTranscribeAdvanced,
+    setShowTranscribeAdvanced,
     translationMode,
     setTranslationMode,
     isProcessing,
@@ -476,6 +490,11 @@ export default function VideoTranslate() {
     formData.append("translation_model", geminiModel);
     formData.append("translation_temperature", geminiTemperature.toString());
     formData.append("whisper_model", whisperModel);
+    formData.append("vad_threshold", vadThreshold.toString());
+    formData.append("speech_pad_ms", speechPadMs.toString());
+    formData.append("min_speech_duration_ms", minSpeechDurationMs.toString());
+    formData.append("beam_size", beamSize.toString());
+    formData.append("filter_hallucinations", filterHallucinations ? "true" : "false");
     if (geminiApiKey.trim()) {
       formData.append("translation_api_key", geminiApiKey.trim());
     }
@@ -626,6 +645,11 @@ export default function VideoTranslate() {
     formData.append("source_lang", sourceLang);
     formData.append("target_lang", targetLang);
     formData.append("whisper_model", whisperModel);
+    formData.append("vad_threshold", vadThreshold.toString());
+    formData.append("speech_pad_ms", speechPadMs.toString());
+    formData.append("min_speech_duration_ms", minSpeechDurationMs.toString());
+    formData.append("beam_size", beamSize.toString());
+    formData.append("filter_hallucinations", filterHallucinations ? "true" : "false");
     if (videoStartTime > 0) {
       formData.append("start_time", videoStartTime.toString());
     }
@@ -649,7 +673,56 @@ export default function VideoTranslate() {
     }
   };
 
-  // 2. Tải file SRT gốc về máy
+  // Khôi phục các thông số bóc tách Whisper / VAD về mặc định tối ưu
+  const handleResetTranscribeDefaults = () => {
+    setVadThreshold(0.35);
+    setSpeechPadMs(400);
+    setMinSpeechDurationMs(150);
+    setBeamSize(3);
+    setFilterHallucinations(false);
+    setWhisperModel("large-v3-turbo");
+    toast.success("✅ Đã khôi phục các thông số bóc tách về chuẩn tối ưu!");
+  };
+
+  // 2. Sao chép nhanh toàn bộ phụ đề gốc vào Clipboard
+  const [isCopyingOriginalSrt, setIsCopyingOriginalSrt] = useState(false);
+
+  const handleCopyOriginalSrt = async () => {
+    const currentId = taskStatus?.task_id || taskId;
+    if (!currentId) {
+      toast.error("Chưa có tác vụ bóc tách phụ đề nào.");
+      return;
+    }
+    setIsCopyingOriginalSrt(true);
+    try {
+      const res = await fetch(`http://localhost:8000/api/video-translate/subtitles-original-content/${currentId}`);
+      const data = await res.json();
+      if (!res.ok || !data.content) {
+        throw new Error(data.detail || "Không thể lấy nội dung phụ đề gốc");
+      }
+      await navigator.clipboard.writeText(data.content);
+      toast.success("📋 Đã sao chép toàn bộ phụ đề gốc vào Clipboard! Bạn có thể dán trực tiếp vào ChatGPT / Claude / DeepL để dịch.");
+    } catch (err: any) {
+      // Fallback: thử tải trực tiếp từ URL file SRT gốc
+      try {
+        const directUrl = `http://localhost:8000/outputs/video_translate/${currentId}/subtitles_original.srt`;
+        const resDirect = await fetch(directUrl);
+        if (resDirect.ok) {
+          const text = await resDirect.text();
+          if (text && text.trim()) {
+            await navigator.clipboard.writeText(text);
+            toast.success("📋 Đã sao chép toàn bộ phụ đề gốc vào Clipboard!");
+            return;
+          }
+        }
+      } catch (_) {}
+      toast.error("Lỗi khi sao chép phụ đề: " + (err.message || "Không thể truy cập Clipboard"));
+    } finally {
+      setIsCopyingOriginalSrt(false);
+    }
+  };
+
+  // 2b. Tải file SRT gốc về máy
   const handleDownloadOriginalSrt = () => {
     const currentId = taskStatus?.task_id || taskId;
     if (!currentId) {
@@ -1718,13 +1791,14 @@ export default function VideoTranslate() {
                   onChange={(e) => setWhisperModel(e.target.value)}
                   className="w-full bg-surface-variant/80 border border-cyan-500/40 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-cyan-400 font-medium text-cyan-300 cursor-pointer shadow-sm"
                 >
-                  <option value="large-v3">🌟 large-v3 (Chuẩn cao cấp - 1.55 Tỷ tham số • Khuyên dùng cho Colab / Hugging Face GPU)</option>
+                  <option value="large-v3-turbo">🚀 large-v3-turbo (Khuyên dùng - Nhanh 8x, Nhẹ & Chuẩn 98% • Colab/Local)</option>
+                  <option value="large-v3">🌟 large-v3 (Chuẩn cao cấp - 1.55 Tỷ tham số • Tối ưu GPU lớn)</option>
                   <option value="medium">⚡ medium (Cân bằng & Tốc độ cao - 769 Triệu tham số)</option>
                   <option value="small">🚀 small (Nhẹ & Nhanh - 244 Triệu tham số)</option>
                   <option value="base">⏱️ base (Bản tối giản - 74 Triệu tham số)</option>
                 </select>
                 <p className="text-[10px] text-on-surface-variant/70">
-                  ⚡ <strong>large-v3</strong> giải quyết triệt để lỗi từ đồng âm tiếng Trung, nhận diện chuẩn tên riêng và tự động ngắt câu với dấu phẩy/chấm đầy đủ khi chạy trên GPU online (Colab/Hugging Face).
+                  ⚡ <strong>large-v3-turbo</strong> giải quyết triệt để lỗi từ đồng âm tiếng Trung, nhận diện chuẩn tên riêng và tự động ngắt câu với dấu phẩy/chấm đầy đủ với tốc độ siêu tốc trên GPU Colab hoặc máy tính.
                 </p>
               </div>
             </div>
@@ -2003,12 +2077,167 @@ export default function VideoTranslate() {
                       onChange={(e) => setWhisperModel(e.target.value)}
                       className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors font-medium text-primary"
                     >
-                      <option value="large-v3">🌟 large-v3 (Chính xác cao nhất)</option>
+                      <option value="large-v3-turbo">🚀 large-v3-turbo (Khuyên dùng - Siêu tốc 8x & Chuẩn xác)</option>
+                      <option value="large-v3">🌟 large-v3 (Chính xác cao nhất • Model lớn)</option>
                       <option value="medium">⚡ medium (Cân bằng & Tốc độ cao)</option>
                       <option value="small">🚀 small (Nhẹ & Nhanh)</option>
                       <option value="base">⏱️ base (Bản tối giản)</option>
                     </select>
                   </div>
+                </div>
+
+                {/* ⚙️ Bảng Tùy Chỉnh Nhận Diện Nâng Cao (Mở rộng / Thu nhỏ) */}
+                <div className="border border-white/10 rounded-2xl overflow-hidden bg-surface-variant/20 transition-all">
+                  <button
+                    type="button"
+                    onClick={() => setShowTranscribeAdvanced(!showTranscribeAdvanced)}
+                    className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-semibold text-cyan-300 hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                      ⚙️ Tùy Chỉnh Bóc Tách Nâng Cao (Độ nhạy VAD, Đệm từ, Chống nuốt chữ)
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+                      {showTranscribeAdvanced ? "Thu nhỏ" : "Mở rộng"}
+                      {showTranscribeAdvanced ? (
+                        <ChevronUp className="w-4 h-4 text-cyan-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-cyan-400" />
+                      )}
+                    </span>
+                  </button>
+
+                  {showTranscribeAdvanced && (
+                    <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
+                      {/* VAD Threshold */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="font-medium text-on-surface flex items-center gap-1.5">
+                            <Volume2 className="w-3.5 h-3.5 text-primary" />
+                            Độ nhạy bắt giọng nói (VAD Threshold):
+                          </label>
+                          <span className="font-mono text-[11px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
+                            {vadThreshold.toFixed(2)} {vadThreshold <= 0.30 ? "(Siêu nhạy - Bắt cả tiếng thì thầm)" : vadThreshold <= 0.40 ? "(Cân bằng tối ưu)" : "(Chặt chẽ)"}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.15"
+                          max="0.65"
+                          step="0.05"
+                          value={vadThreshold}
+                          onChange={(e) => setVadThreshold(parseFloat(e.target.value))}
+                          className="w-full accent-primary h-1.5 bg-white/10 rounded-lg cursor-pointer"
+                        />
+                        <p className="text-[10px] text-on-surface-variant/70">
+                          💡 <em>Kéo về bên trái (0.20 - 0.35)</em> để bắt trọn những câu thoại nói nhỏ, nói thầm, nói lướt hoặc có nhạc nền đè lên.
+                        </p>
+                      </div>
+
+                      {/* Grid: Speech Pad & Min Speech Duration */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/5">
+                        {/* Speech Pad */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <label className="font-medium text-on-surface flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                              Đệm mở rộng câu (Pad):
+                            </label>
+                            <span className="font-mono text-[11px] font-bold text-cyan-300 bg-cyan-500/10 px-1.5 py-0.5 rounded">
+                              {speechPadMs}ms
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="100"
+                            max="700"
+                            step="50"
+                            value={speechPadMs}
+                            onChange={(e) => setSpeechPadMs(parseInt(e.target.value))}
+                            className="w-full accent-cyan-400 h-1.5 bg-white/10 rounded-lg cursor-pointer"
+                          />
+                          <p className="text-[10px] text-on-surface-variant/70">
+                            Tăng lên 400ms - 500ms để không bao giờ bị cắt cụt chữ đầu và chữ cuối câu.
+                          </p>
+                        </div>
+
+                        {/* Min Speech Duration */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <label className="font-medium text-on-surface flex items-center gap-1">
+                              <Scissors className="w-3.5 h-3.5 text-amber-400" />
+                              Thời lượng ngắn nhất:
+                            </label>
+                            <span className="font-mono text-[11px] font-bold text-amber-300 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                              {minSpeechDurationMs}ms
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="100"
+                            max="500"
+                            step="50"
+                            value={minSpeechDurationMs}
+                            onChange={(e) => setMinSpeechDurationMs(parseInt(e.target.value))}
+                            className="w-full accent-amber-400 h-1.5 bg-white/10 rounded-lg cursor-pointer"
+                          />
+                          <p className="text-[10px] text-on-surface-variant/70">
+                            Giảm xuống 100ms - 150ms để bắt được cả các từ ngắn như "ừ", "hả", tiếng cảm thán.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Beam Size & Hallucination Filter */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/5 items-center">
+                        <div>
+                          <label className="font-medium text-on-surface block mb-1">
+                            Độ sâu dò từ (Beam Size):
+                          </label>
+                          <select
+                            value={beamSize}
+                            onChange={(e) => setBeamSize(parseInt(e.target.value))}
+                            className="w-full bg-surface-variant/60 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-on-surface focus:outline-none focus:border-primary"
+                          >
+                            <option value="1">1 (Tốc độ tối đa - Nhanh nhất)</option>
+                            <option value="3">3 (Cân bằng chuẩn - Khuyên dùng)</option>
+                            <option value="5">5 (Độ chính xác sâu nhất)</option>
+                          </select>
+                        </div>
+
+                        <div className="pt-2">
+                          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={filterHallucinations}
+                              onChange={(e) => setFilterHallucinations(e.target.checked)}
+                              className="w-4 h-4 rounded accent-primary cursor-pointer"
+                            />
+                            <div>
+                              <span className="font-medium text-on-surface block">Lọc ảo giác nhạc nền nghiêm ngặt</span>
+                              <span className="text-[10px] text-on-surface-variant/70 block">
+                                Tắt (Khuyên dùng) để tránh xóa nhầm câu thoại khi video có nhạc nền to.
+                              </span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* 🔄 Nút Phục Hồi Mặc Định */}
+                      <div className="pt-3 border-t border-white/10 flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-[11px] text-on-surface-variant/70">
+                          💡 Chuẩn khuyến nghị: <code>large-v3-turbo</code>, <code>VAD 0.35</code>, <code>Pad 400ms</code>, <code>Min 150ms</code>.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleResetTranscribeDefaults}
+                          className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-sm"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Phục hồi mặc định
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <button
@@ -2064,36 +2293,61 @@ export default function VideoTranslate() {
                 </div>
 
                 <p className="text-xs text-on-surface-variant">
-                  Sau khi tạo phụ đề xong, bạn hãy tải file <code className="text-primary font-mono font-semibold">subtitles_original.srt</code> về máy, sử dụng các công cụ dịch thuật chuyên dụng hoặc biên tập thủ công theo ý bạn, sau đó nạp file vào Bước 3 bên dưới.
+                  Sau khi bóc tách xong, bạn có thể <strong>Sao chép nhanh toàn bộ phụ đề</strong> để dán trực tiếp vào AI (ChatGPT / Claude / DeepL) hoặc tải file <code className="text-primary font-mono font-semibold">.srt</code> về máy để biên dịch.
                 </p>
 
-                <button
-                  type="button"
-                  onClick={handleDownloadOriginalSrt}
-                  disabled={!isOriginalSrtReady || isTranscribingOriginal}
-                  className={cn(
-                    "w-full py-3.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer",
-                    isOriginalSrtReady && !isTranscribingOriginal
-                      ? "bg-primary/20 hover:bg-primary/30 text-primary border border-primary/40 shadow-md shadow-primary/10"
-                      : "bg-white/5 text-on-surface-variant/50 border border-white/5 cursor-not-allowed opacity-50"
-                  )}
-                  title={
-                    isTranscribingOriginal
-                      ? "Hệ thống đang tạo phụ đề thoại từ video, vui lòng đợi hoàn tất..."
-                      : !isOriginalSrtReady
-                      ? "Vui lòng bấm 'Bắt Đầu Tạo Phụ Đề' ở Bước 1 trước khi tải file"
-                      : "Tải file phụ đề câu thoại gốc về máy tính"
-                  }
-                >
-                  <Download className="w-4 h-4" />
-                  <span>
-                    {isTranscribingOriginal
-                      ? "⏳ Đang tạo phụ đề... Tạm thời khóa nút tải"
-                      : isOriginalSrtReady
-                      ? "📥 2. Tải Xuống File Phụ Đề Gốc (.srt)"
-                      : "🔒 Chưa có file phụ đề gốc (Hãy tạo phụ đề ở Bước 1)"}
-                  </span>
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Nút Sao Chép Toàn Bộ (Quick Copy) */}
+                  <button
+                    type="button"
+                    onClick={handleCopyOriginalSrt}
+                    disabled={!isOriginalSrtReady || isTranscribingOriginal || isCopyingOriginalSrt}
+                    className={cn(
+                      "py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg",
+                      isOriginalSrtReady && !isTranscribingOriginal
+                        ? "bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-cyan-500/20 active:scale-95"
+                        : "bg-white/5 text-on-surface-variant/50 border border-white/5 cursor-not-allowed opacity-50"
+                    )}
+                    title={
+                      isOriginalSrtReady
+                        ? "Sao chép toàn bộ nội dung phụ đề gốc vào Clipboard để dán nhanh vào ChatGPT/Claude"
+                        : "Vui lòng tạo phụ đề ở Bước 1 trước"
+                    }
+                  >
+                    {isCopyingOriginalSrt ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Đang sao chép...
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" />
+                        📋 Sao Chép Nhanh Phụ Đề
+                      </>
+                    )}
+                  </button>
+
+                  {/* Nút Tải File SRT */}
+                  <button
+                    type="button"
+                    onClick={handleDownloadOriginalSrt}
+                    disabled={!isOriginalSrtReady || isTranscribingOriginal}
+                    className={cn(
+                      "py-3 px-4 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer border",
+                      isOriginalSrtReady && !isTranscribingOriginal
+                        ? "bg-surface-variant/60 hover:bg-surface-variant text-on-surface border-white/10 hover:border-white/20 active:scale-95"
+                        : "bg-white/5 text-on-surface-variant/50 border-white/5 cursor-not-allowed opacity-50"
+                    )}
+                    title={
+                      isOriginalSrtReady
+                        ? "Tải file phụ đề câu thoại gốc .srt về máy tính"
+                        : "Vui lòng tạo phụ đề ở Bước 1 trước"
+                    }
+                  >
+                    <Download className="w-4 h-4 text-secondary" />
+                    <span>📥 Tải File .SRT Gốc</span>
+                  </button>
+                </div>
               </div>
 
               {/* Bước 3: Nạp file SRT đã dịch */}

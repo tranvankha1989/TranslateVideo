@@ -24,7 +24,8 @@ from app.core.config import OUTPUTS_DIR, logger
 from app.services.dubbing_service import DubbingService, get_audio_duration, DUBBING_OUTPUT_DIR
 from app.services.translator_service import TranslationService, GoogleTranslator
 from app.services.alignment_service import AlignmentService
-from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local
+from app.services.ad_filter_service import AdFilterService
+from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local, sanitize_word_timestamps, CLAUSE_ENDINGS
 
 TRANSLATE_OUTPUT_DIR = OUTPUTS_DIR / "video_translate"
 TRANSLATE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -45,11 +46,59 @@ def format_duration_vietnamese(total_seconds: float) -> str:
 
 def format_srt_time(seconds: float) -> str:
     """Chuyển đổi số giây thành định dạng thời gian chuẩn SRT: HH:MM:SS,mmm"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    millis = int(round((seconds - int(seconds)) * 1000))
+    total_ms = int(round(max(0.0, float(seconds)) * 1000))
+    hours = total_ms // 3600000
+    minutes = (total_ms % 3600000) // 60000
+    secs = (total_ms % 60000) // 1000
+    millis = total_ms % 1000
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def merge_incomplete_clauses(segments: list[dict[str, Any]], max_gap_seconds: float = 2.0) -> list[dict[str, Any]]:
+    """
+    Tự động gộp các vế câu ngắn, hô ngữ (ví dụ: 'Sư tổ,', 'Đại ca,') hoặc các câu bị ngắt lửng bởi dấu phẩy
+    vào câu thoại chính kế tiếp nếu khoảng cách thời gian giữa 2 câu <= max_gap_seconds.
+    Giúp AI dịch đúng trọn vẹn ngữ cảnh và TTS đọc liền mạch tự nhiên.
+    """
+    if not segments or len(segments) <= 1:
+        return segments
+
+    merged: list[dict[str, Any]] = []
+    i = 0
+    while i < len(segments):
+        cur = dict(segments[i])
+        while i + 1 < len(segments):
+            nxt = segments[i + 1]
+            c_text = str(cur.get("text", "")).strip()
+            n_text = str(nxt.get("text", "")).strip()
+            c_end = float(cur.get("end", 0.0))
+            n_start = float(nxt.get("start", c_end))
+            gap = n_start - c_end
+
+            # Điều kiện gộp:
+            # 1. Câu hiện tại kết thúc bằng dấu phẩy / dấu ngắt (,, ，, 、, ;, ；, —, -)
+            # 2. Hoặc câu hiện tại là hô ngữ/từ xưng hô ngắn (<= 3 từ hoặc <= 6 ký tự)
+            # 3. Và khoảng cách tới câu tiếp theo hợp lý (-0.2s <= gap <= max_gap_seconds)
+            is_clause_end = bool(CLAUSE_ENDINGS.search(c_text))
+            is_short_vocative = len(c_text.split()) <= 2 or len(c_text) <= 6
+
+            if (is_clause_end or is_short_vocative) and (-0.2 <= gap <= max_gap_seconds):
+                is_cjk = any('\u4e00' <= char <= '\u9fff' or '\u3040' <= char <= '\u30ff' for char in c_text + n_text)
+                sep = "" if is_cjk and not c_text.endswith((",", "，", " ")) else " "
+                
+                cur["end"] = nxt.get("end")
+                cur["text"] = f"{c_text}{sep}{n_text}"
+                if "words" in cur and "words" in nxt:
+                    cur["words"] = cur.get("words", []) + nxt.get("words", [])
+                i += 1
+            else:
+                break
+
+        cur["id"] = len(merged) + 1
+        merged.append(cur)
+        i += 1
+
+    return merged
 
 
 def generate_srt_file(segments: list[dict[str, Any]], output_srt_path: Path, mode: str = "hard_target") -> Path:
@@ -216,10 +265,15 @@ class VideoTranslationPipeline:
         translation_style: str = "auto",
         translation_model: str = "gemini-2.5-flash",
         translation_temperature: float = 0.2,
-        whisper_model: str = "large-v3",
+        whisper_model: str = "large-v3-turbo",
         output_resolution: str = "720p",
         clip_start: float = 0.0,
         clip_end: float | None = None,
+        vad_threshold: float = 0.35,
+        speech_pad_ms: int = 400,
+        min_speech_duration_ms: int = 150,
+        beam_size: int = 3,
+        filter_hallucinations: bool = False,
     ) -> None:
         start_time = time.time()
         try:
@@ -358,16 +412,20 @@ class VideoTranslationPipeline:
 
             def run_whisper():
                 logger.info(
-                    f"🎙️ [Whisper STT] Bắt đầu bóc băng video gốc '{video_path.name}' bằng mô hình '{whisper_model.upper()}' (Audio: {raw_audio_path.name}, Lang: {lang_arg or 'auto'})"
+                    f"🎙️ [Whisper STT] Bắt đầu bóc băng video gốc '{video_path.name}' bằng mô hình '{whisper_model.upper()}' (Audio: {raw_audio_path.name}, Lang: {lang_arg or 'auto'}, VAD Thresh: {vad_threshold})"
                 )
                 return transcribe_with_remote_or_local(
                     audio_path=raw_audio_path,
                     language=source_lang,
                     model_size=whisper_model,
                     initial_prompt=None,
-                    vad_filter=False,
-                    beam_size=3,
+                    vad_filter=True,
+                    vad_threshold=vad_threshold,
+                    min_speech_duration_ms=min_speech_duration_ms,
+                    speech_pad_ms=speech_pad_ms,
+                    beam_size=beam_size,
                     word_timestamps=True,
+                    filter_hallucinations=filter_hallucinations,
                 )
 
             cls.update_task(
@@ -385,23 +443,31 @@ class VideoTranslationPipeline:
                 if isinstance(s, dict):
                     txt = str(s.get("text", "")).strip()
                     words = s.get("words", [])
+                    raw_start = float(s.get("start", 0.0))
+                    raw_end = float(s.get("end", 0.0))
                     if words and isinstance(words, list) and len(words) > 0:
                         w0 = words[0]
                         w1 = words[-1]
-                        s_start = float(w0.get("start", s.get("start", 0.0))) if isinstance(w0, dict) else float(getattr(w0, "start", s.get("start", 0.0)))
-                        s_end = float(w1.get("end", s.get("end", 0.0))) if isinstance(w1, dict) else float(getattr(w1, "end", s.get("end", 0.0)))
+                        w0_start = float(w0.get("start", raw_start)) if isinstance(w0, dict) else float(getattr(w0, "start", raw_start))
+                        w1_end = float(w1.get("end", raw_end)) if isinstance(w1, dict) else float(getattr(w1, "end", raw_end))
+                        s_start = w0_start
+                        s_end = w1_end
                     else:
-                        s_start = float(s.get("start", 0.0))
-                        s_end = float(s.get("end", 0.0))
+                        s_start = raw_start
+                        s_end = raw_end
                 else:
                     txt = str(getattr(s, "text", "")).strip()
+                    raw_start = float(getattr(s, "start", 0.0))
+                    raw_end = float(getattr(s, "end", 0.0))
                     words = getattr(s, "words", None)
                     if words and len(words) > 0:
-                        s_start = float(getattr(words[0], "start", getattr(s, "start", 0.0)))
-                        s_end = float(getattr(words[-1], "end", getattr(s, "end", 0.0)))
+                        w0_start = float(getattr(words[0], "start", raw_start))
+                        w1_end = float(getattr(words[-1], "end", raw_end))
+                        s_start = w0_start
+                        s_end = w1_end
                     else:
-                        s_start = float(getattr(s, "start", 0.0))
-                        s_end = float(getattr(s, "end", 0.0))
+                        s_start = raw_start
+                        s_end = raw_end
 
                 if not txt:
                     continue
@@ -422,6 +488,14 @@ class VideoTranslationPipeline:
                     "end": round(s_end, 3),
                     "text": txt,
                 })
+
+            # Lọc sạch quảng cáo, watermark và các câu tùy chỉnh do người dùng dạy cho AI bỏ qua
+            original_segments, removed_ad_cnt = AdFilterService.filter_subtitle_segments(original_segments)
+            if removed_ad_cnt > 0:
+                logger.info(f"🛡️ [Pipeline] Đã loại bỏ {removed_ad_cnt} câu quảng cáo/rác/câu bỏ qua khỏi phụ đề gốc.")
+
+            # Tự động gộp các vế câu ngắn / hô ngữ ('Sư tổ,', 'Đại ca,') bị ngắt phẩy thành câu hoàn chỉnh
+            original_segments = merge_incomplete_clauses(original_segments, max_gap_seconds=2.0)
 
             if not original_segments:
                 raise RuntimeError("Không phát hiện được câu thoại nào rõ ràng trong video.")
@@ -684,9 +758,14 @@ class VideoTranslationPipeline:
         video_path: Path,
         source_lang: str = "auto",
         target_lang: str = "vi",
-        whisper_model: str = "large-v3",
+        whisper_model: str = "large-v3-turbo",
         clip_start: float = 0.0,
         clip_end: float | None = None,
+        vad_threshold: float = 0.35,
+        speech_pad_ms: int = 400,
+        min_speech_duration_ms: int = 150,
+        beam_size: int = 3,
+        filter_hallucinations: bool = False,
     ) -> None:
         """
         Giai đoạn 1 của Chế độ Thủ công (Manual SRT Workflow):
@@ -775,15 +854,19 @@ class VideoTranslationPipeline:
             lang_arg = None if source_lang == "auto" else source_lang.split("-")[0]
 
             def run_whisper():
-                logger.info(f"🎙️ [Manual Whisper STT] Bắt đầu tạo phụ đề gốc video '{video_path.name}' bằng '{whisper_model}'")
+                logger.info(f"🎙️ [Manual Whisper STT] Bắt đầu tạo phụ đề gốc video '{video_path.name}' bằng '{whisper_model}' (VAD Thresh={vad_threshold})")
                 return transcribe_with_remote_or_local(
                     audio_path=raw_audio_path,
                     language=source_lang,
                     model_size=whisper_model,
                     initial_prompt=None,
-                    vad_filter=False,
-                    beam_size=3,
+                    vad_filter=True,
+                    vad_threshold=vad_threshold,
+                    min_speech_duration_ms=min_speech_duration_ms,
+                    speech_pad_ms=speech_pad_ms,
+                    beam_size=beam_size,
                     word_timestamps=True,
+                    filter_hallucinations=filter_hallucinations,
                 )
 
             segments_raw, detected_lang = await asyncio.to_thread(run_whisper)
@@ -794,23 +877,31 @@ class VideoTranslationPipeline:
                 if isinstance(s, dict):
                     txt = str(s.get("text", "")).strip()
                     words = s.get("words", [])
+                    raw_start = float(s.get("start", 0.0))
+                    raw_end = float(s.get("end", 0.0))
                     if words and isinstance(words, list) and len(words) > 0:
                         w0 = words[0]
                         w1 = words[-1]
-                        s_start = float(w0.get("start", s.get("start", 0.0))) if isinstance(w0, dict) else float(getattr(w0, "start", s.get("start", 0.0)))
-                        s_end = float(w1.get("end", s.get("end", 0.0))) if isinstance(w1, dict) else float(getattr(w1, "end", s.get("end", 0.0)))
+                        w0_start = float(w0.get("start", raw_start)) if isinstance(w0, dict) else float(getattr(w0, "start", raw_start))
+                        w1_end = float(w1.get("end", raw_end)) if isinstance(w1, dict) else float(getattr(w1, "end", raw_end))
+                        s_start = w0_start
+                        s_end = w1_end
                     else:
-                        s_start = float(s.get("start", 0.0))
-                        s_end = float(s.get("end", 0.0))
+                        s_start = raw_start
+                        s_end = raw_end
                 else:
                     txt = str(getattr(s, "text", "")).strip()
+                    raw_start = float(getattr(s, "start", 0.0))
+                    raw_end = float(getattr(s, "end", 0.0))
                     words = getattr(s, "words", None)
                     if words and len(words) > 0:
-                        s_start = float(getattr(words[0], "start", getattr(s, "start", 0.0)))
-                        s_end = float(getattr(words[-1], "end", getattr(s, "end", 0.0)))
+                        w0_start = float(getattr(words[0], "start", raw_start))
+                        w1_end = float(getattr(words[-1], "end", raw_end))
+                        s_start = w0_start
+                        s_end = w1_end
                     else:
-                        s_start = float(getattr(s, "start", 0.0))
-                        s_end = float(getattr(s, "end", 0.0))
+                        s_start = raw_start
+                        s_end = raw_end
 
                 if not txt:
                     continue
@@ -831,6 +922,14 @@ class VideoTranslationPipeline:
                     "end": round(s_end, 3),
                     "text": txt,
                 })
+
+            # Lọc sạch quảng cáo, watermark và các câu tùy chỉnh do người dùng dạy cho AI bỏ qua
+            original_segments, removed_ad_cnt = AdFilterService.filter_subtitle_segments(original_segments)
+            if removed_ad_cnt > 0:
+                logger.info(f"🛡️ [Manual Pipeline] Đã loại bỏ {removed_ad_cnt} câu quảng cáo/rác/câu bỏ qua khỏi phụ đề gốc.")
+
+            # Tự động gộp các vế câu ngắn / hô ngữ ('Sư tổ,', 'Đại ca,') bị ngắt phẩy thành câu hoàn chỉnh
+            original_segments = merge_incomplete_clauses(original_segments, max_gap_seconds=2.0)
 
             if not original_segments:
                 raise RuntimeError("Không phát hiện được câu thoại nào rõ ràng trong video.")
@@ -868,7 +967,7 @@ class VideoTranslationPipeline:
 
     @classmethod
     def clean_subtitle_text(cls, text: str) -> str:
-        """Làm sạch văn bản phụ đề: loại bỏ citation [cite: 3], [1], 【...】, markdown bold/italic."""
+        """Làm sạch văn bản phụ đề: loại bỏ citation [cite: 3], [1], 【...】, markdown bold/italic và link spam."""
         if not text:
             return ""
         # 1. Bỏ trích dẫn AI [cite: 3], [cite: 1, 2], [1], 【3†source】
@@ -879,7 +978,9 @@ class VideoTranslationPipeline:
         text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
         text = re.sub(r"\*([^*]+)\*", r"\1", text)
         text = re.sub(r"`([^`]+)`", r"\1", text)
-        # 3. Chuẩn hóa khoảng trắng
+        # 3. Lọc bỏ các link quảng cáo nhỏ lẻ trong câu
+        text = AdFilterService.clean_text_ads(text)
+        # 4. Chuẩn hóa khoảng trắng
         text = " ".join(text.split())
         return text.strip()
 
