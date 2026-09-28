@@ -414,13 +414,21 @@ def transcribe_with_remote_or_local(
                 )
                 return segments, detected_lang
             else:
-                logger.warning(
-                    f"⚠️ [Remote STT] Cloud Colab trả về HTTP {resp.status_code}: {resp.text[:200]}, chuyển sang Whisper Local..."
+                err_msg = f"Cloud GPU Worker ({remote_url}) phản hồi lỗi HTTP {resp.status_code}: {resp.text[:200]}"
+                logger.error(f"❌ [Remote STT] {err_msg}")
+                raise RuntimeError(
+                    f"Không thể xử lý bóc băng trên GPU Online Worker. {err_msg}. Vui lòng kiểm tra lại phiên Colab / Kaggle hoặc tắt chế độ GPU Online trong Cài đặt nếu bạn muốn chạy Local."
                 )
         except Exception as e:
-            logger.warning(f"⚠️ [Remote STT] Không thể kết nối Cloud GPU ({e}), tự động chuyển sang Faster-Whisper Local...")
+            if isinstance(e, RuntimeError):
+                raise
+            err_msg = f"Không thể kết nối đến GPU Online Worker tại '{remote_url}'. Chi tiết lỗi: {e}"
+            logger.error(f"❌ [Remote STT] {err_msg}")
+            raise RuntimeError(
+                f"{err_msg}. Vui lòng kiểm tra xem phiên Google Colab / Kaggle có đang chạy (nút Play xoay) hay không, hoặc tắt chế độ GPU Online trong Cài đặt nếu muốn chạy Local."
+            )
 
-    # 2. Chạy Local nếu không dùng Remote hoặc Remote bị lỗi
+    # 2. Chạy Local (CHỈ KHI NGƯỜI DÙNG TẮT CHẾ ĐỘ GPU ONLINE)
     logger.info(f"💻 [Local STT] Đang chạy Faster-Whisper '{target_size}' trên máy tính...")
     model = get_whisper_model(target_size)
     segments_gen, info = model.transcribe(

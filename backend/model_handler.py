@@ -134,7 +134,7 @@ def load_model(force_local: bool = False) -> None:
         try:
             # pyrefly: ignore [missing-import]
             import httpx
-            resp = httpx.get(target_health, headers=_remote_headers(), timeout=3.0)
+            resp = httpx.get(target_health, headers=_remote_headers(), timeout=5.0)
             if resp.status_code == 200:
                 try:
                     data = resp.json()
@@ -148,13 +148,12 @@ def load_model(force_local: bool = False) -> None:
                 _is_remote_gpu_online = True
                 return
             else:
-                logger.warning(f"⚠️ Kiểm tra Cloud GPU trả về mã {resp.status_code}: {resp.text}")
+                logger.error(f"❌ Kiểm tra Cloud GPU trả về mã lỗi {resp.status_code}: {resp.text}")
         except Exception as e:
-            logger.warning(
-                f"⚠️ Không thể kết nối tới GPU Online ({e}). "
-                f"🔄 TỰ ĐỘNG CHUYỂN SANG DÙNG GPU/CPU CỤC BỘ TRÊN MÁY (Local Fallback)!"
-            )
+            logger.error(f"❌ Không thể kết nối tới GPU Online ({e}).")
         _is_remote_gpu_online = False
+        logger.warning("⚠️ Chế độ GPU Online đang bật nhưng không kết nối được tới Worker. Hệ thống sẽ không tự ý tải mô hình nặng lên CPU local.")
+        return
 
     # Xác định thiết bị tính toán cục bộ
     if OMNIVOICE_DEVICE == "cuda" and torch.cuda.is_available():
@@ -264,14 +263,15 @@ def create_voice_prompt(ref_audio: str, ref_text: str | None = None) -> VoiceClo
     Nếu ref_text là None hoặc rỗng, OmniVoice sẽ tự động dùng Whisper ASR để bóc băng.
     """
     global _is_remote_gpu_online
-    if is_remote_gpu_enabled() and get_remote_gpu_url():
+    if is_remote_gpu_enabled():
         if not _is_remote_gpu_online and _model is None:
             load_model()
-        if _is_remote_gpu_online:
-            try:
-                return _create_voice_prompt_remote(ref_audio, ref_text)
-            except Exception as e:
-                logger.warning(f"⚠️ Trích xuất giọng bằng GPU Online thất bại ({e}), tự động chuyển sang trích xuất bằng GPU/CPU máy local...")
+        if not _is_remote_gpu_online:
+            raise RuntimeError(
+                f"Chế độ GPU Online đang bật nhưng không thể kết nối tới Worker ({get_remote_gpu_url()}). "
+                "Vui lòng kiểm tra lại phiên Colab/Kaggle hoặc tắt GPU Online trong Cài đặt để chạy Local."
+            )
+        return _create_voice_prompt_remote(ref_audio, ref_text)
 
     with _model_lock:
         model = get_model(force_local=True)
@@ -844,8 +844,13 @@ def generate_audio(
     if _model is None and not _is_remote_gpu_online:
         load_model()
 
-    # ─── Nếu bật Remote Cloud GPU và GPU Online đang hoạt động ─
-    if is_remote_gpu_enabled() and get_remote_gpu_url() and _is_remote_gpu_online:
+    # ─── Nếu bật Remote Cloud GPU ─────────────────────────────────
+    if is_remote_gpu_enabled():
+        if not _is_remote_gpu_online:
+            raise RuntimeError(
+                f"Chế độ GPU Online đang bật nhưng không thể kết nối tới Worker ({get_remote_gpu_url()}). "
+                "Vui lòng kiểm tra lại phiên Colab/Kaggle hoặc tắt GPU Online trong Cài đặt để chạy Local."
+            )
         try:
             with _remote_semaphore:
                 _generate_audio_remote(
@@ -868,7 +873,7 @@ def generate_audio(
         except Exception as remote_err:
             logger.error(f"❌ [Cloud GPU] Gọi GPU Online thất bại: {remote_err}")
             raise RuntimeError(
-                f"Lỗi khi xử lý trên Cloud GPU ({get_remote_gpu_url()}): {remote_err}"
+                f"Lỗi khi xử lý TTS trên Cloud GPU ({get_remote_gpu_url()}): {remote_err}"
             )
 
     # ─── Chế độ Local: Đảm bảo model đã nạp và khóa 1 luồng bảo vệ GPU/RAM ────
