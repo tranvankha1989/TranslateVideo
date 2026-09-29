@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { PanelLeftClose, PanelLeftOpen, Sparkles, Cpu, Cloud, Settings as SettingsIcon } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTTSStore } from "@/store/useTTSStore";
 import { APP_VERSION } from "@/constants/version";
-import { AppUpdateModal } from "@/components/AppUpdateModal";
-
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },
@@ -22,7 +20,6 @@ export function MainLayout() {
   const hardwareConfig = useTTSStore((state) => state.hardwareConfig);
   const fetchHardwareSettings = useTTSStore((state) => state.fetchHardwareSettings);
   const syncStatus = useTTSStore((state) => state.syncStatus);
-  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   // Tự động kiểm tra trạng thái lưu trữ đám mây & cấu hình phần cứng khi khởi động
   useEffect(() => {
@@ -266,19 +263,6 @@ export function MainLayout() {
           </Link>
         )}
 
-        {/* Nút Cập Nhật Ứng Dụng (Top-Right Update Button) */}
-        <button
-          type="button"
-          onClick={() => setIsUpdateModalOpen(true)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 hover:border-primary/50 text-[11px] font-semibold transition-all shadow-sm shadow-primary/10 group cursor-pointer"
-          title="Kiểm tra & Cập nhật phiên bản mới nhất"
-        >
-          <Sparkles className="w-3.5 h-3.5 transition-transform group-hover:rotate-12 group-hover:scale-110" />
-          <span>Cập nhật</span>
-          <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary font-normal">
-            v{APP_VERSION}
-          </span>
-        </button>
 
         {/* Quick Settings Icon Button */}
         <Link
@@ -305,11 +289,6 @@ export function MainLayout() {
         <Outlet />
       </main>
 
-      {/* Modal Cập Nhật Phần Mềm Tích Hợp Xác Nhận */}
-      <AppUpdateModal
-        isOpen={isUpdateModalOpen}
-        onClose={() => setIsUpdateModalOpen(false)}
-      />
 
 
       {/* Mobile Navigation (Bottom) */}

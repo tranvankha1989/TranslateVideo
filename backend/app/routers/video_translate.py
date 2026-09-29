@@ -26,6 +26,7 @@ from app.schemas.video_translate import (
     VerifyKeyRequest,
     StudioRedubSegmentRequest,
     StudioUpdateSegmentRequest,
+    StudioAddSegmentRequest,
     StudioRemuxRequest,
 )
 from app.services.translator_service import GoogleAIStudioTranslator, GoogleTranslator
@@ -81,7 +82,8 @@ async def start_video_translation(
     voice_pitch: str = Form("+0Hz"),
     voice_volume: float = Form(1.0),
     preserve_bgm: bool = Form(True),
-    bgm_volume: float = Form(0.25),
+    bgm_type: str = Form("bgm"),
+    bgm_volume: float = Form(0.30),
     subtitle_mode: str = Form("hard_target"),
     max_speed_rate: float = Form(1.35),
     translation_provider: str = Form("google"),
@@ -111,7 +113,8 @@ async def start_video_translation(
     v_pitch = str(_form_val(voice_pitch, "+0Hz"))
     v_vol = float(_form_val(voice_volume, 1.0))
     p_bgm = bool(_form_val(preserve_bgm, True))
-    bgm_vol = float(_form_val(bgm_volume, 0.25))
+    b_type = str(_form_val(bgm_type, "bgm"))
+    bgm_vol = float(_form_val(bgm_volume, 0.30))
     sub_mode = str(_form_val(subtitle_mode, "hard_target"))
     max_speed = float(_form_val(max_speed_rate, 1.35))
     trans_provider = str(_form_val(translation_provider, "google"))
@@ -191,6 +194,7 @@ async def start_video_translation(
             voice_pitch=v_pitch,
             voice_volume=v_vol,
             preserve_bgm=p_bgm,
+            bgm_type=b_type,
             bgm_volume=bgm_vol,
             subtitle_mode=sub_mode,
             max_speed_rate=max_speed,
@@ -377,7 +381,8 @@ async def resume_manual_pipeline(
     voice_pitch: str = Form("+0Hz"),
     voice_volume: float = Form(1.0),
     preserve_bgm: bool = Form(True),
-    bgm_volume: float = Form(0.25),
+    bgm_type: str = Form("bgm"),
+    bgm_volume: float = Form(0.30),
     subtitle_mode: str = Form("hard_target"),
     max_speed_rate: float = Form(1.35),
     output_resolution: str = Form("720p"),
@@ -421,7 +426,8 @@ async def resume_manual_pipeline(
     v_vol = float(_form_val(voice_volume, 1.0))
     p_bgm_raw = _form_val(preserve_bgm, True)
     p_bgm = p_bgm_raw if isinstance(p_bgm_raw, bool) else str(p_bgm_raw).lower() in ("true", "1", "yes")
-    bgm_vol = float(_form_val(bgm_volume, 0.25))
+    b_type = str(_form_val(bgm_type, "bgm"))
+    bgm_vol = float(_form_val(bgm_volume, 0.30))
     sub_mode = str(_form_val(subtitle_mode, "hard_target"))
     max_speed = float(_form_val(max_speed_rate, 1.35))
     out_res = str(_form_val(output_resolution, "720p"))
@@ -445,6 +451,7 @@ async def resume_manual_pipeline(
             voice_pitch=v_pitch,
             voice_volume=v_vol,
             preserve_bgm=p_bgm,
+            bgm_type=b_type,
             bgm_volume=bgm_vol,
             subtitle_mode=sub_mode,
             max_speed_rate=max_speed,
@@ -583,6 +590,54 @@ async def stream_translated_video(task_id: str):
     raise HTTPException(status_code=404, detail="File video chưa sẵn sàng")
 
 
+@router.get("/stream-raw/{task_id}")
+async def stream_raw_video(task_id: str):
+    """
+    Phát luồng video gốc (chưa ghép âm thanh thuyết minh) để phục vụ phát Preview Multi-Layer độc lập.
+    """
+    task_dir = TRANSLATE_OUTPUT_DIR / task_id
+    if not task_dir.exists():
+        raise HTTPException(status_code=404, detail="Không tìm thấy video")
+
+    # Ưu tiên các file video gốc đã lưu trong thư mục task
+    raw_candidates = [
+        *list(task_dir.glob("input_*.*")),
+        *list(task_dir.glob("trimmed_*.*")),
+    ]
+    for cand in raw_candidates:
+        if cand.exists() and cand.is_file() and cand.suffix.lower() in [".mp4", ".mov", ".mkv", ".webm"]:
+            return FileResponse(path=str(cand), media_type="video/mp4")
+
+    # Nếu không tìm thấy file raw riêng, fallback sang file video hoàn chỉnh
+    final_v = task_dir / "final_translated.mp4"
+    if final_v.exists():
+        return FileResponse(path=str(final_v), media_type="video/mp4")
+
+    raise HTTPException(status_code=404, detail="Không tìm thấy video gốc")
+
+
+@router.get("/stream-bgm/{task_id}")
+async def stream_bgm_audio(task_id: str):
+    """
+    Phát luồng file âm thanh nhạc nền (BGM / Ambient) riêng biệt cho Layer 2 trong Studio.
+    """
+    task_dir = TRANSLATE_OUTPUT_DIR / task_id
+    if not task_dir.exists():
+        raise HTTPException(status_code=404, detail="Không tìm thấy âm thanh")
+
+    bgm_candidates = [
+        task_dir / "no_vocals.wav",
+        task_dir / "bgm.wav",
+        DUBBING_OUTPUT_DIR / task_id / "bgm.wav",
+        task_dir / "bgm_raw.wav",
+    ]
+    for cand in bgm_candidates:
+        if cand.exists() and cand.is_file():
+            return FileResponse(path=str(cand), media_type="audio/wav")
+
+    raise HTTPException(status_code=404, detail="Chưa có dải nhạc nền riêng biệt")
+
+
 @router.get("/download/{task_id}")
 async def download_file_endpoint(
     task_id: str,
@@ -613,6 +668,37 @@ async def download_file_endpoint(
             filename=f"original_subtitles_{task_id}.srt",
             media_type="application/x-subrip",
             headers={"Content-Disposition": f'attachment; filename="original_subtitles_{task_id}.srt"'},
+        )
+
+    # 1b. Tải phụ đề gốc kèm Prompt dịch mẫu cho AI (ChatGPT/Claude/DeepL)
+    if requested_type in ["srt_original_prompt", "prompt_txt", "txt_prompt", "prompt", "original_prompt", "srt_prompt"]:
+        orig_srt = task_dir / "subtitles_original.srt"
+        if not orig_srt.exists():
+            orig_candidates = list(task_dir.glob("*original*.srt"))
+            if orig_candidates:
+                orig_srt = orig_candidates[0]
+            else:
+                orig_srt = task_dir / "subtitles.srt"
+        if not orig_srt.exists():
+            raise HTTPException(status_code=404, detail="Chưa có file phụ đề thoại gốc nào được tạo")
+
+        raw_srt = orig_srt.read_text(encoding="utf-8")
+        prompt_txt_file = task_dir / "subtitles_with_prompt.txt"
+        prompt_content = (
+            "Tôi muốn dịch file phụ đề này. Hãy tuân thủ các quy tắc sau:\n"
+            "1. Đọc và dịch nội dung bám sát kịch bản, lưu nhớ và nhất quán các danh từ riêng, thuật ngữ.\n"
+            "2. Phân tích logic hội thoại và quan hệ nhân vật để xưng hô chuẩn xác theo cốt truyện.\n"
+            "3. Kiểm tra mốc thời gian và ngữ pháp để gộp các câu thoại bị ngắt dở dang thành câu hoàn chỉnh trước khi dịch.\n"
+            "4. Tối ưu độ dài câu (CPS) và chèn dấu ngắt nghỉ phù hợp để làm giọng đọc AI/thuyết minh.\n"
+            "Đây là file/nội dung phụ đề:\n\n"
+            + raw_srt
+        )
+        prompt_txt_file.write_text(prompt_content, encoding="utf-8")
+        return FileResponse(
+            path=str(prompt_txt_file),
+            filename=f"subtitles_with_prompt_{task_id}.txt",
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="subtitles_with_prompt_{task_id}.txt"'},
         )
 
     # 2. Tải phụ đề đã dịch (translated SRT)
@@ -683,13 +769,47 @@ async def download_file_endpoint(
         *[f for f in task_dir.glob("*.mp4") if not f.name.startswith("input_")],
         *list(task_dir.glob("*.mp4")),
     ]
+
+    # Tìm tên gốc của video để đặt tên file tải về chuẩn theo yêu cầu: <Tên video gốc> Translate buy KhaTran.mp4
+    orig_name = None
+    task_info = VideoTranslationPipeline.get_task(task_id) or {}
+    if task_info.get("original_filename"):
+        orig_name = Path(task_info["original_filename"]).stem
+    elif task_info.get("video_path"):
+        orig_name = Path(task_info["video_path"]).stem
+    else:
+        meta_file = task_dir / "task_meta.json"
+        if meta_file.exists():
+            try:
+                m_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                if m_data.get("original_filename"):
+                    orig_name = Path(m_data["original_filename"]).stem
+                elif m_data.get("video_path"):
+                    orig_name = Path(m_data["video_path"]).stem
+            except Exception:
+                pass
+    if not orig_name or orig_name.startswith("input_") or orig_name.startswith("temp_"):
+        input_files = list(task_dir.glob("input_*.*"))
+        if input_files:
+            clean_stem = input_files[0].stem.replace("input_", "")
+            if clean_stem:
+                orig_name = clean_stem
+    if not orig_name:
+        orig_name = f"video_{task_id}"
+
+    out_mp4_name = f"{orig_name} Translate buy KhaTran.mp4"
+    import urllib.parse
+    import re
+    encoded_mp4 = urllib.parse.quote(out_mp4_name)
+    ascii_mp4 = re.sub(r'[^\x00-\x7F]+', '_', out_mp4_name) or "translated_video.mp4"
+
     for cand in candidates:
-        if cand.exists() and cand.is_file():
+        if cand.exists() and cand.is_file() and cand.stat().st_size > 0:
             return FileResponse(
                 path=str(cand),
-                filename=f"translated_video_{task_id}.mp4",
+                filename=ascii_mp4,
                 media_type="video/mp4",
-                headers={"Content-Disposition": f'attachment; filename="translated_video_{task_id}.mp4"'},
+                headers={"Content-Disposition": f"attachment; filename=\"{ascii_mp4}\"; filename*=UTF-8''{encoded_mp4}"},
             )
     raise HTTPException(status_code=404, detail="File video hoàn thiện chưa sẵn sàng hoặc render chưa hoàn tất")
 
@@ -967,7 +1087,21 @@ async def get_subtitles_original_content(task_id: str):
         raise HTTPException(status_code=404, detail="File phụ đề gốc chưa được tạo.")
     try:
         content = srt_file.read_text(encoding="utf-8")
-        return {"content": content, "file_path": str(srt_file)}
+        prompt_content = (
+            "Tôi muốn dịch file phụ đề này. Hãy tuân thủ các quy tắc sau:\n"
+            "1. Đọc và dịch nội dung bám sát kịch bản, lưu nhớ và nhất quán các danh từ riêng, thuật ngữ.\n"
+            "2. Phân tích logic hội thoại và quan hệ nhân vật để xưng hô chuẩn xác theo cốt truyện.\n"
+            "3. Kiểm tra mốc thời gian và ngữ pháp để gộp các câu thoại bị ngắt dở dang thành câu hoàn chỉnh trước khi dịch.\n"
+            "4. Tối ưu độ dài câu (CPS) và chèn dấu ngắt nghỉ phù hợp để làm giọng đọc AI/thuyết minh.\n"
+            "5. Nếu thấy có lời bài hát, hãy xóa toàn bộ lời bài hát trong phụ đề.\n"
+            "Đây là file/nội dung phụ đề:\n\n"
+            + content
+        )
+        return {
+            "content": content,
+            "prompt_content": prompt_content,
+            "file_path": str(srt_file),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi đọc file phụ đề gốc: {str(e)}")
 
@@ -1074,6 +1208,7 @@ async def redub_video_from_subtitles(task_id: str, req: RedubTaskRequest | None 
             voice_pitch=req_data.get("voice_pitch"),
             voice_volume=req_data.get("voice_volume"),
             preserve_bgm=req_data.get("preserve_bgm"),
+            bgm_type=req_data.get("bgm_type"),
             bgm_volume=req_data.get("bgm_volume"),
             subtitle_mode=req_data.get("subtitle_mode"),
             max_speed_rate=req_data.get("max_speed_rate"),
@@ -1274,6 +1409,28 @@ async def studio_delete_segment_endpoint(task_id: str, segment_id: int):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/studio-add-segment/{task_id}")
+async def studio_add_segment_endpoint(task_id: str, req: StudioAddSegmentRequest):
+    """
+    Chèn thêm 1 câu thoại mới vào timeline Studio tại vị trí bất kỳ và tự động sinh âm thanh TTS tức thì.
+    """
+    try:
+        return await VideoTranslationPipeline.add_segment(
+            task_id=task_id,
+            text=req.text,
+            after_segment_id=req.after_segment_id,
+            start=req.start,
+            end=req.end,
+            voice_id=req.voice_id,
+            engine=req.engine,
+            voice_rate=req.voice_rate,
+            voice_pitch=req.voice_pitch,
+            voice_volume=req.voice_volume,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/studio-quick-remux/{task_id}")
 async def studio_quick_remux_endpoint(task_id: str, req: StudioRemuxRequest | None = None):
     """
@@ -1285,6 +1442,7 @@ async def studio_quick_remux_endpoint(task_id: str, req: StudioRemuxRequest | No
             task_id=task_id,
             subtitle_mode=req_data.get("subtitle_mode"),
             preserve_bgm=req_data.get("preserve_bgm"),
+            bgm_type=req_data.get("bgm_type"),
             bgm_volume=req_data.get("bgm_volume"),
             voice_volume=req_data.get("voice_volume"),
             max_speed_rate=req_data.get("max_speed_rate"),

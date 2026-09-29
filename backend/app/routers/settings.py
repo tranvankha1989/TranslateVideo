@@ -100,7 +100,7 @@ async def get_hardware_settings():
 
 
 def _clean_gpu_url(url: str | None) -> str:
-    """Hàm an toàn chuẩn hóa Cloud GPU Worker URL."""
+    """Hàm an toàn chuẩn hóa Cloud GPU Worker URL (Hugging Face Spaces & Colab & Kaggle)."""
     if hasattr(model_handler, "normalize_remote_gpu_url"):
         return model_handler.normalize_remote_gpu_url(url)
     if not url:
@@ -110,8 +110,21 @@ def _clean_gpu_url(url: str | None) -> str:
         return ""
     if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
         cleaned = f"https://{cleaned}"
+
+    hf_match = re.match(r"https?://huggingface\.co/spaces/([^/]+)/([^/?#]+)", cleaned, re.IGNORECASE)
+    if hf_match:
+        owner = hf_match.group(1).lower().replace("_", "-")
+        space = hf_match.group(2).lower().replace("_", "-")
+        cleaned = f"https://{owner}-{space}.hf.space"
+
     cleaned = cleaned.rstrip("/")
-    for suffix in ("/api/remote/health", "/gradio_api/remote/health", "/api/remote", "/gradio_api/remote", "/health"):
+    for suffix in (
+        "/api/remote/health",
+        "/gradio_api/remote/health",
+        "/api/remote",
+        "/gradio_api/remote",
+        "/health",
+    ):
         if cleaned.endswith(suffix):
             cleaned = cleaned[:-len(suffix)]
     return cleaned.rstrip("/")
@@ -160,6 +173,9 @@ async def test_remote_gpu(req: TestRemoteGpuRequest):
         "ngrok-skip-browser-warning": "1",
         "User-Agent": "OmniVoice/1.0",
     }
+    hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+    if hf_token and hf_token.strip():
+        headers["Authorization"] = f"Bearer {hf_token.strip()}"
 
     start_time = time.time()
     last_error = None

@@ -10,8 +10,9 @@ class StartTranslationRequest(BaseModel):
     voice_rate: str = Field("+0%", description="Tốc độ đọc cơ bản")
     voice_pitch: str = Field("+0Hz", description="Cao độ giọng")
     voice_volume: float = Field(1.0, description="Âm lượng giọng đọc (mặc định 1.0)")
-    preserve_bgm: bool = Field(True, description="Giữ lại nhạc nền & tiếng động gốc của video")
-    bgm_volume: float = Field(0.25, description="Âm lượng nhạc nền gốc (0.0 -> 1.0, mặc định 0.25)")
+    preserve_bgm: bool = Field(True, description="Giữ lại âm thanh nền gốc của video")
+    bgm_type: str = Field("bgm", description="Nguồn âm thanh nền: bgm (nhạc nền tách vocal), original (âm thanh gốc chưa tách), none (tắt)")
+    bgm_volume: float = Field(0.30, description="Âm lượng nhạc nền gốc (0.0 -> 1.0, mặc định 0.30)")
     subtitle_mode: str = Field("hard_target", description="Chế độ phụ đề: none (không sub), hard_target (phụ đề dịch), hard_dual (song ngữ)")
     max_speed_rate: float = Field(1.35, description="Tốc độ tăng tối đa để khớp khung hình")
     translation_provider: str = Field("google", description="Kênh dịch thuật: google, openai, deepseek, gemini")
@@ -60,6 +61,7 @@ class RedubTaskRequest(BaseModel):
     voice_pitch: str | None = Field(None, description="Cao độ")
     voice_volume: float | None = Field(None, description="Âm lượng giọng đọc")
     preserve_bgm: bool | None = Field(None, description="Giữ âm thanh gốc thuyết minh phim")
+    bgm_type: str | None = Field(None, description="Nguồn âm thanh nền: bgm, original, none")
     bgm_volume: float | None = Field(None, description="Âm lượng thuyết minh nền")
     subtitle_mode: str | None = Field(None, description="Kiểu gắn phụ đề: hard_target, hard_dual, none")
     max_speed_rate: float | None = Field(None, description="Tốc độ tăng tối đa")
@@ -85,11 +87,23 @@ class StudioUpdateSegmentRequest(BaseModel):
 
 class StudioRemuxRequest(BaseModel):
     subtitle_mode: str | None = Field(None, description="Chế độ phụ đề: none, hard_target, hard_dual")
-    preserve_bgm: bool | None = Field(None, description="Giữ nhạc nền BGM")
-    bgm_volume: float | None = Field(None, description="Âm lượng BGM")
+    bgm_type: str | None = Field("bgm", description="Nguồn âm thanh nền: bgm (nhạc nền tách vocal), original (âm thanh gốc chưa tách), none (tắt)")
+    bgm_volume: float | None = Field(0.30, description="Âm lượng BGM (mặc định 0.30)")
     voice_volume: float | None = Field(None, description="Âm lượng giọng đọc")
     max_speed_rate: float | None = Field(None, description="Tốc độ co giãn tối đa")
     output_resolution: str | None = Field(None, description="Độ phân giải video đầu ra: 720p, 1080p, 480p, original")
+
+
+class StudioAddSegmentRequest(BaseModel):
+    text: str = Field(..., description="Nội dung câu nói mới cần chèn")
+    after_segment_id: int | None = Field(None, description="ID của câu thoại đứng trước (chèn vào sau câu này)")
+    start: float | None = Field(None, description="Mốc thời gian bắt đầu (giây)")
+    end: float | None = Field(None, description="Mốc thời gian kết thúc (giây)")
+    voice_id: str | None = Field(None, description="Giọng đọc muốn dùng cho câu này")
+    engine: str | None = Field(None, description="edge-tts hoặc omnivoice")
+    voice_rate: str | None = Field(None, description="Tốc độ đọc")
+    voice_pitch: str | None = Field(None, description="Cao độ")
+    voice_volume: float | None = Field(None, description="Âm lượng giọng đọc")
 
 
 class VideoTranslationProjectItem(BaseModel):
@@ -109,7 +123,4 @@ class VideoTranslationProjectItem(BaseModel):
     subtitles_srt_url: str | None = None
     subtitles_original_srt_url: str | None = None
     file_size_mb: float = 0
-
-
-
 

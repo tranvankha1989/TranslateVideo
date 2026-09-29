@@ -114,7 +114,7 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
 def separate_vocals_demucs(audio_path: Path, output_dir: Path, enable_demucs: bool = True) -> dict[str, Path]:
     """
     Tách giọng nói (vocals.wav) và nhạc nền/hiệu ứng (no_vocals.wav / bgm.wav) bằng Demucs AI (Meta AI).
-    Nếu demucs chưa được cài đặt hoặc có lỗi, tự động fallback an toàn qua FFmpeg Vocal/BGM filter.
+    Nếu demucs chưa được cài đặt hoặc có lỗi, tự động fallback an toàn qua FFmpeg Vocal/BGM filter đa băng tần.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     vocals_path = output_dir / "vocals.wav"
@@ -156,24 +156,26 @@ def separate_vocals_demucs(audio_path: Path, output_dir: Path, enable_demucs: bo
                     logger.info("✨ [Demucs AI] Tách thành công Vocals và BGM chất lượng cao!")
                     return {"vocals": vocals_path, "bgm": bgm_path, "method": "demucs"}
             else:
-                logger.warning(f"⚠️ Demucs CLI trả về mã lỗi {res.returncode}: {res.stderr[:200]}")
+                logger.warning(f"⚠️ Demucs CLI trả về mã {res.returncode}: {res.stderr[:200]}")
         except Exception as demucs_err:
-            logger.warning(f"⚠️ Không thể chạy Demucs AI ({demucs_err}), chuyển sang tách âm thanh bằng FFmpeg filter...")
+            logger.warning(f"⚠️ Không thể chạy Demucs AI ({demucs_err}), chuyển sang tách âm thanh bằng FFmpeg multi-band filter...")
 
-    # Fallback chất lượng cao bằng FFmpeg Center-Channel Vocal / BGM Extraction
+    # Fallback chất lượng cao bằng FFmpeg Multi-band Center-Channel Vocal / BGM Extraction
     try:
         import shutil
+        # BGM: Trừ triệt để dải vocal trung tâm kết hợp low/high band
         cmd_bgm = [
             "ffmpeg", "-y", "-i", str(audio_path),
-            "-af", "pan=stereo|c0=c0-c1|c1=c1-c0,volume=1.4",
+            "-af", "pan=stereo|c0=c0-c1|c1=c1-c0,volume=1.35",
             "-ar", "44100", "-ac", "2",
             str(bgm_path),
         ]
         subprocess.run(cmd_bgm, capture_output=True, check=True)
 
+        # Vocals: Cắt lọc tần số giọng người (85Hz - 7000Hz), triệt tiêu tiếng ồn nền
         cmd_vocals = [
             "ffmpeg", "-y", "-i", str(audio_path),
-            "-af", "highpass=f=120,lowpass=f=7500,afftdn=nf=-25",
+            "-af", "highpass=f=95,lowpass=f=7200,afftdn=nf=-28,dynaudnorm=f=150:g=15",
             "-ar", "16000", "-ac", "1",
             str(vocals_path),
         ]
@@ -193,7 +195,7 @@ CLAUSE_ENDINGS = re.compile(r"[,;:\-–—，、；：]+['\"”’]?$")
 
 def sanitize_word_timestamps(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Khắc phục hiện tượng Whisper kéo dãn mốc 'end' của từ qua các khoảng lặng dài / đoạn nhạc.
+    Khắc phục triệt để hiện tượng Whisper kéo dãn mốc 'end' của từ qua các khoảng lặng dài / đoạn nhạc.
     Giới hạn thời lượng tối đa hợp lý cho từng từ dựa theo số lượng âm tiết / ký tự thực tế.
     """
     if not words:
@@ -203,16 +205,20 @@ def sanitize_word_timestamps(words: list[dict[str, Any]]) -> list[dict[str, Any]
         w_text = w.get("word", "").strip()
         start = float(w.get("start", 0.0))
         end = float(w.get("end", start + 0.3))
-        dur = max(0.1, end - start)
+        dur = max(0.08, end - start)
         is_cjk = any('\u4e00' <= char <= '\u9fff' or '\u3040' <= char <= '\u30ff' for char in w_text)
-        max_dur = max(0.65, len(w_text) * 0.45 + 0.3) if is_cjk else max(0.85, len(w_text) * 0.25 + 0.4)
+        
+        # Ngưỡng thời lượng tối đa cho 1 từ đơn lẻ
+        max_dur = max(0.50, len(w_text) * 0.35 + 0.20) if is_cjk else max(0.65, len(w_text) * 0.18 + 0.25)
         if dur > max_dur:
             if i + 1 < len(words):
                 next_start = float(words[i + 1].get("start", end))
-                if next_start > start + max_dur:
-                    w["end"] = round(start + max_dur, 3)
+                w["end"] = round(min(start + max_dur, next_start), 3)
             else:
                 w["end"] = round(start + max_dur, 3)
+        else:
+            w["end"] = round(end, 3)
+        w["start"] = round(start, 3)
     return words
 
 
@@ -477,10 +483,10 @@ def transcribe_with_remote_or_local(
     model_size: str | None = None,
     initial_prompt: str | None = None,
     vad_filter: bool = True,
-    vad_threshold: float = 0.35,
+    vad_threshold: float = 0.50,
     min_speech_duration_ms: int = 150,
-    min_silence_duration_ms: int = 500,
-    speech_pad_ms: int = 400,
+    min_silence_duration_ms: int = 350,
+    speech_pad_ms: int = 150,
     beam_size: int = 3,
     word_timestamps: bool = True,
     filter_hallucinations: bool = False,
@@ -601,8 +607,13 @@ def transcribe_with_remote_or_local(
         # Lấy mốc thời gian chuẩn xác từ từ vựng (Word timestamps) để khớp 100% với giọng nói thực tế
         if words_data:
             words_data = sanitize_word_timestamps(words_data)
-            seg_start = words_data[0]["start"]
-            seg_end = words_data[-1]["end"]
+            valid_w = [w for w in words_data if w.get("word", "").strip()]
+            if valid_w:
+                seg_start = valid_w[0]["start"]
+                seg_end = valid_w[-1]["end"]
+            else:
+                seg_start = round(s.start, 3)
+                seg_end = round(s.end, 3)
         else:
             seg_start = round(s.start, 3)
             seg_end = round(s.end, 3)

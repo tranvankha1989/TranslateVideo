@@ -547,6 +547,41 @@ async def cleanup_orphan_files(request: CleanupOrphansRequest) -> CleanupOrphans
     except Exception as ae:
         logger.warning(f"Lỗi khi dọn dẹp thư mục audios: {ae}")
 
+    # Dọn dẹp các thư mục video translation, dubbing và alignment cũ
+    try:
+        translate_dir = OUTPUTS_DIR / "video_translate"
+        dubbing_dir = OUTPUTS_DIR / "dubbing"
+        alignment_dir = OUTPUTS_DIR / "alignment"
+
+        for target_d in [translate_dir, dubbing_dir, alignment_dir]:
+            if target_d.exists():
+                for sub_item in target_d.iterdir():
+                    if not sub_item.is_dir():
+                        if sub_item.is_file():
+                            try:
+                                f_size = sub_item.stat().st_size
+                                sub_item.unlink(missing_ok=True)
+                                deleted_count += 1
+                                freed_bytes += f_size
+                            except Exception:
+                                pass
+                        continue
+                    # Bỏ qua nếu là session đang mở
+                    if sub_item.name in active_sessions:
+                        continue
+                    item_age = now - sub_item.stat().st_mtime
+                    if request.force or item_age >= (request.max_age_minutes * 60):
+                        try:
+                            d_size = sum(f.stat().st_size for f in sub_item.rglob("*") if f.is_file())
+                            shutil.rmtree(sub_item, ignore_errors=True)
+                            deleted_count += 1
+                            freed_bytes += d_size
+                            logger.info(f"🗑️ [VideoTranslate/Dubbing] Đã dọn dẹp thư mục: {sub_item.name} ({d_size / (1024*1024):.2f} MB)")
+                        except Exception as d_err:
+                            logger.warning(f"Không thể xóa thư mục {sub_item.name}: {d_err}")
+    except Exception as vte:
+        logger.warning(f"Lỗi khi dọn dẹp video translate/dubbing: {vte}")
+
     # Dọn dẹp trên Cloudflare R2 bucket nếu có cấu hình
     try:
         r2_deleted, r2_bytes = await asyncio.to_thread(

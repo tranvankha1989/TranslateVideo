@@ -38,11 +38,11 @@ import {
   Minus,
   Clipboard,
   ClipboardPaste,
-  Copy,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { API_BASE_URL } from "@/constants/api";
 import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
 
 import {
@@ -51,7 +51,7 @@ import {
   type TranslationProgress,
   type StudioSegment,
 } from "@/store/useVideoTranslateStore";
-import { playCompletionSound, playNotificationSound } from "@/utils/audioUtils";
+import { playCompletionSound, playNotificationSound, requestNotificationPermission } from "@/utils/audioUtils";
 
 const STEP_LABELS: Record<string, { label: string; icon: string }> = {
   extracting: { label: "Tách âm thanh & Nhạc nền", icon: "🎵" },
@@ -118,6 +118,7 @@ export default function VideoTranslate() {
     selectedEngine,
     voiceRate,
     preserveBgm,
+    bgmType,
     bgmVolume,
     subtitleMode,
     maxSpeedRate,
@@ -168,6 +169,7 @@ export default function VideoTranslate() {
     setSelectedEngine,
     setVoiceRate,
     setPreserveBgm,
+    setBgmType,
     setBgmVolume,
     setSubtitleMode,
     setMaxSpeedRate,
@@ -191,6 +193,7 @@ export default function VideoTranslate() {
     isRemuxingStudioVideo,
     studioRemuxMessage,
     setStudioSegments,
+    addStudioSegment,
     updateStudioSegmentText,
     updateStudioSegmentTiming,
     setStudioSegmentRedubbing,
@@ -210,6 +213,16 @@ export default function VideoTranslate() {
   const [studioSearch, setStudioSearch] = React.useState("");
   const [playingAudioSegId, setPlayingAudioSegId] = React.useState<number | null>(null);
   const [deletingSegId, setDeletingSegId] = React.useState<number | null>(null);
+
+  // Thêm câu thoại mới tại vị trí bất kỳ
+  const [showAddSegmentModal, setShowAddSegmentModal] = React.useState(false);
+  const [newSegStart, setNewSegStart] = React.useState<number>(0);
+  const [newSegEnd, setNewSegEnd] = React.useState<number>(2.5);
+  const [newSegText, setNewSegText] = React.useState<string>("");
+  const [newSegOriginalText, setNewSegOriginalText] = React.useState<string>("");
+  const [newSegVoiceId, setNewSegVoiceId] = React.useState<string>("");
+  const [newSegEngine, setNewSegEngine] = React.useState<string>("");
+  const [isAddingSegment, setIsAddingSegment] = React.useState<boolean>(false);
 
   const filteredStudioSegments = studioSegments.filter((s) => {
     if (!studioSearch.trim()) return true;
@@ -253,13 +266,16 @@ export default function VideoTranslate() {
   const resultVideoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Studio State
+  const [currentLiveSubtitle, setCurrentLiveSubtitle] = React.useState<string>("");
+
   // Translation Memory (Bộ nhớ tự học)
   const [memoryCount, setMemoryCount] = useState<number>(0);
   const [showMemoryModal, setShowMemoryModal] = useState<boolean>(false);
 
   const fetchMemoryCount = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/video-translate/memory?limit=1");
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/memory?limit=1`);
       const data = await res.json();
       if (res.ok && typeof data.total === "number") {
         setMemoryCount(data.total);
@@ -275,7 +291,7 @@ export default function VideoTranslate() {
 
   // 1. Tải danh mục ngôn ngữ từ Backend
   useEffect(() => {
-    fetch("http://localhost:8000/api/translate/languages")
+    fetch(`${API_BASE_URL}/api/translate/languages`)
       .then((res) => res.json())
       .then((data) => {
         if (data.languages) setLanguages(data.languages);
@@ -285,7 +301,7 @@ export default function VideoTranslate() {
 
   // 2. Tải danh sách giọng đọc theo ngôn ngữ đích (targetLang)
   useEffect(() => {
-    fetch(`http://localhost:8000/api/dubbing/voices?lang=${targetLang}`)
+    fetch(`${API_BASE_URL}/api/dubbing/voices?lang=${targetLang}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.voices && data.voices.length > 0) {
@@ -336,7 +352,7 @@ export default function VideoTranslate() {
       }
       if (currentId && isMounted) {
         try {
-          const res = await fetch(`http://localhost:8000/api/video-translate/status/${currentId}`);
+          const res = await fetch(`${API_BASE_URL}/api/video-translate/status/${currentId}`);
           if (res.ok) {
             const data: TranslationProgress = await res.json();
             if (isMounted) {
@@ -367,7 +383,7 @@ export default function VideoTranslate() {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://localhost:8000/api/video-translate/status/${taskId}`);
+        const res = await fetch(`${API_BASE_URL}/api/video-translate/status/${taskId}`);
         if (!res.ok) return;
 
         const data: TranslationProgress = await res.json();
@@ -456,6 +472,7 @@ export default function VideoTranslate() {
 
   // 6. Kích hoạt Pipeline Dịch & Lồng tiếng
   const handleStartTranslation = async () => {
+    requestNotificationPermission();
     if (!videoFile) {
       toast.error("Vui lòng tải video cần dịch lên trước.");
       return;
@@ -481,6 +498,7 @@ export default function VideoTranslate() {
     formData.append("voice_pitch", "+0Hz");
     formData.append("voice_volume", "1.0");
     formData.append("preserve_bgm", preserveBgm ? "true" : "false");
+    formData.append("bgm_type", bgmType);
     formData.append("bgm_volume", bgmVolume.toString());
     formData.append("subtitle_mode", subtitleMode);
     formData.append("max_speed_rate", maxSpeedRate.toString());
@@ -510,7 +528,7 @@ export default function VideoTranslate() {
 
       const uploadPromise = new Promise<{ task_id: string }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", "http://localhost:8000/api/video-translate/start");
+        xhr.open("POST", `${API_BASE_URL}/api/video-translate/start`);
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
@@ -566,7 +584,7 @@ export default function VideoTranslate() {
     if (!currentId) return;
     setIsOpeningEditor(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/open-editor/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/open-editor/${currentId}`, {
         method: "POST",
       });
       const data = await res.json();
@@ -580,7 +598,7 @@ export default function VideoTranslate() {
       toast.error(err.message || "Lỗi khi mở editor");
       // Dự phòng: Tự động tải nội dung SRT mở trên giao diện Web
       try {
-        const resWeb = await fetch(`http://localhost:8000/api/video-translate/subtitles-content/${currentId}`);
+        const resWeb = await fetch(`${API_BASE_URL}/api/video-translate/subtitles-content/${currentId}`);
         const dataWeb = await resWeb.json();
         if (resWeb.ok && dataWeb.content) {
           setSrtText(dataWeb.content);
@@ -602,7 +620,7 @@ export default function VideoTranslate() {
     taskStartTimeRef.current = Date.now();
     try {
       toast.info("Đang bắt đầu lồng tiếng và render lại video...");
-      const res = await fetch(`http://localhost:8000/api/video-translate/redub/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/redub/${currentId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -610,6 +628,7 @@ export default function VideoTranslate() {
           voice_id: selectedVoice,
           engine: selectedEngine,
           voice_rate: voiceRate,
+          bgm_type: bgmType,
           bgm_volume: bgmVolume,
           subtitle_mode: subtitleMode,
           max_speed_rate: maxSpeedRate,
@@ -631,6 +650,7 @@ export default function VideoTranslate() {
   // ── Chế độ Thủ công (Manual Workflow Handlers) ─────────────────────────────
   // 1. Khởi chạy tạo phụ đề Whisper thủ công
   const handleStartManualTranscribe = async () => {
+    requestNotificationPermission();
     if (!videoFile) {
       toast.error("Vui lòng chọn video cần tạo phụ đề trước.");
       return;
@@ -659,7 +679,7 @@ export default function VideoTranslate() {
 
     try {
       toast.info("🚀 Đang tải video lên và tạo phụ đề gốc bằng Faster-Whisper...", { duration: 4000 });
-      const res = await fetch("http://localhost:8000/api/video-translate/manual/start-transcribe", {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/manual/start-transcribe`, {
         method: "POST",
         body: formData,
       });
@@ -684,10 +704,48 @@ export default function VideoTranslate() {
     toast.success("✅ Đã khôi phục các thông số bóc tách về chuẩn tối ưu!");
   };
 
-  // 2. Sao chép nhanh toàn bộ phụ đề gốc vào Clipboard
+  // Khôi phục các tùy chỉnh phụ đề & âm thanh về mặc định tối ưu
+  const handleResetAudioSubtitleDefaults = () => {
+    setSubtitleMode("hard_target");
+    setOutputResolution("720p");
+    setBgmType("bgm");
+    setPreserveBgm(true);
+    setBgmVolume(0.30);
+    setVoiceRate("+0%");
+    setMaxSpeedRate(1.35);
+    toast.success("✅ Đã khôi phục tùy chỉnh phụ đề & âm thanh về chuẩn tối ưu!");
+  };
+
+  const [showPromptPreview, setShowPromptPreview] = useState(false);
+
+  const DEFAULT_TRANSLATION_PROMPT_TEMPLATE = `Tôi muốn dịch file phụ đề này. Hãy tuân thủ các quy tắc sau:
+1. Đọc và dịch nội dung bám sát kịch bản, lưu nhớ và nhất quán các danh từ riêng, thuật ngữ.
+2. Phân tích logic hội thoại và quan hệ nhân vật để xưng hô chuẩn xác theo cốt truyện.
+3. Kiểm tra mốc thời gian và ngữ pháp để gộp các câu thoại bị ngắt dở dang thành câu hoàn chỉnh trước khi dịch.
+4. Tối ưu độ dài câu (CPS) và chèn dấu ngắt nghỉ phù hợp để làm giọng đọc AI/thuyết minh.
+Đây là file/nội dung phụ đề:
+
+`;
+
+  const [customTranslationPrompt, setCustomTranslationPrompt] = useState<string>(() => {
+    return localStorage.getItem("tts_custom_translation_prompt") || DEFAULT_TRANSLATION_PROMPT_TEMPLATE;
+  });
+
+  const handleUpdateCustomPrompt = (val: string) => {
+    setCustomTranslationPrompt(val);
+    localStorage.setItem("tts_custom_translation_prompt", val);
+  };
+
+  const handleResetCustomPrompt = () => {
+    setCustomTranslationPrompt(DEFAULT_TRANSLATION_PROMPT_TEMPLATE);
+    localStorage.removeItem("tts_custom_translation_prompt");
+    toast.success("✅ Đã khôi phục Quy tắc Prompt AI về mặc định!");
+  };
+
+  // 2. Sao chép nhanh toàn bộ phụ đề gốc kèm Prompt AI vào Clipboard
   const [isCopyingOriginalSrt, setIsCopyingOriginalSrt] = useState(false);
 
-  const handleCopyOriginalSrt = async () => {
+  const handleCopyOriginalSrt = async (includePrompt: boolean = true) => {
     const currentId = taskStatus?.task_id || taskId;
     if (!currentId) {
       toast.error("Chưa có tác vụ bóc tách phụ đề nào.");
@@ -695,23 +753,32 @@ export default function VideoTranslate() {
     }
     setIsCopyingOriginalSrt(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/subtitles-original-content/${currentId}`);
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/subtitles-original-content/${currentId}`);
       const data = await res.json();
       if (!res.ok || !data.content) {
         throw new Error(data.detail || "Không thể lấy nội dung phụ đề gốc");
       }
-      await navigator.clipboard.writeText(data.content);
-      toast.success("📋 Đã sao chép toàn bộ phụ đề gốc vào Clipboard! Bạn có thể dán trực tiếp vào ChatGPT / Claude / DeepL để dịch.");
+      const rawText = data.content;
+      const promptToUse = customTranslationPrompt || DEFAULT_TRANSLATION_PROMPT_TEMPLATE;
+      const textToCopy = includePrompt ? `${promptToUse.trim()}\n\n${rawText}` : rawText;
+      await navigator.clipboard.writeText(textToCopy);
+      if (includePrompt) {
+        toast.success("📋 Đã sao chép Prompt yêu cầu & Phụ đề vào Clipboard! Bạn chỉ cần dán (Ctrl+V) vào ChatGPT / Claude / DeepL để dịch.");
+      } else {
+        toast.success("📋 Đã sao chép nội dung phụ đề SRT gốc vào Clipboard!");
+      }
     } catch (err: any) {
       // Fallback: thử tải trực tiếp từ URL file SRT gốc
       try {
-        const directUrl = `http://localhost:8000/outputs/video_translate/${currentId}/subtitles_original.srt`;
+        const directUrl = `${API_BASE_URL}/outputs/video_translate/${currentId}/subtitles_original.srt`;
         const resDirect = await fetch(directUrl);
         if (resDirect.ok) {
           const text = await resDirect.text();
           if (text && text.trim()) {
-            await navigator.clipboard.writeText(text);
-            toast.success("📋 Đã sao chép toàn bộ phụ đề gốc vào Clipboard!");
+            const promptToUse = customTranslationPrompt || DEFAULT_TRANSLATION_PROMPT_TEMPLATE;
+            const textToCopy = includePrompt ? `${promptToUse.trim()}\n\n${text}` : text;
+            await navigator.clipboard.writeText(textToCopy);
+            toast.success("📋 Đã sao chép toàn bộ Prompt & Phụ đề vào Clipboard!");
             return;
           }
         }
@@ -722,7 +789,37 @@ export default function VideoTranslate() {
     }
   };
 
-  // 2b. Tải file SRT gốc về máy
+  // 2b. Tải file TXT kèm Prompt dịch mẫu cho AI
+  const handleDownloadOriginalPromptTxt = async () => {
+    const currentId = taskStatus?.task_id || taskId;
+    if (!currentId) {
+      toast.error("Chưa có tác vụ nào.");
+      return;
+    }
+    try {
+      toast.info("Đang chuẩn bị file Prompt kèm Phụ đề...");
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/subtitles-original-content/${currentId}`);
+      const data = await res.json();
+      const rawText = (res.ok && data.content) ? data.content : "";
+      const promptToUse = customTranslationPrompt || DEFAULT_TRANSLATION_PROMPT_TEMPLATE;
+      const fullContent = `${promptToUse.trim()}\n\n${rawText}`;
+      
+      const blob = new Blob([fullContent], { type: "text/plain;charset=utf-8" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `subtitles_with_prompt_${currentId}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success("✅ Đã tải file Prompt AI (.TXT) thành công!");
+    } catch {
+      handleDownloadFile(currentId, "prompt_txt", `subtitles_with_prompt_${currentId}.txt`);
+    }
+  };
+
+  // 2c. Tải file SRT gốc về máy
   const handleDownloadOriginalSrt = () => {
     const currentId = taskStatus?.task_id || taskId;
     if (!currentId) {
@@ -750,7 +847,7 @@ export default function VideoTranslate() {
     formData.append("srt_file", file);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/manual/upload-translated-srt/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/manual/upload-translated-srt/${currentId}`, {
         method: "POST",
         body: formData,
       });
@@ -798,7 +895,7 @@ export default function VideoTranslate() {
     formData.append("srt_content", manualSrtText.trim());
 
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/manual/upload-translated-srt/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/manual/upload-translated-srt/${currentId}`, {
         method: "POST",
         body: formData,
       });
@@ -815,6 +912,7 @@ export default function VideoTranslate() {
 
   // 4. Tiếp tục quy trình: Lồng tiếng & Render Video
   const handleResumeManualPipeline = async () => {
+    requestNotificationPermission();
     const currentId = taskStatus?.task_id || taskId;
     if (!currentId) {
       toast.error("Chưa có tác vụ nào.");
@@ -832,6 +930,7 @@ export default function VideoTranslate() {
     formData.append("voice_pitch", "+0Hz");
     formData.append("voice_volume", "1.0");
     formData.append("preserve_bgm", preserveBgm ? "true" : "false");
+    formData.append("bgm_type", bgmType);
     formData.append("bgm_volume", bgmVolume.toString());
     formData.append("subtitle_mode", subtitleMode);
     formData.append("max_speed_rate", maxSpeedRate.toString());
@@ -845,7 +944,7 @@ export default function VideoTranslate() {
 
     try {
       toast.info("🎬 Đang tiến hành lồng tiếng và render video...", { duration: 4000 });
-      const res = await fetch(`http://localhost:8000/api/video-translate/manual/resume-pipeline/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/manual/resume-pipeline/${currentId}`, {
         method: "POST",
         body: formData,
       });
@@ -865,7 +964,7 @@ export default function VideoTranslate() {
       if (!currentId) return;
       setIsLoadingSrt(true);
       try {
-        const res = await fetch(`http://localhost:8000/api/video-translate/subtitles-content/${currentId}`);
+        const res = await fetch(`${API_BASE_URL}/api/video-translate/subtitles-content/${currentId}`);
         const data = await res.json();
         if (res.ok && data.content) {
           setSrtText(data.content);
@@ -889,7 +988,7 @@ export default function VideoTranslate() {
     if (!currentId) return;
     setIsSavingSrt(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/subtitles-content/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/subtitles-content/${currentId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: srtText }),
@@ -913,7 +1012,7 @@ export default function VideoTranslate() {
   const fetchStudioSegments = async (tId: string) => {
     setIsLoadingStudioSegments(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/studio-segments/${tId}`);
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/studio-segments/${tId}`);
       if (res.ok) {
         const data = await res.json();
         if (data.segments) {
@@ -936,7 +1035,7 @@ export default function VideoTranslate() {
 
   // Đồng bộ thời gian thực: Video chạy đến đâu, câu thoại tự sáng & cuộn trong khung nhìn
   const handleVideoTimeUpdate = () => {
-    if (!resultVideoRef.current || studioSegments.length === 0) return;
+    if (!resultVideoRef.current) return;
     const cur = resultVideoRef.current.currentTime;
 
     // Tự động dừng phát khi phát hết câu thoại đơn lẻ được chọn
@@ -948,22 +1047,30 @@ export default function VideoTranslate() {
       }
     }
 
-    const found = studioSegments.find((s) => s.start <= cur && cur <= s.end + 0.35);
-    if (found && found.id !== activeStudioSegmentId) {
-      setActiveStudioSegmentId(found.id);
-      const el = document.getElementById(`studio-seg-${found.id}`);
-      const container = transcriptContainerRef.current;
-      if (el && container) {
-        const elTop = el.offsetTop - container.offsetTop;
-        const containerScrollTop = container.scrollTop;
-        const containerHeight = container.clientHeight;
-        if (elTop < containerScrollTop || elTop + el.clientHeight > containerScrollTop + containerHeight) {
-          container.scrollTo({
-            top: Math.max(0, elTop - 40),
-            behavior: "smooth",
-          });
+    if (studioSegments.length === 0) return;
+
+    // Tìm câu thoại tương ứng với thời gian phát hiện tại
+    const found = studioSegments.find((s) => s.start <= cur && cur <= s.end + 0.15);
+    if (found) {
+      setCurrentLiveSubtitle(found.text);
+      if (found.id !== activeStudioSegmentId) {
+        setActiveStudioSegmentId(found.id);
+        const el = document.getElementById(`studio-seg-${found.id}`);
+        const container = transcriptContainerRef.current;
+        if (el && container) {
+          const elTop = el.offsetTop - container.offsetTop;
+          const containerScrollTop = container.scrollTop;
+          const containerHeight = container.clientHeight;
+          if (elTop < containerScrollTop || elTop + el.clientHeight > containerScrollTop + containerHeight) {
+            container.scrollTo({
+              top: Math.max(0, elTop - 40),
+              behavior: "smooth",
+            });
+          }
         }
       }
+    } else {
+      setCurrentLiveSubtitle("");
     }
   };
 
@@ -990,7 +1097,7 @@ export default function VideoTranslate() {
     const currentId = taskStatus?.task_id || taskId;
     if (!currentId) return;
     try {
-      await fetch(`http://localhost:8000/api/video-translate/studio-update-segment/${currentId}`, {
+      await fetch(`${API_BASE_URL}/api/video-translate/studio-update-segment/${currentId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1016,14 +1123,14 @@ export default function VideoTranslate() {
     handleSyncSegmentUpdate(seg.id, seg.text, newStart, seg.end);
   };
 
-  // Thuyết minh lại CỤC BỘ đúng 1 câu duy nhất (chỉ mất ~0.5s)
+  // Thuyết minh lại CỤC BỘ đúng 1 câu duy nhất (chỉ mất ~0.5s - 1s trên Colab GPU)
   const handleRedubSingleSegment = async (seg: StudioSegment) => {
     const currentId = taskStatus?.task_id || taskId;
     if (!currentId) return;
 
     setStudioSegmentRedubbing(seg.id, true);
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/studio-redub-segment/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/studio-redub-segment/${currentId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1041,6 +1148,7 @@ export default function VideoTranslate() {
       updateSingleStudioSegment(seg.id, {
         ...data.segment,
         text: seg.text,
+        audio_url: data.audio_url,
         isRedubbing: false,
       });
       toast.success(`🎙️ Đã thu lại câu #${seg.id} thành công!`);
@@ -1053,7 +1161,7 @@ export default function VideoTranslate() {
 
       // Tự động phát âm thanh vừa thu lại để người dùng nghe thử ngay lập tức
       if (data.audio_url) {
-        const fullAudioUrl = data.audio_url.startsWith("http") ? data.audio_url : `http://localhost:8000${data.audio_url}`;
+        const fullAudioUrl = data.audio_url.startsWith("http") ? data.audio_url : `${API_BASE_URL}${data.audio_url}`;
         const audio = new Audio(fullAudioUrl);
         setPlayingAudioSegId(seg.id);
         audio.onended = () => setPlayingAudioSegId(null);
@@ -1072,7 +1180,7 @@ export default function VideoTranslate() {
       toast.error("Chưa có file âm thanh cho câu này");
       return;
     }
-    const fullUrl = audioUrl.startsWith("http") ? audioUrl : `http://localhost:8000${audioUrl}`;
+    const fullUrl = audioUrl.startsWith("http") ? audioUrl : `${API_BASE_URL}${audioUrl}`;
     const audio = new Audio(fullUrl);
     setPlayingAudioSegId(segId);
     audio.onended = () => setPlayingAudioSegId(null);
@@ -1091,7 +1199,7 @@ export default function VideoTranslate() {
 
     setDeletingSegId(segId);
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/studio-delete-segment/${currentId}/${segId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/studio-delete-segment/${currentId}/${segId}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -1110,7 +1218,85 @@ export default function VideoTranslate() {
     }
   };
 
-  // Trộn lại audio & mux video siêu tốc (chỉ 2-5s)
+  // Chèn câu thoại mới vào bất kỳ vị trí nào trong Timeline Studio
+  const handleOpenAddSegment = (initialStart?: number, initialEnd?: number) => {
+    let startVal = 0;
+    if (initialStart !== undefined) {
+      startVal = Math.round(initialStart * 10) / 10;
+    } else if (resultVideoRef.current) {
+      startVal = Math.round(resultVideoRef.current.currentTime * 10) / 10;
+    }
+    const endVal = initialEnd !== undefined ? Math.round(initialEnd * 10) / 10 : Math.round((startVal + 2.5) * 10) / 10;
+    setNewSegStart(startVal);
+    setNewSegEnd(endVal);
+    setNewSegText("");
+    setNewSegOriginalText("");
+    setNewSegVoiceId(selectedVoice);
+    setNewSegEngine(selectedEngine);
+    setShowAddSegmentModal(true);
+  };
+
+  const handleSubmitAddSegment = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const currentId = taskStatus?.task_id || taskId;
+    if (!currentId) {
+      toast.error("Chưa có tác vụ nào đang hoạt động");
+      return;
+    }
+    if (!newSegText.trim()) {
+      toast.error("Vui lòng nhập nội dung câu thoại");
+      return;
+    }
+    if (newSegStart >= newSegEnd) {
+      toast.error("Thời gian bắt đầu phải nhỏ hơn thời gian kết thúc");
+      return;
+    }
+
+    setIsAddingSegment(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/studio-add-segment/${currentId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: newSegStart,
+          end: newSegEnd,
+          text: newSegText.trim(),
+          original_text: newSegOriginalText.trim() || undefined,
+          voice_id: newSegVoiceId || selectedVoice,
+          engine: newSegEngine || selectedEngine,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Không thể thêm câu thoại");
+      }
+      const data = await res.json();
+      if (data.segment) {
+        addStudioSegment(data.segment);
+        toast.success(`✅ Đã chèn câu thoại #${data.segment.id} và tạo giọng đọc thành công!`);
+        setShowAddSegmentModal(false);
+
+        // Tua video đến mốc vừa thêm để người dùng xem lại
+        if (resultVideoRef.current) {
+          resultVideoRef.current.currentTime = data.segment.start;
+        }
+        if (data.audio_url) {
+          const fullAudioUrl = data.audio_url.startsWith("http") ? data.audio_url : `${API_BASE_URL}${data.audio_url}`;
+          const audio = new Audio(fullAudioUrl);
+          setPlayingAudioSegId(data.segment.id);
+          audio.onended = () => setPlayingAudioSegId(null);
+          audio.onerror = () => setPlayingAudioSegId(null);
+          audio.play().catch(() => setPlayingAudioSegId(null));
+        }
+      }
+    } catch (err: any) {
+      toast.error("Lỗi khi chèn câu: " + err.message);
+    } finally {
+      setIsAddingSegment(false);
+    }
+  };
+
+  // Trộn lại audio & xuất bản video MP4 hoàn chỉnh (chỉ 2-5s)
   const handleQuickRemux = async () => {
     const currentId = taskStatus?.task_id || taskId;
     if (!currentId) return;
@@ -1118,12 +1304,13 @@ export default function VideoTranslate() {
     setIsRemuxingStudioVideo(true);
     setStudioRemuxMessage(null);
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/studio-quick-remux/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/studio-quick-remux/${currentId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subtitle_mode: subtitleMode,
           preserve_bgm: preserveBgm,
+          bgm_type: bgmType,
           bgm_volume: bgmVolume,
           voice_volume: 1.0,
           max_speed_rate: maxSpeedRate,
@@ -1140,7 +1327,7 @@ export default function VideoTranslate() {
 
       // Tải lại video thành phẩm trên trình duyệt với cache-buster
       if (resultVideoRef.current && data.video_url) {
-        resultVideoRef.current.src = `http://localhost:8000${data.video_url}?t=${Date.now()}`;
+        resultVideoRef.current.src = `${API_BASE_URL}${data.video_url}?t=${Date.now()}`;
         resultVideoRef.current.load();
         resultVideoRef.current.play().catch(() => {});
       }
@@ -1153,16 +1340,62 @@ export default function VideoTranslate() {
 
 
   // 6. Xử lý tải video/phụ đề trực tiếp và mượt mà bằng trình duyệt (Không tốn RAM)
-  const handleDownloadFile = (id: string, fileType: "video" | "srt" | "srt_original" | "vocals" | "bgm" | "audio", defaultFilename: string) => {
-    const typeLabel = fileType === "video" ? "video MP4" : fileType === "srt_original" ? "phụ đề thoại gốc (.SRT)" : fileType === "vocals" ? "âm thanh giọng nói sạch (Vocals)" : fileType === "bgm" ? "nhạc nền không lời (BGM)" : fileType === "audio" ? "âm thanh lồng tiếng" : "phụ đề dịch (.SRT)";
+  const handleDownloadFile = async (
+    id: string,
+    fileType: "video" | "srt" | "srt_original" | "prompt_txt" | "vocals" | "bgm" | "audio",
+    defaultFilename?: string
+  ) => {
+    const rawStem = (videoFile?.name || (taskStatus as any)?.video_filename || "Video").replace(/\.[^/.]+$/, "");
+    const videoTargetName = `${rawStem} Translate buy KhaTran.mp4`;
+    const finalFilename = fileType === "video" ? (defaultFilename || videoTargetName) : (defaultFilename || (fileType === "srt_original" ? `${rawStem}_original.srt` : `${rawStem}.srt`));
+    const typeLabel = fileType === "video" ? "video MP4" : fileType === "srt_original" ? "phụ đề thoại gốc (.SRT)" : fileType === "prompt_txt" ? "file phụ đề kèm Prompt AI (.TXT)" : fileType === "vocals" ? "âm thanh giọng nói sạch (Vocals)" : fileType === "bgm" ? "nhạc nền không lời (BGM)" : fileType === "audio" ? "âm thanh lồng tiếng" : "phụ đề dịch (.SRT)";
+    
     toast.info(`Bắt đầu tải ${typeLabel}...`);
-    const downloadUrl = `http://localhost:8000/api/video-translate/download/${id}?file_type=${fileType}`;
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.setAttribute("download", defaultFilename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const downloadUrl = `${API_BASE_URL}/api/video-translate/download/${id}?file_type=${fileType}`;
+
+    try {
+      const res = await fetch(downloadUrl);
+      if (!res.ok) {
+        const videoDirectPath = taskStatus?.video_url || (taskStatus as any)?.result_video_url;
+        if (fileType === "video" && videoDirectPath) {
+          const directUrl = videoDirectPath.startsWith("http") ? videoDirectPath : `${API_BASE_URL}${videoDirectPath}`;
+          const resDirect = await fetch(directUrl);
+          if (resDirect.ok) {
+            const blob = await resDirect.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = finalFilename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            toast.success(`✅ Đã tải ${typeLabel} thành công!`);
+            return;
+          }
+        }
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Không thể tải file (Mã HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = finalFilename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success(`✅ Đã tải ${typeLabel} thành công!`);
+    } catch (err: any) {
+      console.warn("Direct blob download fallback to standard link:", err);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.setAttribute("download", finalFilename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   // 7. Xử lý dọn dẹp rác & giải phóng bộ nhớ đệm
@@ -1174,7 +1407,7 @@ export default function VideoTranslate() {
     setIsCleaning(true);
     try {
       toast.info("Đang quét và dọn dẹp các tệp tạm...");
-      const res = await fetch("http://localhost:8000/api/video-translate/cleanup-cache", {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/cleanup-cache`, {
         method: "POST",
       });
       if (!res.ok) throw new Error("Không thể dọn dẹp bộ nhớ đệm");
@@ -1193,7 +1426,7 @@ export default function VideoTranslate() {
     if (!currentId) return;
     setIsOpeningFolder(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/video-translate/open-folder/${currentId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/video-translate/open-folder/${currentId}`, {
         method: "POST",
       });
       const data = await res.json();
@@ -1271,7 +1504,37 @@ export default function VideoTranslate() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Upload & Config (7 cols - ẩn khi mở chế độ rạp chiếu) */}
         <div className={cn(isExpandedPlayer ? "hidden" : "lg:col-span-7", "space-y-6 transition-all duration-300")}>
-          {/* Card 1: Chọn Video */}
+          {/* Tab Switcher: Chế độ Dịch Thủ Công vs Chế độ Dịch Tự Động (Đưa lên trên cùng) */}
+          <div className="flex items-center p-1.5 bg-surface-variant/40 border border-white/10 rounded-2xl gap-1.5 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setTranslationMode("manual")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer",
+                translationMode === "manual"
+                  ? "bg-primary text-black shadow-lg shadow-primary/20"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              )}
+            >
+              <FileText className="w-4 h-4" />
+              <span>✍️ Dịch Thủ Công (Tạo Phụ Đề & Nạp SRT)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTranslationMode("auto")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer",
+                translationMode === "auto"
+                  ? "bg-primary text-black shadow-lg shadow-primary/20"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              )}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>⚡ Dịch Tự Động (Full AI)</span>
+            </button>
+          </div>
+
+          {/* Card 1: Chọn Video Cần Dịch */}
           <div className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
@@ -1476,36 +1739,6 @@ export default function VideoTranslate() {
                 )}
               </div>
             )}
-          </div>
-
-          {/* Tab Switcher: Chế độ Dịch Thủ Công vs Chế độ Dịch Tự Động */}
-          <div className="flex items-center p-1.5 bg-surface-variant/40 border border-white/10 rounded-2xl gap-1.5">
-            <button
-              type="button"
-              onClick={() => setTranslationMode("manual")}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer",
-                translationMode === "manual"
-                  ? "bg-primary text-black shadow-lg shadow-primary/20"
-                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-              )}
-            >
-              <FileText className="w-4 h-4" />
-              <span>✍️ Dịch Thủ Công (Tạo Phụ Đề & Nạp SRT)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTranslationMode("auto")}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer",
-                translationMode === "auto"
-                  ? "bg-primary text-black shadow-lg shadow-primary/20"
-                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-              )}
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>⚡ Dịch Tự Động (Full AI)</span>
-            </button>
           </div>
 
           {translationMode === "auto" ? (
@@ -1846,22 +2079,33 @@ export default function VideoTranslate() {
               </select>
             </div>
 
-            {/* Tùy chọn nâng cao: Accordion */}
-            <div className="pt-2 border-t border-white/10">
+            {/* Tùy chỉnh Phụ Đề & Âm Thanh Nền Nâng Cao (Accordion đồng nhất) */}
+            <div className="border border-white/10 rounded-2xl overflow-hidden bg-surface-variant/20 transition-all">
               <button
                 type="button"
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center gap-2 text-xs text-on-surface-variant hover:text-on-surface transition-colors font-medium py-1"
+                className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-semibold text-cyan-300 hover:bg-white/5 transition-colors cursor-pointer"
               >
-                <Settings2 className="w-3.5 h-3.5" />
-                {showAdvanced ? "Thu gọn tùy chọn phụ đề & nhạc nền" : "Mở rộng tùy chọn phụ đề & nhạc nền"}
+                <span className="flex items-center gap-2">
+                  <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
+                  ⚙️ Tùy Chỉnh Phụ Đề & Âm Thanh Nền (BGM / Âm Thanh Gốc / Tốc Độ)
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+                  {showAdvanced ? "Thu nhỏ" : "Mở rộng"}
+                  {showAdvanced ? (
+                    <ChevronUp className="w-4 h-4 text-cyan-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-cyan-400" />
+                  )}
+                </span>
               </button>
 
               {showAdvanced && (
-                <div className="mt-3.5 space-y-4 bg-surface-variant/20 p-4 rounded-2xl border border-white/5 animate-fadeIn">
+                <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
                   {/* Chế độ phụ đề */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-on-surface-variant block">
+                    <label className="font-medium text-on-surface flex items-center gap-1.5">
+                      <Subtitles className="w-3.5 h-3.5 text-primary" />
                       Kiểu gắn phụ đề (Subtitles):
                     </label>
                     <div className="grid grid-cols-3 gap-2">
@@ -1875,7 +2119,7 @@ export default function VideoTranslate() {
                           type="button"
                           onClick={() => setSubtitleMode(sub.id)}
                           className={cn(
-                            "py-2 px-3 rounded-xl text-xs font-medium border transition-all text-center",
+                            "py-2 px-3 rounded-xl text-xs font-medium border transition-all text-center cursor-pointer",
                             subtitleMode === sub.id
                               ? "bg-primary text-black border-primary font-semibold shadow-md"
                               : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
@@ -1889,8 +2133,8 @@ export default function VideoTranslate() {
 
                   {/* Chuẩn Video Đầu Ra (Resolution) */}
                   <div className="space-y-1.5 pt-2 border-t border-white/5">
-                    <label className="text-xs font-medium text-on-surface-variant flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-on-surface">
+                    <label className="font-medium text-on-surface flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
                         <Film className="w-3.5 h-3.5 text-primary" />
                         Độ phân giải video đầu ra:
                       </span>
@@ -1925,49 +2169,69 @@ export default function VideoTranslate() {
                     </div>
                   </div>
 
-                  {/* Giữ âm thanh gốc chuẩn Thuyết minh phim */}
-                  <div className="flex items-center justify-between pt-2">
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-medium text-on-surface flex items-center gap-1.5">
+                  {/* Tùy chọn Âm thanh nền & Thuyết minh */}
+                  <div className="space-y-2 pt-2 border-t border-white/5">
+                    <label className="font-medium text-on-surface flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
                         <Music className="w-3.5 h-3.5 text-secondary" />
-                        Giữ âm thanh gốc chuẩn Thuyết minh phim (Voice-over)
-                      </p>
-                      <p className="text-[11px] text-on-surface-variant">
-                        Giữ lại toàn bộ nhạc nền & âm thanh gốc, giảm nhỏ âm lượng để giọng AI lồng tiếng vang rõ
-                      </p>
+                        Âm thanh nền lồng ghép (BGM / Âm thanh gốc):
+                      </span>
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: "bgm", label: "🎵 Nhạc nền tách (BGM)", desc: "Tách vocal, giữ giai điệu" },
+                        { id: "original", label: "🎙️ Âm thanh gốc (Voice-over)", desc: "Giữ toàn bộ âm gốc nhỏ phía dưới" },
+                        { id: "none", label: "🔇 Không dùng nền", desc: "Tắt nền, chỉ giữ giọng AI" },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setBgmType(item.id as "bgm" | "original" | "none");
+                            setPreserveBgm(item.id !== "none");
+                          }}
+                          className={cn(
+                            "py-2 px-2 rounded-xl text-xs font-medium border transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer",
+                            (bgmType === item.id || (!preserveBgm && item.id === "none"))
+                              ? "bg-secondary/20 border-secondary text-secondary font-bold shadow-md scale-[1.01]"
+                              : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
+                          )}
+                        >
+                          <span className="font-semibold text-[11px] leading-tight">{item.label}</span>
+                          <span className="text-[9px] text-on-surface-variant/70 leading-none">
+                            {item.desc}
+                          </span>
+                        </button>
+                      ))}
                     </div>
-                    <input
-                      type="checkbox"
-                      checked={preserveBgm}
-                      onChange={(e) => setPreserveBgm(e.target.checked)}
-                      className="w-5 h-5 accent-primary cursor-pointer rounded"
-                    />
+
+                    {bgmType !== "none" && preserveBgm && (
+                      <div className="space-y-1.5 pl-3 border-l-2 border-secondary/40 pt-1">
+                        <div className="flex justify-between text-xs text-on-surface-variant">
+                          <span>Âm lượng {bgmType === "original" ? "âm thanh gốc" : "nhạc nền"}:</span>
+                          <span className="font-semibold text-secondary font-mono">{Math.round(bgmVolume * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.0"
+                          max="1.0"
+                          step="0.01"
+                          value={bgmVolume}
+                          onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                          className="w-full accent-secondary cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-on-surface-variant/70">
+                          <span>0% (Tắt)</span>
+                          <span className="text-secondary font-semibold">Mặc định: 30%</span>
+                          <span>100% (Tối đa)</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {preserveBgm && (
-                    <div className="space-y-1 pl-4 border-l-2 border-primary/40">
-                      <div className="flex justify-between text-xs text-on-surface-variant">
-                        <span>Âm lượng âm thanh gốc (Thuyết minh):</span>
-                        <span className="font-semibold text-primary">{Math.round(bgmVolume * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.05"
-                        max="0.7"
-                        step="0.05"
-                        value={bgmVolume}
-                        onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
-                        className="w-full accent-primary cursor-pointer"
-                      />
-                      <p className="text-[10px] text-on-surface-variant/70">
-                        Khuyến nghị: 20% - 30% cho phim tài liệu, video hướng dẫn kỹ thuật.
-                      </p>
-                    </div>
-                  )}
-
                   {/* Tốc độ đọc cơ bản */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-on-surface-variant block">
+                  <div className="space-y-1 pt-2 border-t border-white/5">
+                    <label className="font-medium text-on-surface block">
                       Tốc độ đọc giọng:
                     </label>
                     <select
@@ -1984,10 +2248,10 @@ export default function VideoTranslate() {
                   </div>
 
                   {/* Tốc độ co giãn tối đa (SpeedRate) */}
-                  <div className="space-y-1">
+                  <div className="space-y-1 pt-2 border-t border-white/5">
                     <div className="flex justify-between text-xs text-on-surface-variant">
-                      <span>Tốc độ đọc tăng tối đa (SpeedRate):</span>
-                      <span className="font-mono text-primary">{maxSpeedRate}x</span>
+                      <span className="font-medium text-on-surface">Tốc độ đọc tăng tối đa (SpeedRate):</span>
+                      <span className="font-mono text-primary font-bold">{maxSpeedRate}x</span>
                     </div>
                     <input
                       type="range"
@@ -2001,6 +2265,21 @@ export default function VideoTranslate() {
                     <p className="text-[10px] text-on-surface-variant/70">
                       Tự động tăng tốc câu lồng tiếng nếu câu dịch dài hơn thời lượng cảnh quay video gốc.
                     </p>
+                  </div>
+
+                  {/* 🔄 Nút Phục Hồi Mặc Định */}
+                  <div className="pt-3 border-t border-white/10 flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-[11px] text-on-surface-variant/70">
+                      💡 Chuẩn khuyến nghị: <code>Phụ đề dịch</code>, <code>720p</code>, <code>BGM 30%</code>, <code>Tốc độ +0%</code>.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleResetAudioSubtitleDefaults}
+                      className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-sm"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Phục hồi mặc định
+                    </button>
                   </div>
                 </div>
               )}
@@ -2293,56 +2572,112 @@ export default function VideoTranslate() {
                 </div>
 
                 <p className="text-xs text-on-surface-variant">
-                  Sau khi bóc tách xong, bạn có thể <strong>Sao chép nhanh toàn bộ phụ đề</strong> để dán trực tiếp vào AI (ChatGPT / Claude / DeepL) hoặc tải file <code className="text-primary font-mono font-semibold">.srt</code> về máy để biên dịch.
+                  Sau khi bóc tách xong, bạn có thể <strong>Sao chép phụ đề đã ghép sẵn Prompt mẫu</strong> để dán trực tiếp vào AI (ChatGPT / Claude / DeepL) hoặc tải file <code className="text-primary font-mono font-semibold">.txt / .srt</code> về máy để biên dịch.
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Nút Sao Chép Toàn Bộ (Quick Copy) */}
+                {/* Accordion: Tùy chỉnh Quy tắc AI khi dịch (Prompt AI) */}
+                <div className="border border-white/10 rounded-2xl overflow-hidden bg-surface-variant/20 transition-all">
                   <button
                     type="button"
-                    onClick={handleCopyOriginalSrt}
+                    onClick={() => setShowPromptPreview(!showPromptPreview)}
+                    className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-semibold text-cyan-300 hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                      ⚙️ Quy tắc AI khi dịch (Tùy chỉnh Prompt cho ChatGPT / Claude / DeepL)
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+                      {showPromptPreview ? "Thu nhỏ" : "Mở rộng để sửa"}
+                      {showPromptPreview ? (
+                        <ChevronUp className="w-4 h-4 text-cyan-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-cyan-400" />
+                      )}
+                    </span>
+                  </button>
+
+                  {showPromptPreview && (
+                    <div className="p-3.5 border-t border-white/10 bg-black/30 space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-on-surface-variant font-medium">
+                          💡 Bạn có thể dán hoặc chỉnh sửa quy tắc dịch thuật theo ý muốn (hệ thống sẽ tự ghi nhớ):
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleResetCustomPrompt}
+                          className="px-2 py-0.5 rounded-lg bg-surface-variant/60 hover:bg-surface-variant text-[10px] text-on-surface-variant hover:text-on-surface border border-white/10 cursor-pointer"
+                          title="Khôi phục về prompt chuẩn ban đầu"
+                        >
+                          Khôi phục mặc định
+                        </button>
+                      </div>
+                      <textarea
+                        value={customTranslationPrompt}
+                        onChange={(e) => handleUpdateCustomPrompt(e.target.value)}
+                        rows={6}
+                        className="w-full text-xs font-mono bg-surface/80 border border-white/10 rounded-xl p-3 text-on-surface focus:outline-none focus:border-cyan-400 resize-y leading-relaxed"
+                        placeholder="Nhập hoặc dán các quy tắc yêu cầu AI dịch vào đây..."
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Nút 1: Sao Chép Kèm Prompt AI */}
+                  <button
+                    type="button"
+                    onClick={() => handleCopyOriginalSrt(true)}
                     disabled={!isOriginalSrtReady || isTranscribingOriginal || isCopyingOriginalSrt}
                     className={cn(
-                      "py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg",
+                      "py-3 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
                       isOriginalSrtReady && !isTranscribingOriginal
-                        ? "bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-cyan-500/20 active:scale-95"
-                        : "bg-white/5 text-on-surface-variant/50 border border-white/5 cursor-not-allowed opacity-50"
+                        ? "bg-surface-variant/60 hover:bg-surface-variant text-on-surface border-white/10 hover:border-white/20 active:scale-95 shadow-sm hover:text-primary"
+                        : "bg-white/5 text-on-surface-variant/50 border-white/5 cursor-not-allowed opacity-50"
                     )}
-                    title={
-                      isOriginalSrtReady
-                        ? "Sao chép toàn bộ nội dung phụ đề gốc vào Clipboard để dán nhanh vào ChatGPT/Claude"
-                        : "Vui lòng tạo phụ đề ở Bước 1 trước"
-                    }
+                    title="Sao chép toàn bộ Prompt và Phụ đề vào Clipboard để dán trực tiếp vào ChatGPT / Claude / DeepL"
                   >
                     {isCopyingOriginalSrt ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Đang sao chép...
+                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                        <span>Đang sao chép...</span>
                       </>
                     ) : (
                       <>
-                        <Copy className="w-4 h-4" />
-                        📋 Sao Chép Nhanh Phụ Đề
+                        <Sparkles className="w-4 h-4 text-primary" />
+                        <span>📋 Sao Chép Kèm Prompt AI</span>
                       </>
                     )}
                   </button>
 
-                  {/* Nút Tải File SRT */}
+                  {/* Nút 2: Tải File TXT Kèm Prompt */}
+                  <button
+                    type="button"
+                    onClick={handleDownloadOriginalPromptTxt}
+                    disabled={!isOriginalSrtReady || isTranscribingOriginal}
+                    className={cn(
+                      "py-3 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
+                      isOriginalSrtReady && !isTranscribingOriginal
+                        ? "bg-surface-variant/60 hover:bg-surface-variant text-on-surface border-white/10 hover:border-white/20 active:scale-95 shadow-sm hover:text-cyan-300"
+                        : "bg-white/5 text-on-surface-variant/50 border-white/5 cursor-not-allowed opacity-50"
+                    )}
+                    title="Tải file văn bản .txt đã ghép sẵn Prompt yêu cầu dịch và nội dung phụ đề"
+                  >
+                    <FileText className="w-4 h-4 text-cyan-400" />
+                    <span>📄 Tải File Kèm Prompt (.TXT)</span>
+                  </button>
+
+                  {/* Nút 3: Tải File SRT Gốc Thuần */}
                   <button
                     type="button"
                     onClick={handleDownloadOriginalSrt}
                     disabled={!isOriginalSrtReady || isTranscribingOriginal}
                     className={cn(
-                      "py-3 px-4 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer border",
+                      "py-3 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
                       isOriginalSrtReady && !isTranscribingOriginal
-                        ? "bg-surface-variant/60 hover:bg-surface-variant text-on-surface border-white/10 hover:border-white/20 active:scale-95"
+                        ? "bg-surface-variant/60 hover:bg-surface-variant text-on-surface border-white/10 hover:border-white/20 active:scale-95 shadow-sm hover:text-secondary"
                         : "bg-white/5 text-on-surface-variant/50 border-white/5 cursor-not-allowed opacity-50"
                     )}
-                    title={
-                      isOriginalSrtReady
-                        ? "Tải file phụ đề câu thoại gốc .srt về máy tính"
-                        : "Vui lòng tạo phụ đề ở Bước 1 trước"
-                    }
+                    title="Tải file phụ đề câu thoại gốc .srt về máy tính"
                   >
                     <Download className="w-4 h-4 text-secondary" />
                     <span>📥 Tải File .SRT Gốc</span>
@@ -2351,7 +2686,7 @@ export default function VideoTranslate() {
 
                 {/* 🎧 Trình nghe thử Vocals (Giọng nói sạch) & Nhạc nền BGM tách bởi Demucs AI */}
                 {isOriginalSrtReady && !isTranscribingOriginal && (
-                  <div className="p-4 rounded-2xl bg-black/30 border border-white/10 space-y-3 mt-3">
+                  <div className="p-4 rounded-2xl bg-[#0b0e14] border border-white/10 space-y-3 mt-3">
                     <div className="flex items-center justify-between text-xs font-semibold text-on-surface">
                       <span className="flex items-center gap-1.5 text-cyan-400">
                         <Volume2 className="w-4 h-4" />
@@ -2364,7 +2699,7 @@ export default function VideoTranslate() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                       {/* Vocals Player */}
-                      <div className="bg-surface/50 border border-white/5 rounded-xl p-3 space-y-2">
+                      <div className="bg-surface/30 border border-white/5 rounded-xl p-3 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-medium text-cyan-300 flex items-center gap-1">
                             🎙️ Giọng nói sạch (Vocals)
@@ -2379,13 +2714,13 @@ export default function VideoTranslate() {
                         </div>
                         <audio
                           controls
-                          className="w-full h-8 accent-cyan-400"
+                          className="w-full h-8 rounded-lg [filter:invert(0.9)_hue-rotate(180deg)] opacity-90 hover:opacity-100 transition-opacity"
                           src={`http://localhost:8000/api/video-translate/audio-asset/${taskStatus?.task_id || taskId}/vocals`}
                         />
                       </div>
 
                       {/* BGM Player */}
-                      <div className="bg-surface/50 border border-white/5 rounded-xl p-3 space-y-2">
+                      <div className="bg-surface/30 border border-white/5 rounded-xl p-3 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-medium text-amber-300 flex items-center gap-1">
                             🎵 Nhạc nền & SFX (BGM)
@@ -2400,7 +2735,7 @@ export default function VideoTranslate() {
                         </div>
                         <audio
                           controls
-                          className="w-full h-8 accent-amber-400"
+                          className="w-full h-8 rounded-lg [filter:invert(0.9)_hue-rotate(180deg)] opacity-90 hover:opacity-100 transition-opacity"
                           src={`http://localhost:8000/api/video-translate/audio-asset/${taskStatus?.task_id || taskId}/bgm`}
                         />
                       </div>
@@ -2438,26 +2773,26 @@ export default function VideoTranslate() {
                     type="button"
                     onClick={() => setManualSrtMode("file")}
                     className={cn(
-                      "flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                      "flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
                       manualSrtMode === "file"
-                        ? "bg-primary text-on-primary shadow-sm"
-                        : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+                        ? "bg-surface-variant/90 text-primary border-primary/40 shadow-sm"
+                        : "bg-transparent text-on-surface-variant hover:text-on-surface border-transparent hover:bg-white/5"
                     )}
                   >
-                    <Upload className="w-3.5 h-3.5" />
+                    <Upload className="w-3.5 h-3.5 text-primary" />
                     <span>📁 Tải file .SRT</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setManualSrtMode("text")}
                     className={cn(
-                      "flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                      "flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
                       manualSrtMode === "text"
-                        ? "bg-primary text-on-primary shadow-sm"
-                        : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+                        ? "bg-surface-variant/90 text-primary border-primary/40 shadow-sm"
+                        : "bg-transparent text-on-surface-variant hover:text-on-surface border-transparent hover:bg-white/5"
                     )}
                   >
-                    <Clipboard className="w-3.5 h-3.5" />
+                    <Clipboard className="w-3.5 h-3.5 text-primary" />
                     <span>📋 Dán văn bản (Copy/Paste)</span>
                   </button>
                 </div>
@@ -2486,7 +2821,7 @@ export default function VideoTranslate() {
                         "border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all group",
                         isTranscribingOriginal
                           ? "border-white/10 bg-surface-variant/10 opacity-50 cursor-not-allowed"
-                          : "border-white/20 hover:border-primary/50 cursor-pointer bg-surface-variant/20 hover:bg-surface-variant/40"
+                          : "border-white/15 hover:border-primary/50 cursor-pointer bg-surface-variant/40 hover:bg-surface-variant/60 shadow-sm"
                       )}
                     >
                       {isUploadingManualSrt ? (
@@ -2641,22 +2976,33 @@ export default function VideoTranslate() {
                   </select>
                 </div>
 
-                {/* Tùy chọn nâng cao: Accordion */}
-                <div className="pt-2 border-t border-white/10">
+                {/* Tùy chỉnh Phụ Đề & Âm Thanh Nền Nâng Cao (Accordion đồng nhất) */}
+                <div className="border border-white/10 rounded-2xl overflow-hidden bg-surface-variant/20 transition-all">
                   <button
                     type="button"
                     onClick={() => setShowAdvanced(!showAdvanced)}
-                    className="flex items-center gap-2 text-xs text-on-surface-variant hover:text-on-surface transition-colors font-medium py-1"
+                    className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-semibold text-cyan-300 hover:bg-white/5 transition-colors cursor-pointer"
                   >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    {showAdvanced ? "Thu gọn tùy chọn phụ đề & nhạc nền" : "Mở rộng tùy chọn phụ đề & nhạc nền"}
+                    <span className="flex items-center gap-2">
+                      <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
+                      ⚙️ Tùy Chỉnh Phụ Đề & Âm Thanh Nền (BGM / Âm Thanh Gốc / Tốc Độ)
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+                      {showAdvanced ? "Thu nhỏ" : "Mở rộng"}
+                      {showAdvanced ? (
+                        <ChevronUp className="w-4 h-4 text-cyan-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-cyan-400" />
+                      )}
+                    </span>
                   </button>
 
                   {showAdvanced && (
-                    <div className="mt-3.5 space-y-4 bg-surface-variant/20 p-4 rounded-2xl border border-white/5 animate-fadeIn">
+                    <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
                       {/* Chế độ phụ đề */}
                       <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-on-surface-variant block">
+                        <label className="font-medium text-on-surface flex items-center gap-1.5">
+                          <Subtitles className="w-3.5 h-3.5 text-primary" />
                           Kiểu gắn phụ đề (Subtitles):
                         </label>
                         <div className="grid grid-cols-3 gap-2">
@@ -2672,7 +3018,7 @@ export default function VideoTranslate() {
                               className={cn(
                                 "py-2 px-3 rounded-xl text-xs font-medium border transition-all cursor-pointer text-center",
                                 subtitleMode === sub.id
-                                  ? "bg-primary/20 border-primary text-primary"
+                                  ? "bg-primary text-black border-primary font-semibold shadow-md"
                                   : "bg-surface-variant/40 border-white/5 text-on-surface-variant hover:border-white/20"
                               )}
                             >
@@ -2682,45 +3028,105 @@ export default function VideoTranslate() {
                         </div>
                       </div>
 
-                      {/* Âm lượng nhạc nền BGM */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-medium text-on-surface-variant flex items-center gap-2">
-                            <Music className="w-3.5 h-3.5 text-secondary" />
-                            <span>Âm lượng Nhạc nền (BGM):</span>
-                          </label>
-                          <span className="text-xs font-mono text-secondary">
-                            {preserveBgm ? `${Math.round(bgmVolume * 100)}%` : "Tắt nhạc nền"}
+                      {/* Chuẩn Video Đầu Ra (Resolution) */}
+                      <div className="space-y-1.5 pt-2 border-t border-white/5">
+                        <label className="font-medium text-on-surface flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <Film className="w-3.5 h-3.5 text-primary" />
+                            Độ phân giải video đầu ra:
                           </span>
+                          <span className="text-[10px] text-primary font-mono uppercase font-bold">
+                            {outputResolution === "original" ? "Gốc" : outputResolution}
+                          </span>
+                        </label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { id: "720p", label: "720p (HD)", desc: "Mặc định • Chuẩn" },
+                            { id: "1080p", label: "1080p", desc: "Full HD nét" },
+                            { id: "480p", label: "480p", desc: "Siêu nhẹ" },
+                            { id: "original", label: "Gốc", desc: "Giữ nguyên" },
+                          ].map((res) => (
+                            <button
+                              key={res.id}
+                              type="button"
+                              onClick={() => setOutputResolution(res.id)}
+                              className={cn(
+                                "py-2 px-1.5 rounded-xl text-xs font-medium border transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer",
+                                outputResolution === res.id
+                                  ? "bg-primary text-black border-primary font-bold shadow-md scale-[1.02]"
+                                  : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
+                              )}
+                            >
+                              <span className="font-semibold text-[11px] leading-tight">{res.label}</span>
+                              <span className={cn("text-[9px] leading-none", outputResolution === res.id ? "text-black/80 font-medium" : "text-on-surface-variant/60")}>
+                                {res.desc}
+                              </span>
+                            </button>
+                          ))}
                         </div>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            id="manual-preserve-bgm"
-                            checked={preserveBgm}
-                            onChange={(e) => setPreserveBgm(e.target.checked)}
-                            className="rounded accent-primary cursor-pointer w-4 h-4"
-                          />
-                          <label htmlFor="manual-preserve-bgm" className="text-xs text-on-surface cursor-pointer select-none">
-                            Tự động tách và giữ lại nhạc nền gốc (BGM)
-                          </label>
+                      </div>
+
+                      {/* Âm lượng nhạc nền BGM & Âm thanh gốc */}
+                      <div className="space-y-2 pt-2 border-t border-white/5">
+                        <label className="font-medium text-on-surface flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <Music className="w-3.5 h-3.5 text-secondary" />
+                            Kiểu âm thanh nền ghép cùng thuyết minh:
+                          </span>
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { id: "bgm", label: "🎵 Nhạc nền tách (BGM)", desc: "Đã tách bỏ vocal" },
+                            { id: "original", label: "🎙️ Âm thanh gốc", desc: "Thuyết minh đè lên gốc" },
+                            { id: "none", label: "🔇 Tắt nền", desc: "Chỉ lấy giọng đọc AI" },
+                          ].map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setBgmType(item.id as "bgm" | "original" | "none");
+                                setPreserveBgm(item.id !== "none");
+                              }}
+                              className={cn(
+                                "py-2 px-2 rounded-xl text-xs font-medium border transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer",
+                                (bgmType === item.id || (!preserveBgm && item.id === "none"))
+                                  ? "bg-secondary/20 border-secondary text-secondary font-bold shadow-md"
+                                  : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
+                              )}
+                            >
+                              <span className="font-semibold text-[11px] leading-tight">{item.label}</span>
+                              <span className="text-[9px] text-on-surface-variant/70 leading-none">{item.desc}</span>
+                            </button>
+                          ))}
                         </div>
-                        {preserveBgm && (
-                          <input
-                            type="range"
-                            min="0.0"
-                            max="1.0"
-                            step="0.05"
-                            value={bgmVolume}
-                            onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
-                            className="w-full accent-secondary cursor-pointer mt-1.5"
-                          />
+
+                        {bgmType !== "none" && preserveBgm && (
+                          <div className="space-y-1.5 pl-3 border-l-2 border-secondary/40 pt-1">
+                            <div className="flex justify-between text-xs text-on-surface-variant">
+                              <span>Âm lượng {bgmType === "original" ? "âm thanh gốc" : "nhạc nền"}:</span>
+                              <span className="font-semibold text-secondary font-mono">{Math.round(bgmVolume * 100)}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.0"
+                              max="1.0"
+                              step="0.01"
+                              value={bgmVolume}
+                              onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                              className="w-full accent-secondary cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-on-surface-variant/70">
+                              <span>0%</span>
+                              <span className="text-secondary font-semibold">Mặc định: 30%</span>
+                              <span>100% (Cho video âm thanh nhỏ)</span>
+                            </div>
+                          </div>
                         )}
                       </div>
 
                       {/* Tốc độ đọc AI */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-on-surface-variant block">
+                      <div className="space-y-1.5 pt-2 border-t border-white/5">
+                        <label className="font-medium text-on-surface block">
                           Tốc độ đọc mặc định:
                         </label>
                         <select
@@ -2737,10 +3143,10 @@ export default function VideoTranslate() {
                       </div>
 
                       {/* Tốc độ co giãn tối đa (SpeedRate) */}
-                      <div className="space-y-1">
+                      <div className="space-y-1 pt-2 border-t border-white/5">
                         <div className="flex justify-between text-xs text-on-surface-variant">
-                          <span>Tốc độ đọc tăng tối đa (SpeedRate):</span>
-                          <span className="font-mono text-primary">{maxSpeedRate}x</span>
+                          <span className="font-medium text-on-surface">Tốc độ đọc tăng tối đa (SpeedRate):</span>
+                          <span className="font-mono text-primary font-bold">{maxSpeedRate}x</span>
                         </div>
                         <input
                           type="range"
@@ -2754,6 +3160,21 @@ export default function VideoTranslate() {
                         <p className="text-[10px] text-on-surface-variant/70">
                           Tự động tăng tốc câu lồng tiếng nếu câu dịch dài hơn thời lượng cảnh quay video gốc.
                         </p>
+                      </div>
+
+                      {/* 🔄 Nút Phục Hồi Mặc Định */}
+                      <div className="pt-3 border-t border-white/10 flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-[11px] text-on-surface-variant/70">
+                          💡 Chuẩn khuyến nghị: <code>Phụ đề dịch</code>, <code>720p</code>, <code>BGM 30%</code>, <code>Tốc độ +0%</code>.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleResetAudioSubtitleDefaults}
+                          className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-sm"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Phục hồi mặc định
+                        </button>
                       </div>
                     </div>
                   )}
@@ -2833,18 +3254,28 @@ export default function VideoTranslate() {
               </div>
             </div>
 
-            <div className="relative aspect-video rounded-2xl overflow-hidden bg-black/80 border border-white/10 flex items-center justify-center">
+            <div className="relative aspect-video rounded-2xl overflow-hidden bg-black/90 border border-white/10 flex items-center justify-center group shadow-2xl">
               {taskStatus?.status === "completed" && taskStatus?.task_id ? (
-                <video
-                  ref={resultVideoRef}
-                  key={taskStatus.task_id}
-                  src={`http://localhost:8000/api/video-translate/stream/${taskStatus.task_id}`}
-                  controls
-                  playsInline
-                  autoPlay
-                  onTimeUpdate={handleVideoTimeUpdate}
-                  className="w-full h-full object-contain"
-                />
+                <>
+                  {/* Layer 1: Video Gốc / Video Stream */}
+                  <video
+                    ref={resultVideoRef}
+                    key={`result-${taskStatus.task_id}`}
+                    src={`${API_BASE_URL}/api/video-translate/stream/${taskStatus.task_id}`}
+                    controls
+                    playsInline
+                    autoPlay
+                    onTimeUpdate={handleVideoTimeUpdate}
+                    className="w-full h-full object-contain"
+                  />
+                  {currentLiveSubtitle && (
+                    <div className="absolute bottom-12 left-4 right-4 flex justify-center pointer-events-none animate-fadeIn">
+                      <div className="px-4 py-2 rounded-xl bg-black/80 backdrop-blur-md border border-white/20 text-white font-bold text-center text-xs sm:text-sm shadow-2xl tracking-wide max-w-[90%] drop-shadow-md">
+                        {currentLiveSubtitle}
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : videoPreviewUrl ? (
                 <video
                   ref={previewVideoRef}
@@ -2872,7 +3303,7 @@ export default function VideoTranslate() {
                       handleDownloadFile(
                         taskStatus.task_id,
                         "video",
-                        `translated_video_${taskStatus.task_id}.mp4`
+                        `${(videoFile?.name || (taskStatus as any)?.video_filename || "Video").replace(/\.[^/.]+$/, "")} Translate buy KhaTran.mp4`
                       )
                     }
                     className="py-3 px-2 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:opacity-95 text-black font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-green-500/20 cursor-pointer"
@@ -2941,11 +3372,11 @@ export default function VideoTranslate() {
                         <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
                           <span>Studio Xem Lại & Biên Tập Câu Thoại</span>
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
-                            Real-time Sync
+                            Đồng bộ thời gian thực
                           </span>
                         </h3>
                         <p className="text-[11px] text-on-surface-variant">
-                          💡 <b>Nhấp vào bất kỳ ô nào</b> để phát riêng câu đó (tự dừng khi hết câu). Sửa lời hoặc mốc thời gian bắt đầu rồi bấm thu lại siêu tốc (0.5s)!
+                          💡 <b>Sửa lời câu nào chỉ cần bấm "Nạp Lại Lời Thoại" câu đó</b> (chỉ mất ~0.5s). Sau khi ưng ý bấm <b>Xuất Video</b>!
                         </p>
                       </div>
                     </div>
@@ -2953,14 +3384,30 @@ export default function VideoTranslate() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          const el = document.getElementById("publish-export-card");
-                          if (el) el.scrollIntoView({ behavior: "smooth" });
-                        }}
-                        className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-primary to-amber-400 text-black font-bold text-xs flex items-center gap-1.5 hover:opacity-95 shadow-md shadow-primary/20 cursor-pointer transition-all"
+                        onClick={() => handleOpenAddSegment()}
+                        className="px-3.5 py-2 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary border border-primary/40 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
+                        title="Chèn thêm câu thoại mới vào bất kỳ vị trí nào trên timeline"
                       >
-                        <Film className="w-3.5 h-3.5 text-black" />
-                        <span>Đi đến Xuất Bản Video ↓</span>
+                        <Plus className="w-3.5 h-3.5 text-primary" />
+                        <span>+ Chèn câu thoại</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleQuickRemux}
+                        disabled={isRemuxingStudioVideo}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-primary via-amber-400 to-primary text-black font-extrabold text-xs flex items-center gap-1.5 hover:opacity-95 shadow-lg shadow-primary/25 cursor-pointer transition-all disabled:opacity-50"
+                      >
+                        {isRemuxingStudioVideo ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
+                            <span>Đang xuất video...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Film className="w-3.5 h-3.5 text-black" />
+                            <span>🚀 Xuất Video Hoàn Chỉnh (MP4)</span>
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -3128,6 +3575,17 @@ export default function VideoTranslate() {
                                   )}
                                 </button>
 
+                                {/* Chèn câu thoại tiếp nối sau câu này */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAddSegment(seg.end, Math.round((seg.end + 2.5) * 10) / 10)}
+                                  className="px-2 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer"
+                                  title="Chèn thêm một câu thoại ngay sau câu này"
+                                >
+                                  <Plus className="w-3 h-3 text-primary" />
+                                  <span>+ Chèn</span>
+                                </button>
+
                                 {/* Xóa đoạn phụ đề / câu thoại này */}
                                 <button
                                   type="button"
@@ -3154,8 +3612,8 @@ export default function VideoTranslate() {
                               </div>
                             )}
 
-                            {/* Ô nhập câu dịch tiếng Việt có thể sửa trực tiếp */}
-                            <div className="relative" onClick={(e) => e.stopPropagation()}>
+                            {/* Ô nhập câu dịch tiếng Việt có thể sửa trực tiếp & Nút Nạp Lại Lời Thoại */}
+                            <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
                               <textarea
                                 value={seg.text}
                                 onChange={(e) => updateStudioSegmentText(seg.id, e.target.value)}
@@ -3164,132 +3622,156 @@ export default function VideoTranslate() {
                                 className="w-full text-xs bg-black/60 border border-white/10 rounded-xl p-2.5 text-on-surface focus:outline-none focus:border-primary resize-y leading-relaxed font-sans"
                                 placeholder="Nhập câu thoại tiếng Việt..."
                               />
+                              <div className="flex items-center justify-between gap-2 pt-0.5">
+                                <span className="text-[10px] text-on-surface-variant/70">
+                                  💡 Sửa văn bản xong bấm nút bên phải để tạo giọng mới cho phân đoạn này
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRedubSingleSegment(seg)}
+                                  disabled={seg.isRedubbing}
+                                  className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-primary/30 to-amber-500/30 hover:from-primary/40 hover:to-amber-500/40 text-primary border border-primary/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+                                  title="Tổng hợp lại âm thanh lời thoại cho câu này và ghi đè vào video"
+                                >
+                                  {seg.isRedubbing ? (
+                                    <>
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                                      <span>Đang nạp âm thanh...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Mic className="w-3.5 h-3.5 text-primary" />
+                                      <span>⚡ Nạp Lại Lời Thoại Này</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         );
                       })}
                     </div>
                   )}
-                </div>
 
-                {/* 3. Khối chức năng mở Notepad & Lồng tiếng lại */}
-                <div className="p-3.5 rounded-2xl bg-surface-variant/30 border border-primary/20 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-on-surface flex items-center gap-1.5">
-                      <FileEdit className="w-3.5 h-3.5 text-primary" />
-                      Chỉnh sửa phụ đề & Lồng tiếng lại:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleToggleSrtEditor}
-                      disabled={isLoadingSrt}
-                      className="text-[11px] text-primary hover:underline flex items-center gap-1 cursor-pointer font-medium disabled:opacity-50"
-                    >
-                      {isLoadingSrt ? (
-                        <>
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          <span>Đang tải phụ đề...</span>
-                        </>
-                      ) : showSrtEditor ? (
-                        "Đóng trình sửa Web"
-                      ) : (
-                        "Sửa trực tiếp trên Web"
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={handleOpenEditor}
-                      disabled={isOpeningEditor}
-                      className="py-2.5 px-3 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-                      title="Mở file SRT trực tiếp bằng Notepad++ hoặc Notepad trên máy tính"
-                    >
-                      {isOpeningEditor ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      )}
-                      <span>Mở bằng Notepad / Notepad++</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRedub()}
-                      disabled={isRedubbing || isProcessing}
-                      className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-black text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-amber-500/20 cursor-pointer disabled:opacity-50"
-                      title="Lồng tiếng và render lại video theo nội dung file SRT đã sửa"
-                    >
-                      {isRedubbing ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <RotateCcw className="w-3.5 h-3.5" />
-                      )}
-                      <span>Lồng tiếng lại theo SRT đã sửa</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowMemoryModal(true)}
-                      className="py-1.5 px-3 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm hover:shadow-purple-500/10"
-                      title="Xem và quản lý các bài học AI đã tự động ghi nhớ từ các lần bạn sửa phụ đề"
-                    >
-                      <Brain className="w-3.5 h-3.5 text-purple-400" />
-                      <span>Bộ nhớ tự học của AI ({memoryCount} bài học)</span>
-                    </button>
-
-                    <span className="text-[11px] text-on-surface-variant/70 italic hidden sm:inline">
-                      Tự động học khi bạn lưu bản sửa
-                    </span>
-                  </div>
-
-                  <p className="text-[11px] text-on-surface-variant/80">
-                    💡 <b>Quy trình sửa từ ngữ:</b> Nhấn <i>"Mở bằng Notepad / Notepad++"</i> ➔ Sửa các thuật ngữ kỹ thuật hoặc tên riêng ➔ Nhấn <code>Ctrl+S</code> để lưu file ➔ Bấm <i>"Lồng tiếng lại theo SRT đã sửa"</i>.
-                  </p>
-
-                  {/* Trình soạn thảo SRT trực tiếp trên trình duyệt */}
-                  {showSrtEditor && (
-                    <div className="pt-2 border-t border-white/10 space-y-2 animate-fadeIn">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-on-surface-variant font-medium">
-                          Nội dung file phụ đề (.SRT):
-                        </span>
-                        <div className="flex gap-1.5">
-                          <button
-                            type="button"
-                            onClick={handleSaveSrt}
-                            disabled={isSavingSrt}
-                            className="px-2.5 py-1 rounded-lg bg-surface-variant hover:bg-white/10 text-on-surface text-[11px] flex items-center gap-1 border border-white/10 cursor-pointer font-medium"
-                          >
-                            {isSavingSrt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3 text-green-400" />}
-                            Lưu phụ đề
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRedub(srtText)}
-                            disabled={isRedubbing || isProcessing}
-                            className="px-2.5 py-1 rounded-lg bg-primary text-black text-[11px] flex items-center gap-1 font-bold cursor-pointer hover:opacity-90"
-                          >
-                            <RotateCcw className="w-3 h-3" />
-                            Lưu & Lồng tiếng ngay
-                          </button>
-                        </div>
-                      </div>
-                      <textarea
-                        value={srtText}
-                        onChange={(e) => setSrtText(e.target.value)}
-                        rows={8}
-                        className="w-full text-xs font-mono bg-black/60 border border-white/10 rounded-xl p-3 text-on-surface focus:outline-none focus:border-primary/50 resize-y"
-                        placeholder="Đang tải nội dung file phụ đề SRT..."
-                      />
+                  {/* Phân vùng Chỉnh sửa phụ đề SRT & Lồng tiếng lại (Gộp chung trong Studio) */}
+                  <div className="p-3.5 rounded-2xl bg-surface-variant/30 border border-primary/20 space-y-2.5 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                        <FileEdit className="w-3.5 h-3.5 text-primary" />
+                        Chỉnh sửa phụ đề & Lồng tiếng lại toàn bộ:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleToggleSrtEditor}
+                        disabled={isLoadingSrt}
+                        className="text-[11px] text-primary hover:underline flex items-center gap-1 cursor-pointer font-medium disabled:opacity-50"
+                      >
+                        {isLoadingSrt ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <span>Đang tải phụ đề...</span>
+                          </>
+                        ) : showSrtEditor ? (
+                          "Đóng trình sửa Web"
+                        ) : (
+                          "Sửa trực tiếp trên Web"
+                        )}
+                      </button>
                     </div>
-                  )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleOpenEditor}
+                        disabled={isOpeningEditor}
+                        className="py-2.5 px-3 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                        title="Mở file SRT trực tiếp bằng Notepad++ hoặc Notepad trên máy tính"
+                      >
+                        {isOpeningEditor ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        )}
+                        <span>Mở bằng Notepad / Notepad++</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRedub()}
+                        disabled={isRedubbing || isProcessing}
+                        className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-black text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                        title="Lồng tiếng và render lại video theo nội dung file SRT đã sửa"
+                      >
+                        {isRedubbing ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        )}
+                        <span>Lồng tiếng lại theo SRT đã sửa</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowMemoryModal(true)}
+                        className="py-1.5 px-3 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm hover:shadow-purple-500/10"
+                        title="Xem và quản lý các bài học AI đã tự động ghi nhớ từ các lần bạn sửa phụ đề"
+                      >
+                        <Brain className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Bộ nhớ tự học của AI ({memoryCount} bài học)</span>
+                      </button>
+
+                      <span className="text-[11px] text-on-surface-variant/70 italic hidden sm:inline">
+                        Tự động học khi bạn lưu bản sửa
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-on-surface-variant/80">
+                      💡 <b>Quy trình sửa từ ngữ:</b> Nhấn <i>"Mở bằng Notepad / Notepad++"</i> ➔ Sửa các thuật ngữ kỹ thuật hoặc tên riêng ➔ Nhấn <code>Ctrl+S</code> để lưu file ➔ Bấm <i>"Lồng tiếng lại theo SRT đã sửa"</i>.
+                    </p>
+
+                    {/* Trình soạn thảo SRT trực tiếp trên trình duyệt */}
+                    {showSrtEditor && (
+                      <div className="pt-2 border-t border-white/10 space-y-2 animate-fadeIn">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-on-surface-variant font-medium">
+                            Nội dung file phụ đề (.SRT):
+                          </span>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={handleSaveSrt}
+                              disabled={isSavingSrt}
+                              className="px-2.5 py-1 rounded-lg bg-surface-variant hover:bg-white/10 text-on-surface text-[11px] flex items-center gap-1 border border-white/10 cursor-pointer font-medium"
+                            >
+                              {isSavingSrt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3 text-green-400" />}
+                              Lưu phụ đề
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRedub(srtText)}
+                              disabled={isRedubbing || isProcessing}
+                              className="px-2.5 py-1 rounded-lg bg-primary text-black text-[11px] flex items-center gap-1 font-bold cursor-pointer hover:opacity-90"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              Lưu & Lồng tiếng ngay
+                            </button>
+                          </div>
+                        </div>
+                        <textarea
+                          value={srtText}
+                          onChange={(e) => setSrtText(e.target.value)}
+                          rows={8}
+                          className="w-full text-xs font-mono bg-black/60 border border-white/10 rounded-xl p-3 text-on-surface focus:outline-none focus:border-primary/50 resize-y"
+                          placeholder="Đang tải nội dung file phụ đề SRT..."
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* 4. Khối Xuất Bản Video Thành Phẩm (Dedicated Export & Publish MP4 Panel) */}
+                {/* 3. Khối Xuất Bản Video Thành Phẩm (Dedicated Export & Publish MP4 Panel) */}
                 <div id="publish-export-card" className="p-5 rounded-3xl bg-gradient-to-br from-surface/95 via-surface-variant/40 to-surface/95 border-2 border-primary/50 space-y-4 shadow-2xl animate-fadeIn">
                   <div className="flex items-center justify-between pb-3 border-b border-white/10">
                     <div className="flex items-center gap-2.5">
@@ -3298,7 +3780,7 @@ export default function VideoTranslate() {
                       </span>
                       <div>
                         <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
-                          <span>4. Xuất Bản Video Thành Phẩm (Publish MP4)</span>
+                          <span>3. Xuất Bản Video Thành Phẩm (Publish MP4)</span>
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
                             Ready to Export
                           </span>
@@ -3311,94 +3793,85 @@ export default function VideoTranslate() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Độ phân giải đầu ra */}
+                    {/* Độ phân giải đầu ra - Dạng dropdown sổ xuống */}
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-on-surface-variant flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 text-on-surface font-semibold">
-                          <Film className="w-3.5 h-3.5 text-primary" />
-                          Độ phân giải xuất bản:
-                        </span>
-                        <span className="text-[10px] text-primary font-mono uppercase font-bold">
-                          {outputResolution === "original" ? "Gốc" : outputResolution}
-                        </span>
+                      <label className="text-xs font-semibold text-on-surface flex items-center gap-1.5">
+                        <Film className="w-3.5 h-3.5 text-primary" />
+                        Độ phân giải xuất bản:
                       </label>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {[
-                          { id: "720p", label: "720p (HD)", desc: "Chuẩn" },
-                          { id: "1080p", label: "1080p", desc: "Full HD" },
-                          { id: "480p", label: "480p", desc: "Nhẹ" },
-                          { id: "original", label: "Gốc", desc: "Giữ nét" },
-                        ].map((res) => (
-                          <button
-                            key={res.id}
-                            type="button"
-                            onClick={() => setOutputResolution(res.id)}
-                            className={cn(
-                              "py-2 px-1 rounded-xl text-xs font-medium border transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer",
-                              outputResolution === res.id
-                                ? "bg-primary text-black border-primary font-bold shadow-md scale-[1.02]"
-                                : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
-                            )}
-                          >
-                            <span className="font-semibold text-[11px] leading-tight">{res.label}</span>
-                            <span className={cn("text-[9px] leading-none", outputResolution === res.id ? "text-black/80 font-medium" : "text-on-surface-variant/60")}>
-                              {res.desc}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+                      <select
+                        value={outputResolution}
+                        onChange={(e) => setOutputResolution(e.target.value)}
+                        className="w-full bg-surface-variant/80 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary cursor-pointer font-medium"
+                      >
+                        <option value="original" className="bg-surface text-on-surface">Gốc (Giữ nét nguyên bản)</option>
+                        <option value="1080p" className="bg-surface text-on-surface">1080p (Full HD sắc nét)</option>
+                        <option value="720p" className="bg-surface text-on-surface">720p (HD tiêu chuẩn - Tối ưu)</option>
+                        <option value="480p" className="bg-surface text-on-surface">480p (Nhẹ, tiết kiệm dung lượng)</option>
+                      </select>
                     </div>
 
-                    {/* Kiểu gắn phụ đề */}
+                    {/* Kiểu gắn phụ đề - Dạng dropdown sổ xuống */}
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-on-surface-variant block font-semibold">
+                      <label className="text-xs font-semibold text-on-surface flex items-center gap-1.5">
+                        <Subtitles className="w-3.5 h-3.5 text-primary" />
                         Kiểu gắn phụ đề (Subtitles):
                       </label>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {[
-                          { id: "hard_target", label: "Phụ đề dịch" },
-                          { id: "hard_dual", label: "Song ngữ" },
-                          { id: "none", label: "Không sub" },
-                        ].map((sub) => (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            onClick={() => setSubtitleMode(sub.id)}
-                            className={cn(
-                              "py-2 px-2 rounded-xl text-xs font-medium border transition-all text-center cursor-pointer",
-                              subtitleMode === sub.id
-                                ? "bg-primary text-black border-primary font-bold shadow-md"
-                                : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
-                            )}
-                          >
-                            {sub.label}
-                          </button>
-                        ))}
-                      </div>
+                      <select
+                        value={subtitleMode}
+                        onChange={(e) => setSubtitleMode(e.target.value)}
+                        className="w-full bg-surface-variant/80 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary cursor-pointer font-medium"
+                      >
+                        <option value="hard_target" className="bg-surface text-on-surface">Phụ đề dịch (Hardsub tiếng Việt)</option>
+                        <option value="hard_dual" className="bg-surface text-on-surface">Song ngữ (Gốc + Dịch song song)</option>
+                        <option value="none" className="bg-surface text-on-surface">Không phụ đề (Chỉ lồng tiếng)</option>
+                      </select>
                     </div>
                   </div>
 
-                  {/* Âm lượng nhạc nền BGM */}
-                  <div className="p-3 bg-black/30 rounded-2xl border border-white/5 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-on-surface flex items-center gap-2">
+                  {/* Tùy chọn Âm thanh nền BGM & Âm thanh gốc - Dạng dropdown sổ xuống */}
+                  <div className="p-3.5 bg-black/30 rounded-2xl border border-white/5 space-y-2.5">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-on-surface flex items-center gap-1.5">
                         <Music className="w-3.5 h-3.5 text-secondary" />
-                        <span>Giữ nhạc nền / âm thanh gốc (BGM):</span>
+                        Âm thanh nền khi xuất video:
                       </label>
-                      <span className="text-xs font-mono text-secondary font-bold">
-                        {preserveBgm ? `${Math.round(bgmVolume * 100)}%` : "Tắt nhạc nền"}
-                      </span>
+                      <select
+                        value={!preserveBgm ? "none" : bgmType}
+                        onChange={(e) => {
+                          const val = e.target.value as "bgm" | "original" | "none";
+                          setBgmType(val);
+                          setPreserveBgm(val !== "none");
+                        }}
+                        className="w-full bg-surface-variant/80 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary cursor-pointer font-medium"
+                      >
+                        <option value="bgm" className="bg-surface text-on-surface">🎵 Nhạc nền tách (Lọc sạch vocal cũ - Demucs)</option>
+                        <option value="original" className="bg-surface text-on-surface">🎙️ Âm thanh gốc (Giữ âm thanh video gốc - Thuyết minh đè)</option>
+                        <option value="none" className="bg-surface text-on-surface">🔇 Tắt âm nền (Chỉ giữ tiếng thuyết minh AI)</option>
+                      </select>
                     </div>
-                    {preserveBgm && (
-                      <input
-                        type="range"
-                        min="0.05"
-                        max="0.7"
-                        step="0.05"
-                        value={bgmVolume}
-                        onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
-                        className="w-full accent-secondary cursor-pointer"
-                      />
+
+                    {bgmType !== "none" && preserveBgm && (
+                      <div className="space-y-1 pt-1">
+                        <div className="flex justify-between text-xs text-on-surface-variant">
+                          <span>Âm lượng {bgmType === "original" ? "âm thanh gốc" : "nhạc nền"}:</span>
+                          <span className="font-semibold text-secondary font-mono">{Math.round(bgmVolume * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.0"
+                          max="1.0"
+                          step="0.01"
+                          value={bgmVolume}
+                          onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                          className="w-full accent-secondary cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-on-surface-variant/70">
+                          <span>0%</span>
+                          <span className="text-secondary font-semibold">Mặc định: 30%</span>
+                          <span>100%</span>
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -3642,6 +4115,159 @@ export default function VideoTranslate() {
           })()}
         </div>
       </div>
+
+      {/* Modal Chèn Thêm Câu Thoại Mới (Add Segment Modal) */}
+      {showAddSegmentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-surface border-2 border-primary/40 w-full max-w-lg rounded-3xl p-6 shadow-2xl space-y-5 animate-scaleUp">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-primary/20 text-primary">
+                  <Plus className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-on-surface">Chèn Thêm Câu Thoại Mới</h3>
+                  <p className="text-[11px] text-on-surface-variant">
+                    Tạo câu lồng tiếng và phụ đề mới tại mốc thời gian chỉ định
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddSegmentModal(false)}
+                className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface flex items-center justify-center text-sm font-bold transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitAddSegment} className="space-y-4">
+              {/* Mốc thời gian Start - End */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-on-surface-variant flex items-center justify-between">
+                    <span>Bắt đầu (giây):</span>
+                    <span className="font-mono text-primary text-[11px]">{formatSrtTime(newSegStart)}</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={newSegStart}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setNewSegStart(val);
+                      if (val >= newSegEnd) {
+                        setNewSegEnd(Math.round((val + 2.0) * 10) / 10);
+                      }
+                    }}
+                    className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-on-surface focus:outline-none focus:border-primary"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-on-surface-variant flex items-center justify-between">
+                    <span>Kết thúc (giây):</span>
+                    <span className="font-mono text-primary text-[11px]">{formatSrtTime(newSegEnd)}</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min={newSegStart + 0.1}
+                    value={newSegEnd}
+                    onChange={(e) => setNewSegEnd(parseFloat(e.target.value) || 0)}
+                    className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-on-surface focus:outline-none focus:border-primary"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Lời thoại dịch */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-on-surface-variant flex items-center justify-between">
+                  <span className="text-on-surface font-semibold">Lời thoại dịch (tạo âm thanh & phụ đề):</span>
+                  <span className="text-[10px] text-primary">{newSegText.length} ký tự</span>
+                </label>
+                <textarea
+                  value={newSegText}
+                  onChange={(e) => setNewSegText(e.target.value)}
+                  rows={3}
+                  placeholder="Nhập nội dung câu thoại bạn muốn thuyết minh vào đây..."
+                  className="w-full bg-surface-variant/60 border border-white/10 rounded-xl p-3 text-xs text-on-surface focus:outline-none focus:border-primary resize-y leading-relaxed"
+                  autoFocus
+                  required
+                />
+              </div>
+
+              {/* Câu gốc (tùy chọn) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-on-surface-variant">
+                  Câu gốc (tùy chọn):
+                </label>
+                <input
+                  type="text"
+                  value={newSegOriginalText}
+                  onChange={(e) => setNewSegOriginalText(e.target.value)}
+                  placeholder="Ví dụ: 原文句子..."
+                  className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              {/* Giọng đọc cho câu này */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-on-surface-variant">
+                  Giọng đọc tổng hợp câu này:
+                </label>
+                <select
+                  value={newSegVoiceId}
+                  onChange={(e) => {
+                    setNewSegVoiceId(e.target.value);
+                    const v = voices.find((item) => item.id === e.target.value);
+                    if (v) setNewSegEngine(v.engine);
+                  }}
+                  className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-primary"
+                >
+                  {voices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.gender}) - {v.engine}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setShowAddSegmentModal(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface-variant text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingSegment || !newSegText.trim()}
+                  className="px-5 py-2 rounded-xl bg-primary text-black text-xs font-bold flex items-center gap-1.5 hover:opacity-95 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isAddingSegment ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-black" />
+                      <span>Đang tạo giọng đọc...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-black" />
+                      <span>Xác Nhận & Nạp Câu Thoại</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal quản lý Bộ nhớ tự học của AI (Translation Memory) */}
       <TranslationMemoryModal

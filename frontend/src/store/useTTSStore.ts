@@ -1019,9 +1019,8 @@ export const useTTSStore = create<TTSState>((set, get) => {
       } catch {}
 
       try {
-        const res = await fetch(
-          "http://localhost:8000/api/tts/cleanup-orphans",
-          {
+        const [ttsRes, vtRes] = await Promise.allSettled([
+          fetch(`${API_BASE_URL}/api/tts/cleanup-orphans`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1030,15 +1029,36 @@ export const useTTSStore = create<TTSState>((set, get) => {
               max_age_minutes: force ? 0 : 15,
               force,
             }),
-          },
-        );
+          }),
+          fetch(`${API_BASE_URL}/api/video-translate/cleanup-cache`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              preserve_active_tasks: !force,
+            }),
+          }),
+        ]);
 
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || "Không thể dọn dẹp file rác");
+        let deletedCount = 0;
+        let freedMb = 0;
+
+        if (ttsRes.status === "fulfilled" && ttsRes.value.ok) {
+          const ttsData = await ttsRes.value.json().catch(() => ({}));
+          deletedCount += ttsData.deleted_count || 0;
+          freedMb += ttsData.freed_mb || 0;
         }
 
-        return await res.json();
+        if (vtRes.status === "fulfilled" && vtRes.value.ok) {
+          const vtData = await vtRes.value.json().catch(() => ({}));
+          deletedCount += vtData.deleted_count || 0;
+          freedMb += vtData.freed_mb || 0;
+        }
+
+        return {
+          deleted_count: deletedCount,
+          freed_mb: Math.round(freedMb * 10) / 10,
+          message: `Đã dọn dẹp ${deletedCount} tệp tin (${Math.round(freedMb * 10) / 10} MB)`,
+        };
       } catch (e: any) {
         console.error("Lỗi khi dọn dẹp file rác:", e);
         throw e;

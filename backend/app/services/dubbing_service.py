@@ -221,31 +221,70 @@ class DubbingService:
             ref_audio = None
             ref_text = None
 
+            # 1. Tìm trong thư mục Custom Voices
             custom_pt = CUSTOM_VOICES_DIR / f"{raw_id}.pt"
-            preset_pt = PRESETS_DIR / f"{raw_id}.pt"
-
+            custom_wav = CUSTOM_VOICES_DIR / f"{raw_id}.wav"
             if custom_pt.exists():
                 try:
                     prompt_obj = VoiceClonePrompt.load(str(custom_pt))
                 except Exception as e:
                     logger.warning(f"Không thể đọc prompt cache {custom_pt}: {e}")
-            elif preset_pt.exists():
-                try:
-                    prompt_obj = VoiceClonePrompt.load(str(preset_pt))
-                except Exception as e:
-                    logger.warning(f"Không thể đọc prompt cache {preset_pt}: {e}")
+            elif custom_wav.exists():
+                ref_audio = str(custom_wav)
 
-            if prompt_obj is None:
-                wav_custom = CUSTOM_VOICES_DIR / f"{raw_id}.wav"
-                wav_preset = PRESETS_DIR / f"{raw_id}.wav"
-                if wav_custom.exists():
-                    ref_audio = str(wav_custom)
-                elif wav_preset.exists():
-                    ref_audio = str(wav_preset)
+            # 2. Tìm trong thư mục Presets
+            if prompt_obj is None and ref_audio is None:
+                preset_pt = PRESETS_DIR / f"{raw_id}.pt"
+                preset_wav = PRESETS_DIR / f"{raw_id}.wav"
+                if preset_pt.exists():
+                    try:
+                        prompt_obj = VoiceClonePrompt.load(str(preset_pt))
+                    except Exception as e:
+                        logger.warning(f"Không thể đọc prompt cache {preset_pt}: {e}")
+                elif preset_wav.exists():
+                    ref_audio = str(preset_wav)
+
+            # 3. Tra cứu theo url/filename trong voices.json và custom_voices.json
+            if prompt_obj is None and ref_audio is None:
+                try:
+                    voices_json = PRESETS_DIR / "voices.json"
+                    if voices_json.exists():
+                        with open(voices_json, "r", encoding="utf-8") as f:
+                            presets = json.load(f)
+                            for p in presets:
+                                if p.get("id") == raw_id:
+                                    ref_text = p.get("prompt_text")
+                                    v_url = p.get("url", "")
+                                    v_fname = Path(v_url).name if v_url else ""
+                                    if v_fname:
+                                        p_candidate = PRESETS_DIR / v_fname
+                                        if p_candidate.exists():
+                                            ref_audio = str(p_candidate)
+                                    break
+                except Exception as e:
+                    logger.warning(f"Lỗi tra cứu voices.json: {e}")
+
+            if prompt_obj is None and ref_audio is None:
+                try:
+                    if CUSTOM_VOICES_JSON.exists():
+                        with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
+                            customs = json.load(f)
+                            for c in customs:
+                                if c.get("id") == raw_id:
+                                    ref_text = c.get("prompt_text")
+                                    c_pt = CUSTOM_VOICES_DIR / f"{c['id']}.pt"
+                                    c_wav = CUSTOM_VOICES_DIR / f"{c['id']}.wav"
+                                    if c_pt.exists():
+                                        prompt_obj = VoiceClonePrompt.load(str(c_pt))
+                                    elif c_wav.exists():
+                                        ref_audio = str(c_wav)
+                                    break
+                except Exception as e:
+                    logger.warning(f"Lỗi tra cứu custom_voices.json: {e}")
 
             if prompt_obj is not None or ref_audio is not None:
                 try:
-                    logger.info(f"🎙️ Sinh câu bằng OmniVoice ({raw_id}): {text[:30]}...")
+                    logger.info(f"🎙️ [OmniVoice TTS] Sinh câu '{text[:35]}...' bằng giọng {raw_id} (Ref: {Path(ref_audio).name if ref_audio else 'Prompt tensor'})")
                     await asyncio.to_thread(
                         generate_audio,
                         text=text.strip(),
@@ -259,9 +298,13 @@ class DubbingService:
                     if output_path.exists() and output_path.stat().st_size > 500:
                         synthesized = True
                 except Exception as oe:
-                    logger.warning(f"OmniVoice dubbing lỗi: {oe}. Sẽ fallback sang Edge-TTS...")
+                    logger.error(f"❌ [OmniVoice] Lỗi sinh giọng '{raw_id}': {oe}")
+                    if not is_remote_gpu_enabled():
+                        logger.warning("Tự động fallback sang Edge-TTS tương ứng...")
+                    else:
+                        raise RuntimeError(f"Lỗi sinh giọng trên GPU: {oe}")
 
-        # Chuẩn hóa các tham số SSML cho Edge-TTS (tránh lỗi NoAudioReceived do truyền float vào volume/rate)
+        # Chuẩn hóa các tham số SSML cho Edge-TTS
         clean_rate = rate if isinstance(rate, str) and rate.endswith("%") else "+0%"
         clean_pitch = pitch if isinstance(pitch, str) and pitch.endswith("Hz") else "+0Hz"
         if isinstance(volume, (int, float)):
@@ -279,7 +322,7 @@ class DubbingService:
             clean_volume = "+0%"
 
         if not synthesized:
-            # Xác định giọng đọc fallback phù hợp theo ngôn ngữ đích hoặc giọng được yêu cầu
+            # Xác định giọng đọc Edge-TTS chính xác
             target_voice = voice_id
             if is_omnivoice or not target_voice or target_voice.startswith("omnivoice:"):
                 # Nhận diện ngôn ngữ từ text hoặc tên voice_id
@@ -298,7 +341,7 @@ class DubbingService:
                 elif is_ko:
                     target_voice = "ko-KR-SunHiNeural"
                 else:
-                    target_voice = "vi-VN-HoaiMyNeural"
+                    target_voice = "vi-VN-NamMinhNeural" if ("nam" in voice_id.lower() or "male" in voice_id.lower()) else "vi-VN-HoaiMyNeural"
 
             clean_text = text.strip()
             success = False

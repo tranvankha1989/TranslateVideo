@@ -76,7 +76,7 @@ def is_remote_gpu_enabled() -> bool:
     )
 
 def normalize_remote_gpu_url(url: str | None) -> str:
-    """Chuẩn hóa URL của Remote GPU Worker."""
+    """Chuẩn hóa URL của Remote GPU Worker (Google Colab / Hugging Face Spaces / Kaggle)."""
     if not url:
         return ""
     cleaned = url.strip()
@@ -84,9 +84,24 @@ def normalize_remote_gpu_url(url: str | None) -> str:
         return ""
     if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
         cleaned = f"https://{cleaned}"
+
+    # Tự động chuyển đổi dạng link HuggingFace spaces web: https://huggingface.co/spaces/{owner}/{space}
+    # sang direct host: https://{owner}-{space}.hf.space
+    hf_match = re.match(r"https?://huggingface\.co/spaces/([^/]+)/([^/?#]+)", cleaned, re.IGNORECASE)
+    if hf_match:
+        owner = hf_match.group(1).lower().replace("_", "-")
+        space = hf_match.group(2).lower().replace("_", "-")
+        cleaned = f"https://{owner}-{space}.hf.space"
+
     # Loại bỏ các endpoint phía sau nếu người dùng copy nhầm cả đường dẫn đầy đủ
     cleaned = cleaned.rstrip("/")
-    for suffix in ("/api/remote/health", "/gradio_api/remote/health", "/api/remote", "/gradio_api/remote", "/health"):
+    for suffix in (
+        "/api/remote/health",
+        "/gradio_api/remote/health",
+        "/api/remote",
+        "/gradio_api/remote",
+        "/health",
+    ):
         if cleaned.endswith(suffix):
             cleaned = cleaned[:-len(suffix)]
     return cleaned.rstrip("/")
@@ -120,13 +135,16 @@ def _remote_url(endpoint: str) -> str:
     return f"{base}/api/remote/{endpoint}"
 
 
-
 def _remote_headers() -> dict[str, str]:
-    """Headers gửi sang Remote Worker, hỗ trợ bypass trang cảnh báo miễn phí của Ngrok."""
-    return {
+    """Headers gửi sang Remote Worker, hỗ trợ bypass trang cảnh báo miễn phí của Ngrok và HuggingFace Token."""
+    headers = {
         "ngrok-skip-browser-warning": "1",
         "User-Agent": "OmniVoice/1.0",
     }
+    hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+    if hf_token and hf_token.strip():
+        headers["Authorization"] = f"Bearer {hf_token.strip()}"
+    return headers
 
 
 _has_warmed_up = False
@@ -573,9 +591,13 @@ def _generate_audio_remote(
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pt") as tmp_pt:
                     voice_clone_prompt.save(tmp_pt.name)
                     tmp_pt_to_clean = tmp_pt.name
-                files["prompt_file"] = ("prompt.pt", open(tmp_pt_to_clean, "rb"), "application/octet-stream")
+                with open(tmp_pt_to_clean, "rb") as pf:
+                    prompt_bytes = pf.read()
+                files["prompt_file"] = ("prompt.pt", prompt_bytes, "application/octet-stream")
             elif ref_audio and os.path.exists(ref_audio):
-                files["ref_audio_file"] = (Path(ref_audio).name, open(ref_audio, "rb"), "audio/wav")
+                with open(ref_audio, "rb") as rf:
+                    ref_audio_bytes = rf.read()
+                files["ref_audio_file"] = (Path(ref_audio).name, ref_audio_bytes, "audio/wav")
 
         resp = httpx.post(url, data=data, files=files if files else None, headers=_remote_headers(), timeout=300.0)
 

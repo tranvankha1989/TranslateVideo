@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { API_BASE_URL } from "@/constants/api";
 
 export interface VoiceOption {
   id: string;
@@ -40,6 +41,7 @@ export interface TranslationProgress {
   target_lang?: string;
   total_segments?: number;
   video_url?: string;
+  result_video_url?: string;
   audio_url?: string;
   subtitles_srt_url?: string;
   subtitles_original_srt_url?: string;
@@ -70,6 +72,7 @@ interface VideoTranslateState {
 
   // BGM & Subtitle Config
   preserveBgm: boolean;
+  bgmType: "bgm" | "original" | "none";
   bgmVolume: number;
   subtitleMode: string;
   maxSpeedRate: number;
@@ -123,6 +126,7 @@ interface VideoTranslateState {
   setSelectedEngine: (engine: string) => void;
   setVoiceRate: (rate: string) => void;
   setPreserveBgm: (val: boolean) => void;
+  setBgmType: (type: "bgm" | "original" | "none") => void;
   setBgmVolume: (vol: number) => void;
   setSubtitleMode: (mode: string) => void;
   setMaxSpeedRate: (rate: number) => void;
@@ -158,6 +162,7 @@ interface VideoTranslateState {
   studioRemuxMessage: string | null;
 
   setStudioSegments: (segments: StudioSegment[]) => void;
+  addStudioSegment: (segment: StudioSegment) => void;
   updateStudioSegmentText: (id: number, text: string) => void;
   updateStudioSegmentTiming: (id: number, start?: number, end?: number) => void;
   setStudioSegmentRedubbing: (id: number, isRedubbing: boolean) => void;
@@ -193,7 +198,8 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       voiceRate: "+0%",
 
       preserveBgm: true,
-      bgmVolume: 0.25,
+      bgmType: "bgm",
+      bgmVolume: 0.30,
       subtitleMode: "hard_target",
       maxSpeedRate: 1.35,
       outputResolution: "720p",
@@ -252,6 +258,7 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setSelectedEngine: (selectedEngine) => set({ selectedEngine }),
       setVoiceRate: (voiceRate) => set({ voiceRate }),
       setPreserveBgm: (preserveBgm) => set({ preserveBgm }),
+      setBgmType: (bgmType) => set({ bgmType }),
       setBgmVolume: (bgmVolume) => set({ bgmVolume }),
       setSubtitleMode: (subtitleMode) => set({ subtitleMode }),
       setMaxSpeedRate: (maxSpeedRate) => set({ maxSpeedRate }),
@@ -291,6 +298,12 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       studioRemuxMessage: null,
 
       setStudioSegments: (studioSegments) => set({ studioSegments }),
+      addStudioSegment: (segment) =>
+        set((state) => {
+          const newSegments = [...state.studioSegments, segment];
+          newSegments.sort((a, b) => a.start - b.start);
+          return { studioSegments: newSegments };
+        }),
       updateStudioSegmentText: (id, text) =>
         set((state) => ({
           studioSegments: state.studioSegments.map((s) => (s.id === id ? { ...s, text } : s)),
@@ -348,7 +361,7 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
 
       fetchActiveTask: async () => {
         try {
-          const res = await fetch("http://localhost:8000/api/video-translate/active-task");
+          const res = await fetch(`${API_BASE_URL}/api/video-translate/active-task`);
           if (!res.ok) return null;
           const data = await res.json();
           if (data && data.task_id) {
@@ -379,6 +392,7 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
         selectedEngine: state.selectedEngine,
         voiceRate: state.voiceRate,
         preserveBgm: state.preserveBgm,
+        bgmType: state.bgmType,
         bgmVolume: state.bgmVolume,
         subtitleMode: state.subtitleMode,
         maxSpeedRate: state.maxSpeedRate,

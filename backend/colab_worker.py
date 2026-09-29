@@ -259,10 +259,10 @@ async def transcribe_endpoint(
     model_size: str | None = Form(default="large-v3-turbo"),
     initial_prompt: str | None = Form(default=None),
     vad_filter: bool = Form(default=True),
-    vad_threshold: float = Form(default=0.35),
+    vad_threshold: float = Form(default=0.50),
     min_speech_duration_ms: int = Form(default=150),
-    min_silence_duration_ms: int = Form(default=500),
-    speech_pad_ms: int = Form(default=400),
+    min_silence_duration_ms: int = Form(default=350),
+    speech_pad_ms: int = Form(default=150),
     beam_size: int = Form(default=3),
 ):
     """
@@ -345,8 +345,13 @@ async def transcribe_endpoint(
                         else:
                             w_item["end"] = round(ws + wmax, 3)
 
-                seg_start = words_data[0]["start"]
-                seg_end = words_data[-1]["end"]
+                valid_w = [w for w in words_data if w.get("word", "").strip()]
+                if valid_w:
+                    seg_start = valid_w[0]["start"]
+                    seg_end = valid_w[-1]["end"]
+                else:
+                    seg_start = round(s.start, 3)
+                    seg_end = round(s.end, 3)
             else:
                 seg_start = round(s.start, 3)
                 seg_end = round(s.end, 3)
