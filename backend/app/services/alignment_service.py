@@ -243,41 +243,56 @@ class AlignmentService:
             full_voice = full_voice.set_channels(2)
         full_voice = full_voice.set_frame_rate(44100)
 
-        # 2. Hòa âm chuẩn thuyết minh phim (Ducking voice-over):
-        # Giữ lại trọn vẹn âm thanh gốc (nhạc nền, tiếng động, giọng gốc) ở mức âm lượng vừa phải
-        # để giọng thuyết minh AI nổi bật rõ ràng, đồng đều phía trước.
+        # 2. Hòa âm chuẩn thuyết minh phim (Sidechain Audio Ducking):
+        # Tự động hạ nhỏ nhạc nền khi nhân vật cất tiếng thuyết minh và tăng to lại khi kết thúc câu.
         final_audio = full_voice
-        if bgm_path and Path(bgm_path).exists():
-            try:
-                bgm = AudioSegment.from_file(str(bgm_path))
-                if bgm.channels != 2:
-                    bgm = bgm.set_channels(2)
-                bgm = bgm.set_frame_rate(44100)
-
-                # Cắt hoặc lặp lại BGM cho đúng thời lượng video
-                if len(bgm) < total_ms:
-                    loop_count = int(math.ceil(total_ms / len(bgm)))
-                    bgm = (bgm * loop_count)[:total_ms]
-                else:
-                    bgm = bgm[:total_ms]
-
-                # Nếu âm thanh gốc có âm lượng quá nhỏ (dưới -26 dBFS), chuẩn hóa nhẹ trước
-                if bgm.dBFS < -26.0 and bgm.dBFS != -float("inf"):
-                    bgm = bgm.apply_gain(-20.0 - bgm.dBFS)
-
-                # Cân chỉnh âm lượng âm thanh gốc theo tỷ lệ thuyết minh (mặc định 20% - 30%)
-                bgm_gain_db = 20 * math.log10(max(0.01, bgm_volume))
-                ducked_bgm = bgm.apply_gain(bgm_gain_db)
-
-                # Hòa trộn: Âm thanh nền ducking + Giọng thuyết minh AI đã chuẩn hóa đều đặn
-                final_audio = ducked_bgm.overlay(full_voice)
-                logger.info(f"Đã hòa âm thuyết minh thành công với âm lượng nền {bgm_volume*100:.0f}% (gain: {bgm_gain_db:.1f}dB, chuẩn hóa giọng -18dBFS)")
-            except Exception as e:
-                logger.warning(f"Lỗi khi hòa âm BGM: {e}. Sử dụng dải giọng đọc thuần túy.")
-
-        # 3. Xuất file âm thanh tổng thể cuối cùng
         output_file = session_dir / "final_dubbed_audio.wav"
-        final_audio.export(str(output_file), format="wav")
+
+        if bgm_path and Path(bgm_path).exists():
+            voice_temp_file = session_dir / "voice_timeline_raw.wav"
+            full_voice.export(str(voice_temp_file), format="wav")
+            
+            from audio_processor import mix_voice_with_bgm_ducking
+            duck_ok = mix_voice_with_bgm_ducking(
+                voice_path=str(voice_temp_file),
+                bgm_path=str(bgm_path),
+                output_path=str(output_file),
+                bgm_volume=bgm_volume,
+                ducking_depth_db=-14.0,
+                attack_ms=250,
+                release_ms=600,
+                sample_rate=44100,
+                export_format="wav",
+            )
+            
+            if not duck_ok or not output_file.exists() or output_file.stat().st_size == 0:
+                # Fallback hòa trộn bằng Pydub nếu FFmpeg sidechain gặp sự cố
+                try:
+                    bgm = AudioSegment.from_file(str(bgm_path))
+                    if bgm.channels != 2:
+                        bgm = bgm.set_channels(2)
+                    bgm = bgm.set_frame_rate(44100)
+
+                    if len(bgm) < total_ms:
+                        loop_count = int(math.ceil(total_ms / len(bgm)))
+                        bgm = (bgm * loop_count)[:total_ms]
+                    else:
+                        bgm = bgm[:total_ms]
+
+                    if bgm.dBFS < -26.0 and bgm.dBFS != -float("inf"):
+                        bgm = bgm.apply_gain(-20.0 - bgm.dBFS)
+
+                    bgm_gain_db = 20 * math.log10(max(0.01, bgm_volume))
+                    ducked_bgm = bgm.apply_gain(bgm_gain_db)
+                    final_audio = ducked_bgm.overlay(full_voice)
+                    final_audio.export(str(output_file), format="wav")
+                    logger.info(f"Đã hòa âm thuyết minh fallback Pydub với âm lượng nền {bgm_volume*100:.0f}%")
+                except Exception as e:
+                    logger.warning(f"Lỗi khi hòa âm BGM: {e}. Xuất dải giọng đọc thuần túy.")
+                    full_voice.export(str(output_file), format="wav")
+        else:
+            full_voice.export(str(output_file), format="wav")
+
         final_duration = get_audio_duration(output_file)
 
         return {

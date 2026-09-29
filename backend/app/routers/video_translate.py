@@ -630,7 +630,41 @@ async def download_file_endpoint(
             headers={"Content-Disposition": f'attachment; filename="translated_subtitles_{task_id}.srt"'},
         )
 
-    # 3. Tải âm thanh lồng tiếng
+    # 3. Tải file Giọng nói sạch (Vocals tách từ Demucs AI)
+    if requested_type in ["vocals", "vocal", "voice_only", "clean_vocal"]:
+        vocal_file = task_dir / "vocals.wav"
+        if not vocal_file.exists():
+            vocal_candidates = list(task_dir.glob("*vocal*.wav"))
+            if vocal_candidates:
+                vocal_file = vocal_candidates[0]
+            else:
+                raise HTTPException(status_code=404, detail="Chưa có file giọng nói sạch (vocals) nào được tạo")
+        return FileResponse(
+            path=str(vocal_file),
+            filename=f"vocals_{task_id}.wav",
+            media_type="audio/wav",
+            headers={"Content-Disposition": f'attachment; filename="vocals_{task_id}.wav"'},
+        )
+
+    # 4. Tải file Nhạc nền & Hiệu ứng (BGM / Instrumental)
+    if requested_type in ["bgm", "no_vocals", "instrumental", "music"]:
+        bgm_file = task_dir / "no_vocals.wav"
+        if not bgm_file.exists():
+            bgm_file = task_dir / "bgm.wav"
+        if not bgm_file.exists():
+            bgm_candidates = list(task_dir.glob("*bgm*.wav")) + list(task_dir.glob("*no_vocal*.wav"))
+            if bgm_candidates:
+                bgm_file = bgm_candidates[0]
+            else:
+                raise HTTPException(status_code=404, detail="Chưa có file nhạc nền BGM nào được tạo")
+        return FileResponse(
+            path=str(bgm_file),
+            filename=f"bgm_{task_id}.wav",
+            media_type="audio/wav",
+            headers={"Content-Disposition": f'attachment; filename="bgm_{task_id}.wav"'},
+        )
+
+    # 5. Tải âm thanh lồng tiếng hoàn chỉnh
     if requested_type in ["audio", "wav", "mp3"]:
         audio_candidates = list(task_dir.glob("final_*.wav")) or list(task_dir.glob("*.wav"))
         if not audio_candidates:
@@ -643,7 +677,7 @@ async def download_file_endpoint(
             headers={"Content-Disposition": f'attachment; filename="dubbed_audio_{task_id}.wav"'},
         )
 
-    # 4. Mặc định: Tải Video MP4
+    # 6. Mặc định: Tải Video MP4
     candidates = [
         task_dir / "final_translated.mp4",
         *[f for f in task_dir.glob("*.mp4") if not f.name.startswith("input_")],
@@ -658,6 +692,40 @@ async def download_file_endpoint(
                 headers={"Content-Disposition": f'attachment; filename="translated_video_{task_id}.mp4"'},
             )
     raise HTTPException(status_code=404, detail="File video hoàn thiện chưa sẵn sàng hoặc render chưa hoàn tất")
+
+
+@router.get("/audio-asset/{task_id}/{asset_name}")
+async def get_audio_asset_endpoint(task_id: str, asset_name: str):
+    """
+    Endpoint phát âm thanh trực tiếp (Streaming audio player) cho file vocals.wav, no_vocals.wav, bgm.wav hoặc dubbed audio.
+    """
+    task_dir = TRANSLATE_OUTPUT_DIR / task_id
+    if not task_dir.exists():
+        raise HTTPException(status_code=404, detail="Không tìm thấy thư mục tác vụ")
+
+    clean_name = Path(asset_name).name.lower()
+    target_file = None
+    if "vocal" in clean_name and "no_vocal" not in clean_name:
+        for fname in ["vocals.wav", "vocal.wav", "raw_audio.wav"]:
+            cand = task_dir / fname
+            if cand.exists() and cand.is_file() and cand.stat().st_size > 0:
+                target_file = cand
+                break
+    elif "bgm" in clean_name or "no_vocal" in clean_name or "instrumental" in clean_name:
+        for fname in ["no_vocals.wav", "bgm.wav", "bgm_raw.wav"]:
+            cand = task_dir / fname
+            if cand.exists() and cand.is_file() and cand.stat().st_size > 0:
+                target_file = cand
+                break
+    else:
+        direct = task_dir / Path(asset_name).name
+        if direct.exists() and direct.is_file():
+            target_file = direct
+
+    if target_file and target_file.exists() and target_file.is_file():
+        return FileResponse(path=str(target_file), media_type="audio/wav")
+
+    raise HTTPException(status_code=404, detail=f"Không tìm thấy file âm thanh '{asset_name}'")
 
 
 @router.post("/cleanup-cache")

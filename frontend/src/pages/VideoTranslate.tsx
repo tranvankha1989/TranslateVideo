@@ -1153,8 +1153,8 @@ export default function VideoTranslate() {
 
 
   // 6. Xử lý tải video/phụ đề trực tiếp và mượt mà bằng trình duyệt (Không tốn RAM)
-  const handleDownloadFile = (id: string, fileType: "video" | "srt" | "srt_original", defaultFilename: string) => {
-    const typeLabel = fileType === "video" ? "video MP4" : fileType === "srt_original" ? "phụ đề thoại gốc (.SRT)" : "phụ đề dịch (.SRT)";
+  const handleDownloadFile = (id: string, fileType: "video" | "srt" | "srt_original" | "vocals" | "bgm" | "audio", defaultFilename: string) => {
+    const typeLabel = fileType === "video" ? "video MP4" : fileType === "srt_original" ? "phụ đề thoại gốc (.SRT)" : fileType === "vocals" ? "âm thanh giọng nói sạch (Vocals)" : fileType === "bgm" ? "nhạc nền không lời (BGM)" : fileType === "audio" ? "âm thanh lồng tiếng" : "phụ đề dịch (.SRT)";
     toast.info(`Bắt đầu tải ${typeLabel}...`);
     const downloadUrl = `http://localhost:8000/api/video-translate/download/${id}?file_type=${fileType}`;
     const link = document.createElement("a");
@@ -1230,11 +1230,11 @@ export default function VideoTranslate() {
               Dịch & Lồng Tiếng Video Tự Động
             </h1>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
-              VoiceSync AI Pro
+              VoiceSync AI Pro v3.0.1
             </span>
           </div>
           <p className="text-sm text-on-surface-variant max-w-2xl">
-            Tự động chuyển ngữ video sang bất kỳ ngôn ngữ nào: Nhận dạng giọng nói Faster-Whisper, Dịch thuật AI chuẩn ngữ cảnh, Lồng tiếng Edge-TTS / OmniVoice và Cân chỉnh tốc độ khớp khẩu hình.
+            Tự động chuyển ngữ video đa ngôn ngữ (V3.0.1): Tách giọng Demucs AI sạch 100% nhạc nền, Faster-Whisper Word Timestamps siêu chuẩn, Dịch thuật Gemini & Lồng tiếng Audio Ducking chuyên nghiệp.
           </p>
         </div>
 
@@ -2348,6 +2348,65 @@ export default function VideoTranslate() {
                     <span>📥 Tải File .SRT Gốc</span>
                   </button>
                 </div>
+
+                {/* 🎧 Trình nghe thử Vocals (Giọng nói sạch) & Nhạc nền BGM tách bởi Demucs AI */}
+                {isOriginalSrtReady && !isTranscribingOriginal && (
+                  <div className="p-4 rounded-2xl bg-black/30 border border-white/10 space-y-3 mt-3">
+                    <div className="flex items-center justify-between text-xs font-semibold text-on-surface">
+                      <span className="flex items-center gap-1.5 text-cyan-400">
+                        <Volume2 className="w-4 h-4" />
+                        🎧 Nghe thử Vocals sạch & Nhạc nền (Demucs AI):
+                      </span>
+                      <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">
+                        ✨ Whisper bóc băng từ Vocals
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                      {/* Vocals Player */}
+                      <div className="bg-surface/50 border border-white/5 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-cyan-300 flex items-center gap-1">
+                            🎙️ Giọng nói sạch (Vocals)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadFile(taskStatus?.task_id || taskId || "", "vocals", `vocals_${taskStatus?.task_id || taskId || "audio"}.wav`)}
+                            className="text-[10px] font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 hover:underline cursor-pointer"
+                          >
+                            <Download className="w-3 h-3" /> Tải .WAV
+                          </button>
+                        </div>
+                        <audio
+                          controls
+                          className="w-full h-8 accent-cyan-400"
+                          src={`http://localhost:8000/api/video-translate/audio-asset/${taskStatus?.task_id || taskId}/vocals`}
+                        />
+                      </div>
+
+                      {/* BGM Player */}
+                      <div className="bg-surface/50 border border-white/5 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-amber-300 flex items-center gap-1">
+                            🎵 Nhạc nền & SFX (BGM)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadFile(taskStatus?.task_id || taskId || "", "bgm", `bgm_${taskStatus?.task_id || taskId || "audio"}.wav`)}
+                            className="text-[10px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 hover:underline cursor-pointer"
+                          >
+                            <Download className="w-3 h-3" /> Tải .WAV
+                          </button>
+                        </div>
+                        <audio
+                          controls
+                          className="w-full h-8 accent-amber-400"
+                          src={`http://localhost:8000/api/video-translate/audio-asset/${taskStatus?.task_id || taskId}/bgm`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Bước 3: Nạp file SRT đã dịch */}

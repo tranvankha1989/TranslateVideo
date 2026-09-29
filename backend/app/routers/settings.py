@@ -99,9 +99,27 @@ async def get_hardware_settings():
     )
 
 
+def _clean_gpu_url(url: str | None) -> str:
+    """Hàm an toàn chuẩn hóa Cloud GPU Worker URL."""
+    if hasattr(model_handler, "normalize_remote_gpu_url"):
+        return model_handler.normalize_remote_gpu_url(url)
+    if not url:
+        return ""
+    cleaned = url.strip()
+    if not cleaned:
+        return ""
+    if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
+        cleaned = f"https://{cleaned}"
+    cleaned = cleaned.rstrip("/")
+    for suffix in ("/api/remote/health", "/gradio_api/remote/health", "/api/remote", "/gradio_api/remote", "/health"):
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[:-len(suffix)]
+    return cleaned.rstrip("/")
+
+
 @router.post("/hardware", response_model=HardwareSettingsResponse, summary="Cập nhật cấu hình phần cứng (.env)")
 async def update_hardware_settings(req: UpdateHardwareSettingsRequest):
-    url_cleaned = model_handler.normalize_remote_gpu_url(req.remote_gpu_url)
+    url_cleaned = _clean_gpu_url(req.remote_gpu_url)
     updates = {
         "USE_REMOTE_GPU": "true" if req.use_remote_gpu else "false",
         "REMOTE_GPU_URL": url_cleaned,
@@ -122,7 +140,7 @@ async def update_hardware_settings(req: UpdateHardwareSettingsRequest):
 
 @router.post("/hardware/test", response_model=TestRemoteGpuResponse, summary="Kiểm tra kết nối tới Cloud GPU Worker")
 async def test_remote_gpu(req: TestRemoteGpuRequest):
-    base_url = model_handler.normalize_remote_gpu_url(req.remote_gpu_url)
+    base_url = _clean_gpu_url(req.remote_gpu_url)
     if not base_url:
         return TestRemoteGpuResponse(ok=False, error="Vui lòng nhập đường dẫn URL của Cloud GPU Worker.")
 
@@ -243,6 +261,12 @@ async def reload_backend():
     """
     load_dotenv(ENV_FILE, override=True)
 
+    import importlib
+    try:
+        importlib.reload(model_handler)
+    except Exception as e:
+        logger.warning(f"Lỗi khi reload model_handler: {e}")
+
     # Nạp lại cấu hình model_handler
     model_handler.is_remote_gpu_enabled()
     model_handler.get_remote_gpu_url()
@@ -330,7 +354,7 @@ def _get_git_output(args: list[str], cwd: Path = REPO_ROOT, timeout: float = 12.
 async def get_app_version_endpoint():
     """Trả về thông tin phiên bản, ngày phát hành và commit Git hiện tại."""
     ver_data = {
-        "version": "2.9.0",
+        "version": "3.0.1",
         "name": "VoiceSync AI",
         "release_date": None,
         "description": None,
@@ -351,7 +375,7 @@ async def get_app_version_endpoint():
     date_code, commit_date = _get_git_output(["log", "-1", "--format=%cd", "--date=short"])
 
     return AppVersionResponse(
-        version=ver_data.get("version", "2.9.0"),
+        version=ver_data.get("version", "3.0.1"),
         name=ver_data.get("name", "VoiceSync AI"),
         release_date=ver_data.get("release_date"),
         description=ver_data.get("description"),

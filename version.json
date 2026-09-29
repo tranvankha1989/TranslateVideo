@@ -1,6 +1,6 @@
 {
-  "version": "2.9.0",
-  "name": "OmniVoice TTS Studio",
-  "release_date": "2026-09-26",
-  "description": "Bổ sung menu tùy chọn mô hình Gemini (gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash, gemini-2.5-flash-lite) và thanh chỉnh nhiệt độ sáng tạo (Temperature = 0.2)."
+  "version": "3.0.1",
+  "name": "OmniVoice TTS Studio & Video Translate AI",
+  "release_date": "2026-09-28",
+  "description": "Nâng cấp V3.0.1 Video Translate: Tích hợp Demucs AI Vocal Separation, Word Timestamps siêu chuẩn, Sidechain Audio Ducking và Gemini ASR Homophone Context Correction."
 }

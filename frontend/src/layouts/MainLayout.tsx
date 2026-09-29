@@ -20,13 +20,15 @@ export function MainLayout() {
   const location = useLocation();
   const checkStorageStatus = useTTSStore((state) => state.checkStorageStatus);
   const hardwareConfig = useTTSStore((state) => state.hardwareConfig);
+  const fetchHardwareSettings = useTTSStore((state) => state.fetchHardwareSettings);
   const syncStatus = useTTSStore((state) => state.syncStatus);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
-  // Tự động kiểm tra trạng thái lưu trữ đám mây / local trên toàn ứng dụng khi tải trang hoặc F5
+  // Tự động kiểm tra trạng thái lưu trữ đám mây & cấu hình phần cứng khi khởi động
   useEffect(() => {
     checkStorageStatus().catch(() => {});
-  }, [checkStorageStatus]);
+    fetchHardwareSettings().catch(() => {});
+  }, [checkStorageStatus, fetchHardwareSettings]);
 
   // Lưu trạng thái thu nhỏ sidebar vào localStorage để giữ trải nghiệm người dùng
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -216,21 +218,40 @@ export function MainLayout() {
         {/* GPU Mode Badge */}
         <Link
           to="/settings"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface/70 hover:bg-surface-variant/70 backdrop-blur-xl border border-white/10 text-[11px] font-mono text-on-surface-variant hover:text-on-surface transition-all shadow-sm group"
-          title="Cấu hình phần cứng & GPU"
+          className={cn(
+            "flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-xl border text-[11px] font-mono transition-all shadow-sm group",
+            hardwareConfig?.use_remote_gpu
+              ? "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-300"
+              : hardwareConfig?.cuda_available
+              ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300"
+              : "bg-surface/70 hover:bg-surface-variant/70 border-white/10 text-on-surface-variant hover:text-on-surface"
+          )}
+          title={
+            hardwareConfig?.use_remote_gpu
+              ? `Đang chạy qua Cloud GPU: ${hardwareConfig.remote_gpu_url || "Chưa gán URL"}`
+              : hardwareConfig?.cuda_available
+              ? `Đang chạy qua GPU máy cục bộ: ${hardwareConfig.cuda_device_name}`
+              : "Đang chạy qua CPU máy tính"
+          }
         >
           <span
             className={cn(
               "w-2 h-2 rounded-full",
               hardwareConfig?.use_remote_gpu
-                ? "bg-amber-400 animate-pulse"
+                ? "bg-amber-400 animate-pulse shadow-sm shadow-amber-400"
                 : hardwareConfig?.cuda_available
-                ? "bg-emerald-400"
+                ? "bg-emerald-400 shadow-sm shadow-emerald-400"
                 : "bg-blue-400"
             )}
           />
-          <Cpu className="w-3.5 h-3.5 text-primary" />
-          <span>{hardwareConfig?.use_remote_gpu ? "Cloud GPU" : hardwareConfig?.cuda_device_name ? "NVIDIA GPU" : "CPU"}</span>
+          <Cpu className="w-3.5 h-3.5" />
+          <span className="font-semibold">
+            {hardwareConfig?.use_remote_gpu
+              ? "Cloud GPU (Colab T4)"
+              : hardwareConfig?.cuda_device_name
+              ? `Local GPU (${hardwareConfig.cuda_device_name.replace("NVIDIA GeForce ", "")})`
+              : "CPU Mode"}
+          </span>
         </Link>
 
         {/* Cloud Sync Status */}

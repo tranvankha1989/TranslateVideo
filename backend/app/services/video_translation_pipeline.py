@@ -25,7 +25,7 @@ from app.services.dubbing_service import DubbingService, get_audio_duration, DUB
 from app.services.translator_service import TranslationService, GoogleTranslator
 from app.services.alignment_service import AlignmentService
 from app.services.ad_filter_service import AdFilterService
-from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local, sanitize_word_timestamps
+from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local, sanitize_word_timestamps, separate_vocals_demucs
 
 TRANSLATE_OUTPUT_DIR = OUTPUTS_DIR / "video_translate"
 TRANSLATE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -302,50 +302,24 @@ class VideoTranslationPipeline:
                 raw_audio = task_dir / "raw_audio.wav"
                 bgm = None
 
-                if preserve_bgm:
-                    bgm_raw = task_dir / "bgm.wav"
-                    # Trích xuất đồng thời BGM 44.1kHz stereo và raw_audio 16kHz mono trong 1 lệnh duy nhất
-                    cmd_single_pass = [
-                        "ffmpeg", "-y",
-                        "-threads", "0",
-                        "-i", str(video_path),
-                        "-vn", "-sn", "-dn",
-                        "-map", "0:a:0?",
-                        "-af", "aresample=async=1",
-                        "-acodec", "pcm_s16le",
-                        "-ar", "44100",
-                        "-ac", "2",
-                        str(bgm_raw),
-                        "-map", "0:a:0?",
-                        "-af", "aresample=async=1",
-                        "-acodec", "pcm_s16le",
-                        "-ar", "16000",
-                        "-ac", "1",
-                        str(raw_audio),
-                    ]
-                    res = subprocess.run(cmd_single_pass, capture_output=True, text=True)
-                    if res.returncode != 0 or not raw_audio.exists() or raw_audio.stat().st_size == 0:
-                        # Fallback nếu video thiếu stream phức tạp
-                        extract_audio(video_path, raw_audio)
-                        if raw_audio.exists() and raw_audio.stat().st_size > 0:
-                            import shutil
-                            shutil.copyfile(raw_audio, bgm_raw)
-
-                    bgm = bgm_raw if bgm_raw.exists() else None
-                else:
-                    extract_audio(video_path, raw_audio)
-
+                extract_audio(video_path, raw_audio)
                 dur = get_audio_duration(raw_audio)
-                return raw_audio, bgm, dur
+
+                # Tách giọng nói sạch (Vocals) và Nhạc nền (BGM) bằng Demucs AI / FFmpeg filter
+                vocal_res = separate_vocals_demucs(raw_audio, task_dir, enable_demucs=True)
+                whisper_audio = vocal_res.get("vocals", raw_audio)
+                bgm = vocal_res.get("bgm", raw_audio) if preserve_bgm else None
+
+                return raw_audio, whisper_audio, bgm, dur
 
             cls.update_task(
                 task_id,
                 progress=10,
                 current_step="extracting",
-                message="Đang trích xuất luồng âm thanh và phân tích nhạc nền từ video (FFmpeg)...",
+                message="Đang trích xuất luồng âm thanh và phân tích tách giọng nói sạch (Demucs AI / FFmpeg)...",
             )
 
-            raw_audio_path, bgm_path, video_duration = await asyncio.to_thread(do_extract_and_prepare_audio)
+            raw_audio_path, whisper_audio_path, bgm_path, video_duration = await asyncio.to_thread(do_extract_and_prepare_audio)
             cls.update_task(
                 task_id,
                 video_duration=video_duration,
@@ -358,17 +332,17 @@ class VideoTranslationPipeline:
                 task_id,
                 progress=18,
                 current_step="transcribing",
-                message=f"Đã trích xuất âm thanh ({round(video_duration, 1)}s). Đang khởi chạy Faster-Whisper ({whisper_model.upper()}) bóc tách thoại gốc...",
+                message=f"Đã trích xuất dải giọng nói sạch ({round(video_duration, 1)}s). Đang khởi chạy Faster-Whisper ({whisper_model.upper()}) bóc tách thoại gốc...",
             )
 
             lang_arg = None if source_lang == "auto" else source_lang.split("-")[0]
 
             def run_whisper():
                 logger.info(
-                    f"🎙️ [Whisper STT] Bắt đầu bóc băng video gốc '{video_path.name}' bằng mô hình '{whisper_model.upper()}' (Audio: {raw_audio_path.name}, Lang: {lang_arg or 'auto'}, VAD Thresh: {vad_threshold})"
+                    f"🎙️ [Whisper STT] Bắt đầu bóc băng video gốc '{video_path.name}' bằng mô hình '{whisper_model.upper()}' (Audio: {whisper_audio_path.name}, Lang: {lang_arg or 'auto'}, VAD Thresh: {vad_threshold})"
                 )
                 return transcribe_with_remote_or_local(
-                    audio_path=raw_audio_path,
+                    audio_path=whisper_audio_path,
                     language=source_lang,
                     model_size=whisper_model,
                     initial_prompt=None,
@@ -766,27 +740,26 @@ class VideoTranslationPipeline:
             }
             cls.update_task(task_id, **task_config)
 
-            # BƯỚC 1: Trích xuất âm thanh
+            # BƯỚC 1: Trích xuất âm thanh và tách giọng nói sạch
             raw_audio = task_dir / "raw_audio.wav"
-            bgm_raw = task_dir / "bgm_raw.wav"
 
             def do_extract():
                 extract_audio(video_path, raw_audio)
-                if raw_audio.exists() and raw_audio.stat().st_size > 0:
-                    import shutil
-                    shutil.copyfile(raw_audio, bgm_raw)
                 dur = get_audio_duration(raw_audio)
-                return raw_audio, bgm_raw, dur
+                vocal_res = separate_vocals_demucs(raw_audio, task_dir, enable_demucs=True)
+                whisper_audio = vocal_res.get("vocals", raw_audio)
+                bgm = vocal_res.get("bgm", raw_audio)
+                return raw_audio, whisper_audio, bgm, dur
 
             cls.update_task(
                 task_id,
                 progress=15,
                 current_step="extracting",
-                message="Đang trích xuất luồng âm thanh từ video...",
+                message="Đang trích xuất luồng âm thanh và phân tích tách giọng nói sạch (Demucs AI / FFmpeg)...",
                 _start_time=start_time,
                 created_at=start_time,
             )
-            raw_audio_path, bgm_path, video_duration = await asyncio.to_thread(do_extract)
+            raw_audio_path, whisper_audio_path, bgm_path, video_duration = await asyncio.to_thread(do_extract)
             cls.update_task(
                 task_id,
                 video_duration=video_duration,
@@ -806,7 +779,7 @@ class VideoTranslationPipeline:
             def run_whisper():
                 logger.info(f"🎙️ [Manual Whisper STT] Bắt đầu tạo phụ đề gốc video '{video_path.name}' bằng '{whisper_model}' (VAD Thresh={vad_threshold})")
                 return transcribe_with_remote_or_local(
-                    audio_path=raw_audio_path,
+                    audio_path=whisper_audio_path,
                     language=source_lang,
                     model_size=whisper_model,
                     initial_prompt=None,
@@ -1169,14 +1142,19 @@ class VideoTranslationPipeline:
                 elapsed_str=format_duration_vietnamese(time.time() - start_time),
             )
 
-            bgm_path = DUBBING_OUTPUT_DIR / task_id / "bgm.wav"
+            bgm_path = task_dir / "no_vocals.wav"
+            if not bgm_path.exists():
+                bgm_path = task_dir / "bgm.wav"
+            if not bgm_path.exists():
+                bgm_path = DUBBING_OUTPUT_DIR / task_id / "bgm.wav"
             if not bgm_path.exists() and (task_dir / "bgm_raw.wav").exists():
                 bgm_path = task_dir / "bgm_raw.wav"
-            elif not bgm_path.exists() and (task_dir / "bgm.wav").exists():
-                bgm_path = task_dir / "bgm.wav"
-            elif not bgm_path.exists() and p_bgm:
-                vocal_res = await asyncio.to_thread(DubbingService.separate_vocal_bgm, video_path, session_id=task_id)
-                bgm_path = Path(vocal_res.get("bgm_audio", ""))
+            if not bgm_path.exists() and p_bgm:
+                raw_audio = task_dir / "raw_audio.wav"
+                if not raw_audio.exists():
+                    extract_audio(video_path, raw_audio)
+                vocal_res = separate_vocals_demucs(raw_audio, task_dir, enable_demucs=True)
+                bgm_path = vocal_res.get("bgm", raw_audio)
 
             timeline_res = AlignmentService.build_full_timeline(
                 segments=dub_res["dubbed_segments"],
@@ -1611,12 +1589,19 @@ class VideoTranslationPipeline:
         max_speed = max_speed_rate if max_speed_rate is not None else float(task_meta.get("max_speed_rate", 1.35))
         out_res = output_resolution or task_meta.get("output_resolution", "720p")
 
-        bgm_path = task_dir / "bgm.wav"
+        bgm_path = task_dir / "no_vocals.wav"
+        if not bgm_path.exists():
+            bgm_path = task_dir / "bgm.wav"
         if not bgm_path.exists():
             bgm_path = DUBBING_OUTPUT_DIR / task_id / "bgm.wav"
+        if not bgm_path.exists() and (task_dir / "bgm_raw.wav").exists():
+            bgm_path = task_dir / "bgm_raw.wav"
         if not bgm_path.exists() and p_bgm:
-            vocal_res = await asyncio.to_thread(DubbingService.separate_vocal_bgm, video_path, session_id=task_id)
-            bgm_path = Path(vocal_res.get("bgm_audio", ""))
+            raw_audio = task_dir / "raw_audio.wav"
+            if not raw_audio.exists():
+                extract_audio(video_path, raw_audio)
+            vocal_res = separate_vocals_demucs(raw_audio, task_dir, enable_demucs=True)
+            bgm_path = vocal_res.get("bgm", raw_audio)
 
         # 1. Ráp timeline audio siêu nhanh từ các file seg_xxxx.mp3 đã có
         timeline_res = AlignmentService.build_full_timeline(

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { API_BASE_URL } from "@/constants/api";
 
 export interface AudioRecord {
   id: string;
@@ -1056,7 +1057,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
     fetchHardwareSettings: async () => {
       try {
         set({ isLoadingHardware: true });
-        const res = await fetch("http://localhost:8000/api/settings/hardware");
+        const res = await fetch(`${API_BASE_URL}/api/settings/hardware`);
         if (res.ok) {
           const data: HardwareConfig = await res.json();
           set({ hardwareConfig: data });
@@ -1070,7 +1071,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
     updateHardwareSettings: async (payload) => {
       try {
         set({ isLoadingHardware: true });
-        const res = await fetch("http://localhost:8000/api/settings/hardware", {
+        const res = await fetch(`${API_BASE_URL}/api/settings/hardware`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -1090,11 +1091,18 @@ export const useTTSStore = create<TTSState>((set, get) => {
     },
     testRemoteGpuConnection: async (url: string) => {
       try {
-        const res = await fetch("http://localhost:8000/api/settings/hardware/test", {
+        const res = await fetch(`${API_BASE_URL}/api/settings/hardware/test`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ remote_gpu_url: url }),
         });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          return {
+            ok: false,
+            error: errData?.detail || `Lỗi máy chủ Backend HTTP ${res.status}`,
+          };
+        }
         return await res.json();
       } catch (err: any) {
         return { ok: false, error: err.message || "Lỗi kết nối mạng" };
@@ -1102,7 +1110,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
     },
     openEnvFile: async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/settings/open-env", {
+        const res = await fetch(`${API_BASE_URL}/api/settings/open-env`, {
           method: "POST",
         });
         const data = await res.json();
@@ -1114,7 +1122,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
     reloadBackend: async () => {
       try {
         set({ isLoadingHardware: true });
-        const res = await fetch("http://localhost:8000/api/settings/reload-backend", {
+        const res = await fetch(`${API_BASE_URL}/api/settings/reload-backend`, {
           method: "POST",
         });
         const data = await res.json();
@@ -1131,7 +1139,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
     appVersionInfo: null,
     fetchAppVersion: async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/settings/app-version");
+        const res = await fetch(`${API_BASE_URL}/api/settings/app-version`);
         if (res.ok) {
           const data: AppVersionInfo = await res.json();
           set({ appVersionInfo: data });
@@ -1145,7 +1153,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
     },
     checkAppUpdate: async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/settings/check-update", {
+        const res = await fetch(`${API_BASE_URL}/api/settings/check-update`, {
           method: "POST",
         });
         const data: CheckUpdateResult = await res.json();
@@ -1164,7 +1172,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
     },
     performAppUpdate: async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/settings/perform-update", {
+        const res = await fetch(`${API_BASE_URL}/api/settings/perform-update`, {
           method: "POST",
         });
         const data: PerformUpdateResult = await res.json();

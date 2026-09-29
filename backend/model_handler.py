@@ -75,14 +75,32 @@ def is_remote_gpu_enabled() -> bool:
         or os.getenv("USE_COLAB_GPU", "").lower() in ("true", "1", "yes")
     )
 
+def normalize_remote_gpu_url(url: str | None) -> str:
+    """Chuẩn hóa URL của Remote GPU Worker."""
+    if not url:
+        return ""
+    cleaned = url.strip()
+    if not cleaned:
+        return ""
+    if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
+        cleaned = f"https://{cleaned}"
+    # Loại bỏ các endpoint phía sau nếu người dùng copy nhầm cả đường dẫn đầy đủ
+    cleaned = cleaned.rstrip("/")
+    for suffix in ("/api/remote/health", "/gradio_api/remote/health", "/api/remote", "/gradio_api/remote", "/health"):
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[:-len(suffix)]
+    return cleaned.rstrip("/")
+
+
 def get_remote_gpu_url() -> str:
     load_dotenv(override=True)
-    return (
+    raw = (
         os.getenv("REMOTE_GPU_URL")
         or os.getenv("HUGGINGFACE_GPU_URL")
         or os.getenv("COLAB_API_URL")
         or ""
-    ).rstrip("/")
+    )
+    return normalize_remote_gpu_url(raw)
 
 # Tương thích ngược
 USE_REMOTE_GPU = is_remote_gpu_enabled()

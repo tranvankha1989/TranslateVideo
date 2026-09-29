@@ -111,6 +111,82 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
     return output_audio_path
 
 
+def separate_vocals_demucs(audio_path: Path, output_dir: Path, enable_demucs: bool = True) -> dict[str, Path]:
+    """
+    Tách giọng nói (vocals.wav) và nhạc nền/hiệu ứng (no_vocals.wav / bgm.wav) bằng Demucs AI (Meta AI).
+    Nếu demucs chưa được cài đặt hoặc có lỗi, tự động fallback an toàn qua FFmpeg Vocal/BGM filter.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    vocals_path = output_dir / "vocals.wav"
+    bgm_path = output_dir / "no_vocals.wav"
+
+    if vocals_path.exists() and bgm_path.exists() and vocals_path.stat().st_size > 1000:
+        return {"vocals": vocals_path, "bgm": bgm_path, "method": "cache"}
+
+    if enable_demucs:
+        try:
+            import sys
+            import shutil
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(f"🎙️ [Demucs AI] Bắt đầu tách giọng nói và nhạc nền (Device: {device.upper()})...")
+            
+            py_bin = sys.executable
+            venv_py = Path(__file__).resolve().parent / "venv" / "Scripts" / "python.exe"
+            if venv_py.exists():
+                py_bin = str(venv_py)
+
+            cmd = [
+                py_bin,
+                "-m", "demucs.separate",
+                "--two-stems=vocals",
+                "-n", "htdemucs",
+                "-d", device,
+                "-o", str(output_dir / "demucs_out"),
+                str(audio_path),
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
+            if res.returncode == 0:
+                audio_stem = audio_path.stem
+                demucs_vocals = output_dir / "demucs_out" / "htdemucs" / audio_stem / "vocals.wav"
+                demucs_bgm = output_dir / "demucs_out" / "htdemucs" / audio_stem / "no_vocals.wav"
+                if demucs_vocals.exists() and demucs_bgm.exists():
+                    shutil.copyfile(demucs_vocals, vocals_path)
+                    shutil.copyfile(demucs_bgm, bgm_path)
+                    logger.info("✨ [Demucs AI] Tách thành công Vocals và BGM chất lượng cao!")
+                    return {"vocals": vocals_path, "bgm": bgm_path, "method": "demucs"}
+            else:
+                logger.warning(f"⚠️ Demucs CLI trả về mã lỗi {res.returncode}: {res.stderr[:200]}")
+        except Exception as demucs_err:
+            logger.warning(f"⚠️ Không thể chạy Demucs AI ({demucs_err}), chuyển sang tách âm thanh bằng FFmpeg filter...")
+
+    # Fallback chất lượng cao bằng FFmpeg Center-Channel Vocal / BGM Extraction
+    try:
+        import shutil
+        cmd_bgm = [
+            "ffmpeg", "-y", "-i", str(audio_path),
+            "-af", "pan=stereo|c0=c0-c1|c1=c1-c0,volume=1.4",
+            "-ar", "44100", "-ac", "2",
+            str(bgm_path),
+        ]
+        subprocess.run(cmd_bgm, capture_output=True, check=True)
+
+        cmd_vocals = [
+            "ffmpeg", "-y", "-i", str(audio_path),
+            "-af", "highpass=f=120,lowpass=f=7500,afftdn=nf=-25",
+            "-ar", "16000", "-ac", "1",
+            str(vocals_path),
+        ]
+        subprocess.run(cmd_vocals, capture_output=True, check=True)
+        return {"vocals": vocals_path, "bgm": bgm_path, "method": "ffmpeg_filter"}
+    except Exception as e:
+        logger.warning(f"⚠️ FFmpeg vocal separation fallback lỗi ({e}), sao chép audio gốc...")
+        import shutil
+        shutil.copyfile(audio_path, vocals_path)
+        shutil.copyfile(audio_path, bgm_path)
+        return {"vocals": vocals_path, "bgm": bgm_path, "method": "raw_copy"}
+
+
 SENTENCE_ENDINGS = re.compile(r"[.!?。！？…]+['\"”’]?$")
 CLAUSE_ENDINGS = re.compile(r"[,;:\-–—，、；：]+['\"”’]?$")
 
@@ -564,8 +640,12 @@ def transcribe_video_audio(
     if reference_script and reference_script.strip():
         prompt_snippet = reference_script.strip()[:450]
 
+    # Tách giọng nói sạch (Vocals) bằng Demucs AI để loại bỏ 100% nhạc nền trước khi đưa vào Whisper
+    vocal_res = separate_vocals_demucs(audio_path, audio_path.parent, enable_demucs=True)
+    whisper_audio = vocal_res.get("vocals", audio_path)
+
     result_segments, _ = transcribe_with_remote_or_local(
-        audio_path=audio_path,
+        audio_path=whisper_audio,
         language=language,
         model_size=model_size,
         initial_prompt=prompt_snippet,
