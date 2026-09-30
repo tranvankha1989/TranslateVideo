@@ -1,7 +1,6 @@
 {
-  "version": "3.1.0",
+  "version": "3.2.0",
   "name": "OmniVoice TTS Studio & Video Translate AI",
-  "release_date": "2026-09-30",
-  "description": "Nâng cấp V3.1.0: Tùy chọn BGM Type âm thanh gốc, Prompt AI dịch tùy biến linh hoạt, Studio tích hợp trực quan, tối ưu tải xuống và đồng bộ UI."
+  "release_date": "2026-10-01",
+  "description": "Nâng cấp V3.2.0: Giao diện Video Translate tinh gọn, Dropdown cấu hình trực quan, Quản lý Terminal tự động thu nhỏ và tự đóng thông minh, tối ưu xuất bản video."
 }
-

@@ -277,6 +277,9 @@ $timer.add_Tick({
                     Write-Host "VoiceSync AI da san sang! Dang mo trinh duyet..." -ForegroundColor Green
                     Start-Process "http://localhost:5173"
                     $notifyIcon.Text = "VoiceSync AI (Đang hoạt động)"
+                    # Tự động thu nhỏ / ẩn Terminal xuống khay hệ thống để tránh bấm nhầm dấu X
+                    Start-Sleep -Milliseconds 800
+                    Hide-TerminalWindow
                 }
             } catch {}
         }
@@ -287,7 +290,7 @@ $timer.add_Tick({
             $sys = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/system/status' -TimeoutSec 2 -ErrorAction Stop
             $script:backendDeadSeconds = 0 # Đã kết nối thành công, reset counter
             if ($sys -and $sys.should_shutdown -eq $true) {
-                Write-Host "Phat hien tat ca tab trinh duyet da dong qua 10 phut. Dang tu dong tat Terminal..." -ForegroundColor Yellow
+                Write-Host "Phat hien tat ca tab trinh duyet da dong. Dang tu dong tat Terminal..." -ForegroundColor Yellow
                 & $script:ExitApplication
                 return
             }

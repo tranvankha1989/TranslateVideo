@@ -58,8 +58,8 @@ async def get_system_status():
     global _has_received_heartbeat, _no_tab_since, _should_shutdown
     now = time.time()
 
-    # Dọn dẹp tab đã quá hạn 30 giây không gửi heartbeat (chống tab bị trình duyệt đưa vào sleep mode)
-    expired = [tid for tid, t in _active_tabs.items() if now - t > 30.0]
+    # Dọn dẹp tab đã quá hạn 10 giây không gửi heartbeat
+    expired = [tid for tid, t in _active_tabs.items() if now - t > 10.0]
     for tid in expired:
         _active_tabs.pop(tid, None)
 
@@ -67,7 +67,7 @@ async def get_system_status():
         if len(_active_tabs) == 0:
             if _no_tab_since == 0.0:
                 _no_tab_since = now
-            elif now - _no_tab_since >= 600.0:
+            elif now - _no_tab_since >= 6.0:
                 _should_shutdown = True
         else:
             _no_tab_since = 0.0
@@ -84,17 +84,17 @@ async def get_system_status():
 async def monitor_browser_lifetime():
     """
     Vòng lặp chạy ngầm trong server:
-    Khi người dùng đã mở trình duyệt và sau đó đóng toàn bộ các tab localhost quá 10 phút,
-    tiến trình backend sẽ tự động giải phóng tài nguyên (tránh ngắt kết nối đột ngột khi treo máy hoặc reload trang).
+    Khi người dùng đã mở trình duyệt và sau đó đóng toàn bộ các tab localhost quá 6 giây,
+    tiến trình backend sẽ tự động giải phóng tài nguyên và thoát sạch tiến trình.
     """
     global _has_received_heartbeat, _no_tab_since, _should_shutdown
-    logger.info("🛡️ Giám sát tab trình duyệt đã kích hoạt (Grace period: 10 phút chống tắt nhầm khi treo tab).")
+    logger.info("🛡️ Giám sát tab trình duyệt đã kích hoạt (Tự đóng terminal sau 6s khi tắt hết tab).")
     while True:
         await asyncio.sleep(3.0)
         now = time.time()
 
-        # Dọn dẹp các tab mất kết nối quá 30 giây
-        expired = [tid for tid, t in _active_tabs.items() if now - t > 30.0]
+        # Dọn dẹp các tab mất kết nối quá 10 giây
+        expired = [tid for tid, t in _active_tabs.items() if now - t > 10.0]
         for tid in expired:
             _active_tabs.pop(tid, None)
 
@@ -102,9 +102,9 @@ async def monitor_browser_lifetime():
             if len(_active_tabs) == 0:
                 if _no_tab_since == 0.0:
                     _no_tab_since = now
-                elif now - _no_tab_since >= 600.0:
+                elif now - _no_tab_since >= 6.0:
                     _should_shutdown = True
-                    logger.info("🛑 Phát hiện người dùng đã đóng toàn bộ tab trình duyệt quá 10 phút.")
+                    logger.info("🛑 Phát hiện người dùng đã đóng toàn bộ tab trình duyệt.")
                     logger.info("👋 Đang tự động đóng hệ thống và tắt terminal...")
                     await asyncio.sleep(0.5)
                     import signal
