@@ -31,6 +31,7 @@ from app.schemas.video_translate import (
 )
 from app.services.translator_service import GoogleAIStudioTranslator, GoogleTranslator
 from app.services.translation_memory_service import TranslationMemoryService
+from app.services.dubbing_service import DUBBING_OUTPUT_DIR
 from app.services.video_translation_pipeline import (
     VideoTranslationPipeline,
     TRANSLATE_OUTPUT_DIR,

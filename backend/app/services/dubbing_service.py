@@ -26,7 +26,7 @@ from app.core.config import (
     CUSTOM_VOICES_JSON,
     logger,
 )
-from model_handler import generate_audio, VoiceClonePrompt
+from model_handler import generate_audio, VoiceClonePrompt, is_remote_gpu_enabled
 
 DUBBING_OUTPUT_DIR = OUTPUTS_DIR / "dubbing"
 DUBBING_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
