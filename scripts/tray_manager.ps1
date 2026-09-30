@@ -10,7 +10,8 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
     try {
         $script:singleInstanceMutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$createdNew)
         if ($createdNew) { break }
-    } catch {}
+    }
+    catch {}
 
     # Nếu mutex đang bị tiến trình cũ chưa kịp giải phóng, dọn dẹp các instance cũ
     Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
@@ -90,7 +91,8 @@ function Get-TerminalHWnd {
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
 if (Test-Path $iconPath) {
     $notifyIcon.Icon = New-Object System.Drawing.Icon($iconPath)
-} else {
+}
+else {
     $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
 }
 
@@ -132,12 +134,13 @@ function Hide-TerminalWindow {
 }
 
 $notifyIcon.add_DoubleClick({
-    if ($script:isWindowHidden) {
-        Restore-TerminalWindow
-    } else {
-        Hide-TerminalWindow
-    }
-})
+        if ($script:isWindowHidden) {
+            Restore-TerminalWindow
+        }
+        else {
+            Hide-TerminalWindow
+        }
+    })
 
 # 3. Context Menu khi chuột phải vào Tray Icon
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -146,24 +149,25 @@ $contextMenu.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 
 $menuOpenWeb = $contextMenu.Items.Add("Mở Giao diện Web (Localhost:5173)")
 $menuOpenWeb.add_Click({
-    Start-Process "http://localhost:5173"
-})
+        Start-Process "http://localhost:5173"
+    })
 
 $menuOpenLogs = $contextMenu.Items.Add("Mở Thư Mục Logs Báo Lỗi")
 $menuOpenLogs.add_Click({
-    $logsPath = Join-Path $projectDir "logs"
-    if (-not (Test-Path $logsPath)) { New-Item -ItemType Directory -Path $logsPath -Force | Out-Null }
-    Start-Process "explorer.exe" $logsPath
-})
+        $logsPath = Join-Path $projectDir "logs"
+        if (-not (Test-Path $logsPath)) { New-Item -ItemType Directory -Path $logsPath -Force | Out-Null }
+        Start-Process "explorer.exe" $logsPath
+    })
 
 $menuToggle = $contextMenu.Items.Add("Hiện / Ẩn Terminal")
 $menuToggle.add_Click({
-    if ($script:isWindowHidden) {
-        Restore-TerminalWindow
-    } else {
-        Hide-TerminalWindow
-    }
-})
+        if ($script:isWindowHidden) {
+            Restore-TerminalWindow
+        }
+        else {
+            Hide-TerminalWindow
+        }
+    })
 
 $contextMenu.Items.Add("-") | Out-Null
 
@@ -222,8 +226,8 @@ $script:ExitApplication = {
 
 $menuExit = $contextMenu.Items.Add("Thoát hoàn toàn OmniVoice")
 $menuExit.add_Click({
-    & $script:ExitApplication
-})
+        & $script:ExitApplication
+    })
 
 
 $notifyIcon.ContextMenuStrip = $contextMenu
@@ -237,66 +241,70 @@ $script:isTickRunning = $false
 $script:backendDeadSeconds = 0
 
 $timer.add_Tick({
-    if ($script:isTickRunning) { return }
-    $script:isTickRunning = $true
-    try {
-        if (-not $script:browserOpened) {
-            try {
-                $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 2 -ErrorAction Stop
-                if ($r.status -eq 'ok') {
-                    # Đánh dấu đã mở NGAY LẬP TỨC để tránh bất kỳ event timer nào gọi trùng lặp
-                    $script:browserOpened = $true
-                    Write-Host "VoiceSync AI da san sang! Dang mo trinh duyet..." -ForegroundColor Green
-                    Start-Process "http://localhost:5173"
-                    $notifyIcon.Text = "VoiceSync AI (Đang hoạt động)"
-                    # Tự động thu nhỏ / ẩn Terminal xuống khay hệ thống để tránh bấm nhầm dấu X
-                    Start-Sleep -Milliseconds 800
+        if ($script:isTickRunning) { return }
+        $script:isTickRunning = $true
+        try {
+            if (-not $script:browserOpened) {
+                try {
+                    $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 2 -ErrorAction Stop
+                    if ($r.status -eq 'ok') {
+                        # Đánh dấu đã mở NGAY LẬP TỨC để tránh bất kỳ event timer nào gọi trùng lặp
+                        $script:browserOpened = $true
+                        Write-Host "VoiceSync AI da san sang! Dang mo trinh duyet..." -ForegroundColor Green
+                        Start-Process "http://localhost:5173"
+                        $notifyIcon.Text = "VoiceSync AI (Đang hoạt động)"
+                        # Tự động thu nhỏ / ẩn Terminal xuống khay hệ thống để tránh bấm nhầm dấu X
+                        Start-Sleep -Milliseconds 800
+                        Hide-TerminalWindow
+                    }
+                }
+                catch {}
+            }
+
+            # KHI TRÌNH DUYỆT ĐÃ MỞ: Kiểm tra nếu người dùng đã đóng tất cả tab localhost
+            if ($script:browserOpened) {
+                try {
+                    $sys = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/system/status' -TimeoutSec 2 -ErrorAction Stop
+                    $script:backendDeadSeconds = 0 # Đã kết nối thành công, reset counter
+                    if ($sys -and $sys.should_shutdown -eq $true) {
+                        Write-Host "Phat hien tat ca tab trinh duyet da dong. Dang tu dong tat Terminal..." -ForegroundColor Yellow
+                        & $script:ExitApplication
+                        return
+                    }
+                }
+                catch {
+                    # Chỉ coi là backend đã tắt nếu tiến trình Python backend thực sự không còn tồn tại
+                    $beProc = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+                        $_.CommandLine -like "*uvicorn*main:app*" -or ($_.Name -eq "python.exe" -and $_.CommandLine -like "*self-tts*backend*")
+                    }
+                    if (-not $beProc) {
+                        $script:backendDeadSeconds += 3
+                        if ($script:backendDeadSeconds -ge 60) {
+                            Write-Host "Tien trinh Backend da tat. Dang tu dong dong Terminal..." -ForegroundColor Gray
+                            & $script:ExitApplication
+                            return
+                        }
+                    }
+                    else {
+                        $script:backendDeadSeconds = 0
+                    }
+                }
+            }
+
+            if ($script:targetHWnd -eq [IntPtr]::Zero) {
+                $script:targetHWnd = Get-TerminalHWnd
+            }
+
+            if ($script:targetHWnd -ne [IntPtr]::Zero -and -not $script:isWindowHidden) {
+                if ([Win32Tray]::IsIconic($script:targetHWnd)) {
                     Hide-TerminalWindow
                 }
-            } catch {}
-        }
-
-    # KHI TRÌNH DUYỆT ĐÃ MỞ: Kiểm tra nếu người dùng đã đóng tất cả tab localhost
-    if ($script:browserOpened) {
-        try {
-            $sys = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/system/status' -TimeoutSec 2 -ErrorAction Stop
-            $script:backendDeadSeconds = 0 # Đã kết nối thành công, reset counter
-            if ($sys -and $sys.should_shutdown -eq $true) {
-                Write-Host "Phat hien tat ca tab trinh duyet da dong. Dang tu dong tat Terminal..." -ForegroundColor Yellow
-                & $script:ExitApplication
-                return
-            }
-        } catch {
-            # Chỉ coi là backend đã tắt nếu tiến trình Python backend thực sự không còn tồn tại
-            $beProc = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-                $_.CommandLine -like "*uvicorn*main:app*" -or ($_.Name -eq "python.exe" -and $_.CommandLine -like "*self-tts*backend*")
-            }
-            if (-not $beProc) {
-                $script:backendDeadSeconds += 3
-                if ($script:backendDeadSeconds -ge 60) {
-                    Write-Host "Tien trinh Backend da tat. Dang tu dong dong Terminal..." -ForegroundColor Gray
-                    & $script:ExitApplication
-                    return
-                }
-            } else {
-                $script:backendDeadSeconds = 0
             }
         }
-    }
-
-    if ($script:targetHWnd -eq [IntPtr]::Zero) {
-        $script:targetHWnd = Get-TerminalHWnd
-    }
-
-    if ($script:targetHWnd -ne [IntPtr]::Zero -and -not $script:isWindowHidden) {
-        if ([Win32Tray]::IsIconic($script:targetHWnd)) {
-            Hide-TerminalWindow
+        finally {
+            $script:isTickRunning = $false
         }
-    }
-} finally {
-    $script:isTickRunning = $false
-}
-})
+    })
 
 $timer.Start()
 
@@ -304,7 +312,8 @@ Write-Host "Tray Manager da khoi dong. Khi thu nho Terminal se tu dong an xuong 
 
 try {
     [System.Windows.Forms.Application]::Run()
-} finally {
+}
+finally {
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
 }
