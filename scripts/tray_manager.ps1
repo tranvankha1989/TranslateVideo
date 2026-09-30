@@ -52,34 +52,6 @@ Add-Type -TypeDefinition $cSource -ErrorAction SilentlyContinue
 $projectDir = (Get-Item $PSScriptRoot).Parent.FullName
 $iconPath = Join-Path $projectDir "assets\app.ico"
 
-# 0. Kiểm tra cấu hình Remote GPU trong backend/.env
-$envFile = Join-Path $projectDir "backend\.env"
-if (Test-Path $envFile) {
-    $useRemote = $false
-    $remoteUrl = ""
-    $colabUrl = ""
-
-    Get-Content $envFile -Encoding UTF8 | ForEach-Object {
-        $line = $_.Trim()
-        if ($line -and -not $line.StartsWith("#")) {
-            $parts = $line -split "=", 2
-            if ($parts.Length -eq 2) {
-                $k = $parts[0].Trim()
-                $v = $parts[1].Trim().Trim('"').Trim("'")
-                if ($k -eq "USE_REMOTE_GPU") { $useRemote = ($v.ToLower() -eq "true") }
-                if ($k -eq "REMOTE_GPU_URL") { $remoteUrl = $v.ToLower() }
-                if ($k -eq "COLAB_NOTEBOOK_URL" -and $v) { $colabUrl = $v }
-            }
-        }
-    }
-
-    if (-not $colabUrl) {
-        $colabUrl = "https://colab.research.google.com/github/tranvankha1989/VoxCPM-TTS/blob/main/notebooks/OmniVoice_Colab_T4.ipynb"
-    }
-
-    # check_online_gpu.ps1 da tu dong quan ly viec mo Google Colab va dem nguoc 60 giay
-}
-
 # 1. Tìm Handle của cửa sổ Terminal
 function Get-TerminalHWnd {
     $proc = Get-Process | Where-Object { $_.MainWindowTitle -like '*VoiceSync AI Launcher*' -or $_.MainWindowTitle -like '*OmniVoice Launcher*' } | Select-Object -First 1
