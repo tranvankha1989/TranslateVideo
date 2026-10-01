@@ -9,6 +9,7 @@ Chào mừng bạn đến với tài liệu hướng dẫn toàn diện từ A -
 
 ## 🧭 Mục Lục Điều Hướng Nhanh
 
+* 🌟 **[HƯỚNG DẪN CÀI ĐẶT CHI TIẾT CHO MÁY MỚI (TỪ A - Z)](HUONG_DAN_CAI_DAT_MAY_MOI.md)** *(Khuyên đọc)*
 1. [Phần 1: Hướng Dẫn Dành Cho Windows (A - Z)](#-phần-1-hướng-dẫn-dành-cho-windows-a---z)
    * 1.1. [Cài đặt phần mềm bắt buộc](#11-cài-đặt-các-phần-mềm-bắt-buộc-trên-windows)
    * 1.2. [Kéo code từ GitHub về máy](#12-kéo-code-từ-github-về-máy-windows)
