@@ -147,13 +147,14 @@ Mở file `backend/.env` bằng **Notepad** hoặc **VS Code** và chỉnh sửa
 # Bật tính năng Remote GPU
 USE_REMOTE_GPU=true
 
-# URL Worker Space Hugging Face của bạn:
-REMOTE_GPU_URL=https://tranvankha2807-translate.hf.space
+# URL Worker Space Hugging Face:
+REMOTE_GPU_URL=https://your-username-your-space.hf.space
 
 # Access Token Hugging Face để tự động đánh thức khi mở app:
-HF_TOKEN=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
-HF_SPACE_REPO=tranvankha2807/Translate
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+HF_SPACE_REPO=your-username/your-space-name
 ```
+> 💡 *Cách lấy Token riêng: Truy cập [Hugging Face Settings -> Access Tokens](https://huggingface.co/settings/tokens) ➔ Tạo token loại `Write` và dán vào.*  
 > ⚡ *Khi cấu hình như trên, mỗi khi mở app trên máy tính, hệ thống sẽ tự động gửi lệnh API đánh thức ZeroGPU trên Hugging Face nếu nó đang ngủ, bạn không cần vào trình duyệt thao tác.*
 
 ### Lựa chọn B: Dùng Google Colab GPU T4 Miễn Phí
@@ -183,7 +184,7 @@ Tại thư mục gốc dự án (`TranslateVideo`):
      start.bat
      ```
 2. **Quy trình hệ thống tự động thực hiện:**
-   * Tự động tạo biểu tượng **Shortcut OmniVoice TTS** ngoài màn hình Desktop (nếu chưa có).
+   * Tự động tạo biểu tượng **Shortcut VideoTranslate AI** ngoài màn hình Desktop (nếu chưa có).
    * Kiểm tra và gửi lệnh đánh thức Hugging Face Space / Google Colab nếu có bật Remote GPU.
    * Khởi chạy đồng thời Backend API (`http://localhost:8000`) và Frontend UI (`http://localhost:5173`).
    * **Tự động mở trình duyệt web** ngay khi hệ thống sẵn sàng.
