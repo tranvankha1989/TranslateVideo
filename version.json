@@ -1,6 +1,6 @@
 {
-  "version": "3.2.0",
+  "version": "3.3.0",
   "name": "OmniVoice TTS Studio & Video Translate AI",
   "release_date": "2026-10-01",
-  "description": "Nâng cấp V3.2.0: Giao diện Video Translate tinh gọn, Dropdown cấu hình trực quan, Quản lý Terminal tự động thu nhỏ và tự đóng thông minh, tối ưu xuất bản video."
+  "description": "Nâng cấp V3.3.0: Tự động đánh thức Hugging Face ZeroGPU khi khởi động, tối ưu kết nối Cloud GPU/Colab, giao diện Video Translate tinh gọn và xuất bản thông minh."
 }
