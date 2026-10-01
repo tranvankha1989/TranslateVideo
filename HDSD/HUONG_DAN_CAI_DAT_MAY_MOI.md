@@ -1,5 +1,5 @@
 # 📖 HƯỚNG DẪN CÀI ĐẶT ỨNG DỤNG CHI TIẾT CHO MÁY MỚI (TỪ A - Z)
-> **Dự án:** OmniVoice TTS Studio & Video Translate AI  
+> **Dự án:** VideoTranslate AI (Dịch Video & Lồng Tiếng AI Đa Ngôn Ngữ)  
 > **Phiên bản:** v3.3.0  
 > **Kho lưu trữ GitHub:** [https://github.com/tranvankha1989/TranslateVideo](https://github.com/tranvankha1989/TranslateVideo)
 

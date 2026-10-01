@@ -1,6 +1,6 @@
 # 📚 CẨM NANG HƯỚNG DẪN CÀI ĐẶT & KÉO CODE (WINDOWS & MACOS)
 
-Chào mừng bạn đến với tài liệu hướng dẫn toàn diện từ A - Z để **kéo mã nguồn (clone/pull)** và **thiết lập môi trường chạy ứng dụng OmniVoice Studio (TranslateVideo)** sang một máy tính mới.
+Chào mừng bạn đến với tài liệu hướng dẫn toàn diện từ A - Z để **kéo mã nguồn (clone/pull)** và **thiết lập môi trường chạy ứng dụng VideoTranslate AI** sang một máy tính mới.
 
 * Kho lưu trữ GitHub chính thức: **[https://github.com/tranvankha1989/TranslateVideo](https://github.com/tranvankha1989/TranslateVideo)**
 * Hỗ trợ đầy đủ: **Windows 10 / 11** và **macOS (Apple Silicon M1-M4 & Mac Intel)**.

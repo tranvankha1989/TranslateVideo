@@ -8,7 +8,7 @@ $desktopDir = [Environment]::GetFolderPath('Desktop')
 $projectDir = (Get-Item $PSScriptRoot).Parent.FullName
 $batPath = Join-Path $projectDir "start.bat"
 $iconPath = Join-Path $projectDir "assets\app1.ico"
-$shortcutPath = Join-Path $desktopDir "VoiceSync AI.lnk"
+$shortcutPath = Join-Path $desktopDir "VideoTranslate AI.lnk"
 
 # Nếu chạy chế độ Silent từ start.bat và shortcut đã tồn tại thì bỏ qua ngay
 if ($Silent -and (Test-Path $shortcutPath)) {
@@ -23,7 +23,8 @@ if (Test-Path $shortcutPath) {
 # Xóa các shortcut cũ khác nếu có
 $oldShortcuts = @(
     (Join-Path $desktopDir "start.bat - Shortcut.lnk"),
-    (Join-Path $desktopDir "OmniVoice TTS.lnk")
+    (Join-Path $desktopDir "OmniVoice TTS.lnk"),
+    (Join-Path $desktopDir "VoiceSync AI.lnk")
 )
 foreach ($old in $oldShortcuts) {
     if (Test-Path $old) {
@@ -31,12 +32,12 @@ foreach ($old in $oldShortcuts) {
     }
 }
 
-# Tạo shortcut mới: VoiceSync AI.lnk
+# Tạo shortcut mới: VideoTranslate AI.lnk
 $shortcut = $WshShell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $batPath
 $shortcut.WorkingDirectory = $projectDir
 $shortcut.IconLocation = "$iconPath,0"
-$shortcut.Description = "VoiceSync AI Studio"
+$shortcut.Description = "VideoTranslate AI Studio"
 $shortcut.Save()
 
 # Kích hoạt Windows Explorer làm mới bộ đệm Icon (Icon Cache Refresh)

@@ -1,6 +1,6 @@
-# 🎙️ OmniVoice Studio - Ứng dụng Text-to-Speech Chuyên Nghiệp (24kHz)
+# 🎬 VideoTranslate AI - Ứng Dụng Dịch Video, Phụ Đề & Lồng Tiếng AI Đa Ngôn Ngữ
 
-Một ứng dụng Text-to-Speech đa ngôn ngữ cao cấp, được xây dựng dựa trên mô hình **OmniVoice** (k2-fsa), mang lại trải nghiệm tạo và quản lý âm thanh như một phòng thu (Studio) chuyên nghiệp. Hệ thống bao gồm Frontend giao diện hiện đại (React + Vite + Tailwind CSS + Sonner) và Backend AI mạnh mẽ (Python + FastAPI + OmniVoice Diffusion).
+Một ứng dụng toàn diện giúp **Dịch Video AI**, dịch phụ đề đa ngữ, tách/ghép âm thanh và tổng hợp giọng đọc cao cấp (Text-to-Speech & Voice Clone). Hệ thống bao gồm Frontend giao diện hiện đại (React + Vite + Tailwind CSS + Sonner) và Backend AI mạnh mẽ (Python + FastAPI + Gemini + OmniVoice Diffusion).
 
 ---
 

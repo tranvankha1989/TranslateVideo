@@ -1,6 +1,6 @@
 # 🪟 HƯỚNG DẪN CÀI ĐẶT & KÉO CODE TRÊN MÁY TÍNH WINDOWS (A - Z)
 
-Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn dự án **OmniVoice Studio (TranslateVideo)** từ GitHub về một máy tính Windows mới và thiết lập để chạy ứng dụng từ đầu.
+Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn dự án **VideoTranslate AI** từ GitHub về một máy tính Windows mới và thiết lập để chạy ứng dụng từ đầu.
 
 ---
 

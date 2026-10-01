@@ -55,12 +55,15 @@ $iconPath = Join-Path $projectDir "assets\app.ico"
 
 # 1. Tìm Handle của cửa sổ Terminal
 function Get-TerminalHWnd {
-    $proc = Get-Process | Where-Object { $_.MainWindowTitle -like '*VoiceSync AI Launcher*' -or $_.MainWindowTitle -like '*OmniVoice Launcher*' } | Select-Object -First 1
+    $proc = Get-Process | Where-Object { $_.MainWindowTitle -like '*VideoTranslate AI Launcher*' -or $_.MainWindowTitle -like '*VoiceSync AI Launcher*' -or $_.MainWindowTitle -like '*OmniVoice Launcher*' } | Select-Object -First 1
     if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {
         return $proc.MainWindowHandle
     }
     
-    $h = [Win32Tray]::FindWindow($null, "VoiceSync AI Launcher")
+    $h = [Win32Tray]::FindWindow($null, "VideoTranslate AI Launcher")
+    if ($h -eq [IntPtr]::Zero) {
+        $h = [Win32Tray]::FindWindow($null, "VoiceSync AI Launcher")
+    }
     if ($h -eq [IntPtr]::Zero) {
         $h = [Win32Tray]::FindWindow($null, "OmniVoice Launcher (TTS 24kHz)")
     }
@@ -96,7 +99,7 @@ else {
     $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
 }
 
-$notifyIcon.Text = "OmniVoice TTS (Đang khởi động...)"
+$notifyIcon.Text = "VideoTranslate AI (Đang khởi động...)"
 $notifyIcon.Visible = $true
 
 # Biến trạng thái ẩn/hiện
@@ -124,7 +127,7 @@ function Hide-TerminalWindow {
         $script:isWindowHidden = $true
 
         if (-not $script:firstHideNotificationShown) {
-            $notifyIcon.BalloonTipTitle = "OmniVoice TTS"
+            $notifyIcon.BalloonTipTitle = "VideoTranslate AI"
             $notifyIcon.BalloonTipText = "Ứng dụng đang chạy ngầm. Click đúp vào biểu tượng để mở lại Terminal."
             $notifyIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
             $notifyIcon.ShowBalloonTip(3000)
@@ -224,7 +227,7 @@ $script:ExitApplication = {
     Stop-Process -Id $PID -Force
 }
 
-$menuExit = $contextMenu.Items.Add("Thoát hoàn toàn OmniVoice")
+$menuExit = $contextMenu.Items.Add("Thoát hoàn toàn VideoTranslate AI")
 $menuExit.add_Click({
         & $script:ExitApplication
     })
@@ -250,9 +253,9 @@ $timer.add_Tick({
                     if ($r.status -eq 'ok') {
                         # Đánh dấu đã mở NGAY LẬP TỨC để tránh bất kỳ event timer nào gọi trùng lặp
                         $script:browserOpened = $true
-                        Write-Host "VoiceSync AI da san sang! Dang mo trinh duyet..." -ForegroundColor Green
+                        Write-Host "VideoTranslate AI da san sang! Dang mo trinh duyet..." -ForegroundColor Green
                         Start-Process "http://localhost:5173"
-                        $notifyIcon.Text = "VoiceSync AI (Đang hoạt động)"
+                        $notifyIcon.Text = "VideoTranslate AI (Đang hoạt động)"
                         # Tự động thu nhỏ / ẩn Terminal xuống khay hệ thống để tránh bấm nhầm dấu X
                         Start-Sleep -Milliseconds 800
                         Hide-TerminalWindow

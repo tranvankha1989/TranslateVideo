@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "name": "OmniVoice TTS Studio & Video Translate AI",
+  "name": "VideoTranslate AI",
   "release_date": "2026-10-01",
   "description": "Nâng cấp V3.3.0: Tự động đánh thức Hugging Face ZeroGPU khi khởi động, tối ưu kết nối Cloud GPU/Colab, giao diện Video Translate tinh gọn và xuất bản thông minh."
 }

@@ -2,11 +2,11 @@
 chcp 65001 >nul
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
-title VoiceSync AI Launcher
+title VideoTranslate AI Launcher
 cd /d "%~dp0"
 
 echo ===================================================
-echo        Khoi dong he thong VoiceSync AI
+echo        Khoi dong he thong VideoTranslate AI
 echo ===================================================
 echo.
 echo - Backend AI : http://localhost:8000

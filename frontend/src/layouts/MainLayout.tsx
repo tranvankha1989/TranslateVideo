@@ -90,7 +90,7 @@ export function MainLayout() {
                 </div>
                 <div className="flex flex-col overflow-hidden whitespace-nowrap">
                   <h2 className="font-headline-lg text-lg font-bold text-on-surface leading-tight tracking-tight">
-                    VoiceSync AI
+                    VideoTranslate AI
                   </h2>
                   <p className="text-[11px] text-on-surface-variant font-mono-data">
                     Studio Pro v{APP_VERSION}
