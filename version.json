@@ -1,6 +1,6 @@
 {
-  "version": "3.4.7",
+  "version": "3.4.8",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-02",
-  "description": "Nâng cấp V3.4.7: Bổ sung import sys và chuẩn hóa Gradio Blocks trong Hugging Face ZeroGPU Worker — khắc phục hoàn toàn lỗi NameError sys khi nạp thư viện CUDA trên Cloud GPU."
+  "description": "Nâng cấp V3.4.8: Cập nhật Google Colab Worker và Notebook — nạp thư viện CUDA, cơ chế tự động fallback CPU cho Faster-Whisper, bổ sung alias route /gradio_api/remote và trả về chi tiết lỗi JSON khi transcribe."
 }

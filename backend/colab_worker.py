@@ -17,6 +17,9 @@ import os
 import io
 import gc
 import re
+import sys
+import glob
+import ctypes
 import tempfile
 import logging
 from pathlib import Path
@@ -43,10 +46,21 @@ logger = logging.getLogger("colab_worker")
 SAMPLE_RATE = 24_000
 MODEL_ID = os.getenv("OMNIVOICE_MODEL_ID", "k2-fsa/OmniVoice")
 
+def preload_cuda_libraries():
+    """Tự động tìm nạp các file libcublas.so, libcudnn.so từ site-packages vào bộ nhớ tiến trình trên Linux/Colab."""
+    for p in sys.path:
+        for lib in glob.glob(os.path.join(p, "nvidia", "*", "lib", "*.so*")):
+            try:
+                ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+preload_cuda_libraries()
+
 app = FastAPI(
     title="OmniVoice Colab GPU Worker",
     description="GPU Inference Worker phục vụ ứng dụng self-tts qua Ngrok / Cloudflare Tunnel",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 app.add_middleware(
@@ -92,22 +106,46 @@ def clean_vram():
         torch.cuda.ipc_collect()
 
 
-def get_whisper(model_size: str = "large-v3"):
-    """Nạp động Faster-Whisper trên GPU với cơ chế lazy load và float16."""
+def get_whisper(model_size: str = "large-v3-turbo", force_cpu: bool = False):
+    """Nạp Faster-Whisper trên GPU với cơ chế lazy load và dự phòng CPU tự động."""
     global _whisper_model, _whisper_model_size
     target = model_size.strip().lower()
-    if _whisper_model is not None and _whisper_model_size == target:
+    target_key = f"{target}_cpu" if force_cpu else target
+    if _whisper_model is not None and _whisper_model_size == target_key:
         return _whisper_model
 
     from faster_whisper import WhisperModel
-    dev_str = "cuda" if torch.cuda.is_available() else "cpu"
-    compute_type = "float16" if torch.cuda.is_available() else "int8"
-    logger.info(f"🎙️ [Whisper STT] Đang tải Faster-Whisper '{target}' lên {dev_str} ({compute_type})...")
-    
     clean_vram()
-    _whisper_model = WhisperModel(target, device=dev_str, compute_type=compute_type)
-    _whisper_model_size = target
-    logger.info("✅ Tải Faster-Whisper thành công!")
+    if force_cpu or not torch.cuda.is_available():
+        logger.info(f"🎙️ [Whisper STT] Đang tải Faster-Whisper '{target}' (CPU Mode)...")
+        _whisper_model = WhisperModel(
+            target,
+            device="cpu",
+            compute_type="int8",
+            cpu_threads=4,
+            num_workers=2,
+        )
+    else:
+        logger.info(f"🎙️ [Whisper STT] Đang tải Faster-Whisper '{target}' lên CUDA (float16)...")
+        try:
+            _whisper_model = WhisperModel(
+                target,
+                device="cuda",
+                compute_type="float16",
+                cpu_threads=4,
+                num_workers=1,
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Không thể tải Faster-Whisper trên CUDA ({e}), tự động chuyển sang CPU...")
+            _whisper_model = WhisperModel(
+                target,
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=4,
+                num_workers=2,
+            )
+    _whisper_model_size = target_key
+    logger.info("✅ Faster-Whisper đã sẵn sàng phục vụ!")
     return _whisper_model
 
 
@@ -143,6 +181,7 @@ def startup_event():
 
 
 @app.get("/api/remote/health")
+@app.get("/gradio_api/remote/health")
 def health_check():
     """Endpoint kiểm tra tình trạng kết nối và card GPU."""
     gpu = get_gpu_info()
@@ -209,6 +248,7 @@ def split_into_chunks(text: str, max_chars: int = 450) -> list[str]:
 
 
 @app.post("/api/remote/prompt")
+@app.post("/gradio_api/remote/prompt")
 async def create_prompt_endpoint(
     audio_file: UploadFile = File(...),
     ref_text: str | None = Form(default=None),
@@ -253,6 +293,7 @@ async def create_prompt_endpoint(
 
 
 @app.post("/api/remote/transcribe")
+@app.post("/gradio_api/remote/transcribe")
 async def transcribe_endpoint(
     audio_file: UploadFile = File(...),
     language: str | None = Form(default=None),
@@ -267,7 +308,8 @@ async def transcribe_endpoint(
 ):
     """
     Bóc tách phụ đề và nhận diện giọng nói sử dụng Faster-Whisper trên Colab GPU.
-    Áp dụng Smart VRAM: Nạp mô hình theo nhu cầu và dọn sạch VRAM sau khi hoàn thành.
+    Áp dụng Smart VRAM: Nạp mô hình theo nhu cầu, tự động fallback sang CPU nếu CUDA gặp lỗi,
+    và dọn sạch VRAM sau khi hoàn thành.
     """
     suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_audio:
@@ -275,18 +317,8 @@ async def transcribe_endpoint(
         tmp_audio.write(content)
         tmp_audio_path = tmp_audio.name
 
-    try:
-        whisper = get_whisper(model_size or "large-v3-turbo")
-        lang_arg = None if (not language or language == "auto") else language.split("-")[0]
-        chinese_prompt = initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None
-        if lang_arg == "zh" and not chinese_prompt:
-            chinese_prompt = "以下是普通话的句子，请用简体中文输出。"
-        
-        logger.info(
-            f"🎙️ [Colab Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size or 'large-v3-turbo'}, VAD Threshold: {vad_threshold})..."
-        )
-
-        segments_gen, info = whisper.transcribe(
+    def _do_transcribe(whisper_inst):
+        segments_gen, info = whisper_inst.transcribe(
             tmp_audio_path,
             language=lang_arg,
             initial_prompt=chinese_prompt,
@@ -317,18 +349,17 @@ async def transcribe_endpoint(
                         continue
                     words_data.append({
                         "word": w_text,
-                        "start": round(getattr(w, "start", 0.0), 3),
-                        "end": round(getattr(w, "end", 0.0), 3),
-                        "probability": round(getattr(w, "probability", 1.0), 2),
+                        "start": round(float(getattr(w, "start", 0.0)), 3),
+                        "end": round(float(getattr(w, "end", 0.0)), 3),
+                        "probability": round(float(getattr(w, "probability", 1.0)), 2),
                     })
 
-            txt = s.text.strip()
+            txt = getattr(s, "text", "").strip()
             if not txt and not words_data:
                 continue
 
             # Mốc thời gian chính xác theo từ (không bị trễ đầu và cắt cụt đuôi)
             if words_data:
-                # Khắc phục hiện tượng Whisper kéo dãn mốc 'end' của từ qua khoảng lặng dài
                 for wi in range(len(words_data)):
                     w_item = words_data[wi]
                     wt = w_item.get("word", "").strip()
@@ -350,31 +381,61 @@ async def transcribe_endpoint(
                     seg_start = valid_w[0]["start"]
                     seg_end = valid_w[-1]["end"]
                 else:
-                    seg_start = round(s.start, 3)
-                    seg_end = round(s.end, 3)
+                    seg_start = round(float(getattr(s, "start", 0.0)), 3)
+                    seg_end = round(float(getattr(s, "end", 0.0)), 3)
             else:
-                seg_start = round(s.start, 3)
-                seg_end = round(s.end, 3)
+                seg_start = round(float(getattr(s, "start", 0.0)), 3)
+                seg_end = round(float(getattr(s, "end", 0.0)), 3)
 
             if seg_end <= seg_start:
                 seg_end = round(seg_start + 0.3, 3)
 
             result_segments.append({
                 "id": i + 1,
+                "seek": getattr(s, "seek", 0),
                 "start": round(seg_start, 3),
                 "end": round(seg_end, 3),
                 "text": txt,
                 "words": words_data,
             })
 
-        logger.info(f"✅ [Colab Whisper STT] Đã nhận diện {len(result_segments)} câu (Ngôn ngữ: {info.language})!")
-        return {
+        det_lang = getattr(info, "language", lang_arg or "vi")
+        return result_segments, det_lang, info
+
+    try:
+        lang_arg = None if (not language or language == "auto") else language.split("-")[0]
+        chinese_prompt = initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None
+        if lang_arg == "zh" and not chinese_prompt:
+            chinese_prompt = "以下是普通话的句子，请用简体中文输出。"
+        
+        logger.info(
+            f"🎙️ [Colab Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size or 'large-v3-turbo'}, VAD Threshold: {vad_threshold})..."
+        )
+
+        try:
+            whisper = get_whisper(model_size or "large-v3-turbo", force_cpu=False)
+            result_segments, det_lang, info = _do_transcribe(whisper)
+        except Exception as e:
+            logger.warning(f"⚠️ Nhận diện bằng CUDA thất bại ({e}), tự động chuyển sang chế độ CPU dự phòng...")
+            whisper_cpu = get_whisper(model_size or "large-v3-turbo", force_cpu=True)
+            result_segments, det_lang, info = _do_transcribe(whisper_cpu)
+
+        logger.info(f"✅ [Colab Whisper STT] Đã nhận diện {len(result_segments)} câu (Ngôn ngữ: {det_lang})!")
+        return JSONResponse(content={
             "status": "ok",
-            "language": info.language,
-            "language_probability": round(info.language_probability, 3) if hasattr(info, "language_probability") else 1.0,
-            "duration": round(info.duration, 2) if hasattr(info, "duration") else 0.0,
+            "language": det_lang,
+            "language_probability": round(float(getattr(info, "language_probability", 1.0)), 3),
+            "duration": round(float(getattr(info, "duration", 0.0)), 2),
             "segments": result_segments,
-        }
+        })
+    except Exception as exc:
+        import traceback
+        err_detail = traceback.format_exc()
+        logger.error(f"❌ [Colab Transcribe Error]: {err_detail}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(exc), "traceback": err_detail},
+        )
     finally:
         try:
             os.remove(tmp_audio_path)
@@ -384,6 +445,7 @@ async def transcribe_endpoint(
 
 
 @app.post("/api/remote/generate")
+@app.post("/gradio_api/remote/generate")
 async def generate_endpoint(
     text: str = Form(...),
     mode: str = Form(default="clone"),
