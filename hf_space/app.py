@@ -350,21 +350,55 @@ _whisper_model = None
 _whisper_model_size: str | None = None
 
 
-def get_whisper(model_size: str = "large-v3-turbo"):
+import glob
+import ctypes
+
+def preload_cuda_libraries():
+    """Tự động tìm nạp các file libcublas.so, libcudnn.so từ site-packages vào bộ nhớ tiến trình."""
+    for p in sys.path:
+        for lib in glob.glob(os.path.join(p, "nvidia", "*", "lib", "*.so*")):
+            try:
+                ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+preload_cuda_libraries()
+
+
+def get_whisper(model_size: str = "large-v3-turbo", force_cpu: bool = False):
     global _whisper_model, _whisper_model_size
     from faster_whisper import WhisperModel
-    if _whisper_model is None or _whisper_model_size != model_size:
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        compute_type = "float16" if torch.cuda.is_available() else "int8"
-        logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' ({device}, {compute_type})...")
-        _whisper_model = WhisperModel(
-            model_size,
-            device=device,
-            compute_type=compute_type,
-            cpu_threads=4,
-            num_workers=1,
-        )
-        _whisper_model_size = model_size
+    target_key = f"{model_size}_cpu" if force_cpu else model_size
+    if _whisper_model is None or _whisper_model_size != target_key:
+        if force_cpu or not torch.cuda.is_available():
+            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CPU mode)...")
+            _whisper_model = WhisperModel(
+                model_size,
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=4,
+                num_workers=2,
+            )
+        else:
+            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CUDA mode)...")
+            try:
+                _whisper_model = WhisperModel(
+                    model_size,
+                    device="cuda",
+                    compute_type="float16",
+                    cpu_threads=4,
+                    num_workers=1,
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Không thể tải Faster-Whisper trên CUDA ({e}), chuyển sang CPU...")
+                _whisper_model = WhisperModel(
+                    model_size,
+                    device="cpu",
+                    compute_type="int8",
+                    cpu_threads=4,
+                    num_workers=2,
+                )
+        _whisper_model_size = target_key
     return _whisper_model
 
 
@@ -381,51 +415,59 @@ def _gpu_transcribe(
     speech_pad_ms: int,
     beam_size: int,
 ):
-    whisper = get_whisper(model_size)
-    segments_gen, info = whisper.transcribe(
-        audio_path,
-        language=language,
-        initial_prompt=initial_prompt,
-        beam_size=beam_size,
-        best_of=beam_size,
-        condition_on_previous_text=False,
-        repetition_penalty=1.2,
-        no_speech_threshold=0.85,
-        log_prob_threshold=-1.5,
-        compression_ratio_threshold=2.8,
-        vad_filter=vad_filter,
-        vad_parameters=dict(
-            threshold=vad_threshold,
-            min_speech_duration_ms=min_speech_duration_ms,
-            min_silence_duration_ms=min_silence_duration_ms,
-            speech_pad_ms=speech_pad_ms,
-        ) if vad_filter else None,
-        word_timestamps=True,
-    )
-    result_segments = []
-    for i, s in enumerate(segments_gen):
-        words_data = []
-        if getattr(s, "words", None):
-            for w in s.words:
-                w_text = getattr(w, "word", "").strip()
-                if not w_text:
-                    continue
-                words_data.append({
-                    "word": w_text,
-                    "start": round(float(getattr(w, "start", 0.0)), 3),
-                    "end": round(float(getattr(w, "end", 0.0)), 3),
-                    "probability": round(float(getattr(w, "probability", 0.0)), 3),
-                })
-        result_segments.append({
-            "id": i,
-            "seek": getattr(s, "seek", 0),
-            "start": round(float(getattr(s, "start", 0.0)), 3),
-            "end": round(float(getattr(s, "end", 0.0)), 3),
-            "text": getattr(s, "text", "").strip(),
-            "words": words_data,
-        })
-    detected_lang = getattr(info, "language", language or "en")
-    return result_segments, detected_lang
+    def _do_transcribe(whisper_inst):
+        segments_gen, info = whisper_inst.transcribe(
+            audio_path,
+            language=language,
+            initial_prompt=initial_prompt,
+            beam_size=beam_size,
+            best_of=beam_size,
+            condition_on_previous_text=False,
+            repetition_penalty=1.2,
+            no_speech_threshold=0.85,
+            log_prob_threshold=-1.5,
+            compression_ratio_threshold=2.8,
+            vad_filter=vad_filter,
+            vad_parameters=dict(
+                threshold=vad_threshold,
+                min_speech_duration_ms=min_speech_duration_ms,
+                min_silence_duration_ms=min_silence_duration_ms,
+                speech_pad_ms=speech_pad_ms,
+            ) if vad_filter else None,
+            word_timestamps=True,
+        )
+        res_segs = []
+        for i, s in enumerate(segments_gen):
+            words_data = []
+            if getattr(s, "words", None):
+                for w in s.words:
+                    w_text = getattr(w, "word", "").strip()
+                    if not w_text:
+                        continue
+                    words_data.append({
+                        "word": w_text,
+                        "start": round(float(getattr(w, "start", 0.0)), 3),
+                        "end": round(float(getattr(w, "end", 0.0)), 3),
+                        "probability": round(float(getattr(w, "probability", 0.0)), 3),
+                    })
+            res_segs.append({
+                "id": i,
+                "seek": getattr(s, "seek", 0),
+                "start": round(float(getattr(s, "start", 0.0)), 3),
+                "end": round(float(getattr(s, "end", 0.0)), 3),
+                "text": getattr(s, "text", "").strip(),
+                "words": words_data,
+            })
+        det_lang = getattr(info, "language", language or "en")
+        return res_segs, det_lang
+
+    try:
+        whisper = get_whisper(model_size, force_cpu=False)
+        return _do_transcribe(whisper)
+    except Exception as e:
+        logger.warning(f"⚠️ Transcribe bằng CUDA thất bại ({e}), tự động chuyển sang chế độ dự phòng CPU...")
+        whisper = get_whisper(model_size, force_cpu=True)
+        return _do_transcribe(whisper)
 
 
 async def transcribe_endpoint(
@@ -466,6 +508,14 @@ async def transcribe_endpoint(
             beam_size=beam_size,
         )
         return JSONResponse(content={"status": "ok", "language": detected_lang, "segments": segments})
+    except Exception as exc:
+        import traceback
+        err_detail = traceback.format_exc()
+        logger.error(f"❌ [ZeroGPU Transcribe Error]: {err_detail}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(exc), "traceback": err_detail},
+        )
     finally:
         try:
             os.remove(tmp_path)

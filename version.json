@@ -1,6 +1,6 @@
 {
-  "version": "3.4.5",
+  "version": "3.4.6",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-02",
-  "description": "Nâng cấp V3.4.5: Khắc phục triệt để lỗi import model_handler bằng helper is_cloud_gpu_active độc lập — bảo đảm bóc tách phụ đề và dịch video trên Cloud GPU A100 hoạt động trơn tru 100%."
+  "description": "Nâng cấp V3.4.6: Chuẩn hóa tham số device='cuda' cho CTranslate2 trên Hugging Face ZeroGPU A100 — sửa triệt để lỗi HTTP 500 khi gọi endpoint bóc tách phụ đề Whisper từ xa."
 }
