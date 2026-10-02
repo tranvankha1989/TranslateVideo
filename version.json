@@ -1,6 +1,6 @@
 {
-  "version": "3.4.6",
+  "version": "3.4.7",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-02",
-  "description": "Nâng cấp V3.4.6: Chuẩn hóa tham số device='cuda' cho CTranslate2 trên Hugging Face ZeroGPU A100 — sửa triệt để lỗi HTTP 500 khi gọi endpoint bóc tách phụ đề Whisper từ xa."
+  "description": "Nâng cấp V3.4.7: Bổ sung import sys và chuẩn hóa Gradio Blocks trong Hugging Face ZeroGPU Worker — khắc phục hoàn toàn lỗi NameError sys khi nạp thư viện CUDA trên Cloud GPU."
 }

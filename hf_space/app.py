@@ -6,6 +6,7 @@ Tự động cấp phát nhân GPU tính toán khi có request từ máy local v
 """
 
 import os
+import sys
 import io
 import re
 import tempfile
@@ -254,7 +255,7 @@ def _gpu_generate_audio(
 
 
 # ─── Giao diện Gradio Dashboard khi mở trên trình duyệt ────────────────────────
-with gr.Blocks(title="OmniVoice ZeroGPU Worker", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="OmniVoice ZeroGPU Worker") as demo:
     gr.Markdown("# 🚀 OmniVoice ZeroGPU Worker (NVIDIA A100)")
     gr.Markdown("Worker này đang chạy ở chế độ nền phục vụ dự án **self-tts**.")
     with gr.Row():
@@ -350,6 +351,7 @@ _whisper_model = None
 _whisper_model_size: str | None = None
 
 
+import sys
 import glob
 import ctypes
 
