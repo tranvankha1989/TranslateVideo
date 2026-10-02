@@ -35,6 +35,16 @@ TRANSLATE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 _TASK_STORE: dict[str, dict[str, Any]] = {}
 
 
+def is_cloud_gpu_active() -> bool:
+    try:
+        import model_handler
+        return model_handler.is_remote_gpu_enabled()
+    except Exception:
+        pass
+    import os
+    return os.getenv("USE_REMOTE_GPU", "").lower() in ("true", "1", "yes")
+
+
 def format_duration_vietnamese(total_seconds: float) -> str:
     """Định dạng thời gian tính bằng giây thành chuỗi tiếng Việt dễ đọc (vd: 2 phút 15 giây)."""
     sec = int(round(total_seconds))
@@ -404,7 +414,7 @@ class VideoTranslationPipeline:
             )
 
             # ── BƯỚC 2: BÓC BĂNG PHỤ ĐỀ GỐC BẰNG WHISPER (15% -> 40%) ──────
-            whisper_tag = "trên Cloud GPU" if model_handler.is_remote_gpu_enabled() else f"Faster-Whisper ({whisper_model.upper()})"
+            whisper_tag = "trên Cloud GPU" if is_cloud_gpu_active() else f"Faster-Whisper ({whisper_model.upper()})"
             cls.update_task(
                 task_id,
                 progress=18,
@@ -861,7 +871,7 @@ class VideoTranslationPipeline:
             )
 
             # BƯỚC 2: Whisper tạo phụ đề gốc
-            whisper_tag = "trên Cloud GPU" if model_handler.is_remote_gpu_enabled() else f"Faster-Whisper ({whisper_model.upper()})"
+            whisper_tag = "trên Cloud GPU" if is_cloud_gpu_active() else f"Faster-Whisper ({whisper_model.upper()})"
             cls.update_task(
                 task_id,
                 progress=35,

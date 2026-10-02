@@ -1,6 +1,6 @@
 {
-  "version": "3.4.4",
+  "version": "3.4.5",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-02",
-  "description": "Nâng cấp V3.4.4: Sửa triệt để lỗi NameError model_handler trong pipeline bóc tách phụ đề video — đảm bảo quá trình bóc tách phụ đề gốc (Whisper STT) và lồng tiếng tự động qua Cloud GPU diễn ra mượt mà, ổn định 100%."
+  "description": "Nâng cấp V3.4.5: Khắc phục triệt để lỗi import model_handler bằng helper is_cloud_gpu_active độc lập — bảo đảm bóc tách phụ đề và dịch video trên Cloud GPU A100 hoạt động trơn tru 100%."
 }
