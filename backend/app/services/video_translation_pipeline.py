@@ -25,6 +25,7 @@ from app.services.dubbing_service import DubbingService, get_audio_duration, DUB
 from app.services.translator_service import TranslationService, GoogleTranslator
 from app.services.alignment_service import AlignmentService
 from app.services.ad_filter_service import AdFilterService
+import model_handler
 from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local, sanitize_word_timestamps, separate_vocals_demucs
 
 TRANSLATE_OUTPUT_DIR = OUTPUTS_DIR / "video_translate"

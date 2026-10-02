@@ -1,6 +1,6 @@
 {
-  "version": "3.4.3",
+  "version": "3.4.4",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-02",
-  "description": "Nâng cấp V3.4.3: Hỗ trợ Chế Độ Thuần Cloud GPU 100% (Zero Local Load) — Toàn bộ tác vụ nặng gồm Bóc tách phụ đề Faster-Whisper (ZeroGPU A100 / Colab T4) và Sinh giọng nói OmniVoice được chuyển lên Cloud GPU, bảo vệ máy không có GPU rời, không gây đơ/treo CPU hoặc tràn RAM."
+  "description": "Nâng cấp V3.4.4: Sửa triệt để lỗi NameError model_handler trong pipeline bóc tách phụ đề video — đảm bảo quá trình bóc tách phụ đề gốc (Whisper STT) và lồng tiếng tự động qua Cloud GPU diễn ra mượt mà, ổn định 100%."
 }
