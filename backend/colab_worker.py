@@ -318,8 +318,21 @@ async def transcribe_endpoint(
         tmp_audio_path = tmp_audio.name
 
     def _do_transcribe(whisper_inst):
+        # Nạp audio đầu vào an toàn: nạp bằng soundfile/numpy float32 16kHz để bỏ qua hoàn toàn lỗi PyAV metadata_errors
+        try:
+            audio_data, sr = sf.read(tmp_audio_path, dtype="float32")
+            if audio_data.ndim > 1:
+                audio_data = np.mean(audio_data, axis=1)
+            if sr != 16000:
+                import librosa
+                audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
+            audio_input = audio_data
+        except Exception as load_err:
+            logger.warning(f"⚠️ Tiền xử lý audio bằng soundfile gặp lỗi ({load_err}), sử dụng đường dẫn file trực tiếp: {tmp_audio_path}")
+            audio_input = tmp_audio_path
+
         segments_gen, info = whisper_inst.transcribe(
-            tmp_audio_path,
+            audio_input,
             language=lang_arg,
             initial_prompt=chinese_prompt,
             beam_size=beam_size,
