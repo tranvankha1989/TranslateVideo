@@ -38,6 +38,8 @@ import { cn } from "@/lib/utils";
 import { useTTSStore, type TestGpuResult } from "@/store/useTTSStore";
 import { APP_VERSION } from "@/constants/version";
 import { AppUpdateModal } from "@/components/AppUpdateModal";
+import { FeedbackModal } from "@/components/FeedbackModal";
+import { MessageSquarePlus } from "lucide-react";
 
 export default function Settings() {
   const {
@@ -65,6 +67,7 @@ export default function Settings() {
   const [isOpeningEnv, setIsOpeningEnv] = useState(false);
   const [isReloadingBackend, setIsReloadingBackend] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
   // ── State Quản Lý Bộ Lọc Quảng Cáo & Dạy AI (Ad Filter) ────────────────────
   const [adRules, setAdRules] = useState<string[]>([]);
@@ -355,6 +358,17 @@ export default function Settings() {
 
         {/* Header Action & Status Badge */}
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Nút Góp Ý & Báo Lỗi (Feedback Button) */}
+          <button
+            type="button"
+            onClick={() => setIsFeedbackModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/50 text-xs font-semibold transition-all shadow-sm shadow-emerald-500/10 group cursor-pointer"
+            title="Gửi góp ý, báo lỗi kèm file log về Telegram Admin"
+          >
+            <MessageSquarePlus className="w-3.5 h-3.5 transition-transform group-hover:scale-110" />
+            <span>Góp ý & Báo lỗi</span>
+          </button>
+
           {/* Nút Cập Nhật Phiên Bản Mới (Top-Right Action) */}
           <button
             type="button"
@@ -1379,13 +1393,23 @@ export default function Settings() {
             {/* Thanh công cụ hành động (Action Toolbar) */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/5">
               <div className="flex flex-wrap items-center gap-2">
+                {/* Nút Gửi Phản Hồi & Logs Cho Admin */}
+                <button
+                  type="button"
+                  onClick={() => setIsFeedbackModalOpen(true)}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                  <span>Gửi Phản Hồi & Logs Cho Admin</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleDownloadLog}
                   className="px-4 py-2.5 rounded-xl bg-primary hover:brightness-110 text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-primary/20 transition-all cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Tải File Log Báo Lỗi (.log)</span>
+                  <span>Tải File Log (.log)</span>
                 </button>
 
                 <button
@@ -1508,6 +1532,12 @@ export default function Settings() {
       <AppUpdateModal
         isOpen={isUpdateModalOpen}
         onClose={() => setIsUpdateModalOpen(false)}
+      />
+
+      {/* Modal Góp Ý & Báo Lỗi Cho Admin */}
+      <FeedbackModal
+        isOpen={isFeedbackModalOpen}
+        onClose={() => setIsFeedbackModalOpen(false)}
       />
     </div>
   );

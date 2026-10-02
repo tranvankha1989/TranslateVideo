@@ -124,6 +124,12 @@ def separate_vocals_demucs(audio_path: Path, output_dir: Path, enable_demucs: bo
         return {"vocals": vocals_path, "bgm": bgm_path, "method": "cache"}
 
     if enable_demucs:
+        from model_handler import is_remote_gpu_enabled
+        if is_remote_gpu_enabled():
+            logger.info("⚡ [Cloud GPU Mode] Đang bật Cloud GPU: Bỏ qua Demucs AI nặng trên máy tính, chuyển sang bộ lọc FFmpeg đa băng tần siêu tốc (0% VRAM/CPU).")
+            enable_demucs = False
+
+    if enable_demucs:
         try:
             import sys
             import shutil
@@ -510,50 +516,56 @@ def transcribe_with_remote_or_local(
     if lang_arg == "zh" and (not initial_prompt or not initial_prompt.strip()):
         initial_prompt = "以下是普通话的句子，请用简体中文输出。"
 
-    # 1. Thử gửi lên Remote GPU Worker nếu là Colab/Kaggle có hỗ trợ STT
+    # 1. Gửi lên Remote GPU Worker (Hugging Face ZeroGPU A100 hoặc Google Colab T4)
     if is_remote_gpu_enabled():
         remote_url = get_remote_gpu_url()
-        # Hugging Face Space chuẩn ban đầu chỉ phục vụ TTS (không có Whisper), nên tự động chạy Whisper trên máy để render video mượt mà
-        if "hf.space" not in remote_url.lower():
-            endpoint = _remote_url("transcribe")
-            headers = _remote_headers()
-            logger.info(
-                f"🌐 [Remote STT] Gửi audio '{audio_path.name}' lên Cloud GPU: {endpoint} (Lang={lang_arg or 'auto'}, Model={target_size})..."
-            )
-            try:
-                import httpx
-                with open(audio_path, "rb") as af:
-                    files = {"audio_file": (audio_path.name, af, "audio/wav")}
-                    data = {
-                        "language": lang_arg or "",
-                        "model_size": target_size,
-                        "initial_prompt": initial_prompt or "",
-                        "vad_filter": "true" if vad_filter else "false",
-                        "vad_threshold": str(vad_threshold),
-                        "min_speech_duration_ms": str(min_speech_duration_ms),
-                        "min_silence_duration_ms": str(min_silence_duration_ms),
-                        "speech_pad_ms": str(speech_pad_ms),
-                        "beam_size": str(beam_size),
-                    }
-                    with httpx.Client(timeout=600.0) as client:
-                        resp = client.post(endpoint, files=files, data=data, headers=headers)
+        endpoint = _remote_url("transcribe")
+        headers = _remote_headers()
+        logger.info(
+            f"🌐 [Remote STT] Gửi audio '{audio_path.name}' lên Cloud GPU: {endpoint} (Lang={lang_arg or 'auto'}, Model={target_size})..."
+        )
+        remote_error = None
+        try:
+            import httpx
+            with open(audio_path, "rb") as af:
+                files = {"audio_file": (audio_path.name, af, "audio/wav")}
+                data = {
+                    "language": lang_arg or "",
+                    "model_size": target_size,
+                    "initial_prompt": initial_prompt or "",
+                    "vad_filter": "true" if vad_filter else "false",
+                    "vad_threshold": str(vad_threshold),
+                    "min_speech_duration_ms": str(min_speech_duration_ms),
+                    "min_silence_duration_ms": str(min_silence_duration_ms),
+                    "speech_pad_ms": str(speech_pad_ms),
+                    "beam_size": str(beam_size),
+                }
+                with httpx.Client(timeout=600.0) as client:
+                    resp = client.post(endpoint, files=files, data=data, headers=headers)
 
-                if resp.status_code == 200:
-                    res_data = resp.json()
-                    detected_lang = res_data.get("language") or lang_arg or "vi"
-                    segments = res_data.get("segments", [])
-                    logger.info(
-                        f"🎉 [Remote STT] Nhận diện thành công {len(segments)} câu trên Cloud GPU (Ngôn ngữ: {detected_lang})!"
-                    )
-                    return segments, detected_lang
-                elif resp.status_code == 404:
-                    logger.info(f"ℹ️ Cloud GPU Worker không hỗ trợ endpoint STT, tự động chuyển sang chạy Faster-Whisper trên máy...")
-                else:
-                    logger.warning(f"⚠️ Cloud GPU Worker ({endpoint}) trả về HTTP {resp.status_code}, chuyển sang chạy Faster-Whisper trên máy...")
-            except Exception as e:
-                logger.warning(f"⚠️ Kết nối Cloud STT ({e}), chuyển sang chạy Faster-Whisper trên máy...")
+            if resp.status_code == 200:
+                res_data = resp.json()
+                detected_lang = res_data.get("language") or lang_arg or "vi"
+                segments = res_data.get("segments", [])
+                logger.info(
+                    f"🎉 [Remote STT] Nhận diện thành công {len(segments)} câu trên Cloud GPU (Ngôn ngữ: {detected_lang})!"
+                )
+                return segments, detected_lang
+            else:
+                remote_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                logger.error(f"❌ [Remote STT] Cloud GPU Worker ({endpoint}) trả về lỗi: {remote_error}")
+        except Exception as e:
+            remote_error = str(e)
+            logger.error(f"❌ [Remote STT] Lỗi kết nối Cloud GPU ({endpoint}): {remote_error}")
 
-    # 2. Chạy Faster-Whisper trên máy tính với Silero VAD nhạy bén, không nuốt chữ
+        # Khi người dùng đã BẬT Cloud GPU: Tuyệt đối KHÔNG tự ý tải mô hình nặng lên máy local vì máy có thể không có GPU
+        raise RuntimeError(
+            f"Chế độ Cloud GPU đang BẬT nhưng không thể kết nối tới Cloud GPU Worker tại '{remote_url}' (Chi tiết: {remote_error}). "
+            f"Để bảo vệ máy tính của bạn (tránh treo CPU, đơ máy hoặc tràn RAM), hệ thống không tự ý tải mô hình AI nặng lên máy tính. "
+            f"Vui lòng kiểm tra lại kết nối Cloud GPU hoặc kiểm tra trạng thái Hugging Face / Colab trong phần Cài đặt."
+        )
+
+    # 2. Chạy Faster-Whisper trên máy tính với Silero VAD nhạy bén (Chỉ khi Chế độ Cloud GPU TẮT)
     logger.info(f"💻 [Local STT] Đang chạy Faster-Whisper '{target_size}' trên máy tính (VAD Threshold={vad_threshold}, Pad={speech_pad_ms}ms)...")
     model = get_whisper_model(target_size)
     segments_gen, info = model.transcribe(

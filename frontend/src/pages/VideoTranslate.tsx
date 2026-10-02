@@ -418,12 +418,23 @@ export default function VideoTranslate() {
     return () => clearInterval(interval);
   }, [isProcessing, taskId, setIsProcessing, setIsRedubbing, setTaskStatus]);
 
+  // Tự động nạp lại phần tử DOM Video khi URL xem trước thay đổi
+  useEffect(() => {
+    if (previewVideoRef.current && videoPreviewUrl) {
+      try {
+        previewVideoRef.current.load();
+      } catch {
+        // Bỏ qua lỗi load
+      }
+    }
+  }, [videoPreviewUrl]);
+
   // 5. Xử lý tải video lên
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith("video/")) {
+    if (!file.type.startsWith("video/") && !file.name.match(/\.(mp4|mkv|mov|webm|avi|flv|m4v|wmv)$/i)) {
       toast.error("Vui lòng chọn file video hợp lệ (MP4, MKV, MOV, WebM)");
       return;
     }
@@ -433,7 +444,7 @@ export default function VideoTranslate() {
     setTaskId(null);
     setTaskStatus(null);
     // Kích hoạt nạp trước Faster-Whisper trong lúc người dùng tinh chỉnh tham số
-    fetch("http://localhost:8000/api/video-translate/warmup").catch(() => {});
+    fetch(`${API_BASE_URL}/api/video-translate/warmup`).catch(() => {});
     toast.success(`Đã chọn video: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`);
   };
 
@@ -3112,10 +3123,16 @@ export default function VideoTranslate() {
               ) : videoPreviewUrl ? (
                 <video
                   ref={previewVideoRef}
+                  key={`preview-${videoPreviewUrl}`}
                   src={videoPreviewUrl}
                   controls
                   playsInline
                   className="w-full h-full object-contain"
+                  onError={() => {
+                    toast.warning(
+                      "Trình duyệt không thể giải mã trực tiếp định dạng video này (có thể do codec MKV/HEVC). Bạn vẫn có thể bấm 'Bắt Đầu Dịch' để hệ thống xử lý bình thường!"
+                    );
+                  }}
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center gap-2 text-on-surface-variant">

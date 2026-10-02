@@ -1,6 +1,6 @@
 {
-  "version": "3.3.0",
+  "version": "3.4.3",
   "name": "VideoTranslate AI",
-  "release_date": "2026-10-01",
-  "description": "Nâng cấp V3.3.0: Tự động đánh thức Hugging Face ZeroGPU khi khởi động, tối ưu kết nối Cloud GPU/Colab, giao diện Video Translate tinh gọn và xuất bản thông minh."
+  "release_date": "2026-10-02",
+  "description": "Nâng cấp V3.4.3: Hỗ trợ Chế Độ Thuần Cloud GPU 100% (Zero Local Load) — Toàn bộ tác vụ nặng gồm Bóc tách phụ đề Faster-Whisper (ZeroGPU A100 / Colab T4) và Sinh giọng nói OmniVoice được chuyển lên Cloud GPU, bảo vệ máy không có GPU rời, không gây đơ/treo CPU hoặc tràn RAM."
 }

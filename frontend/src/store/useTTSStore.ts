@@ -265,6 +265,22 @@ interface TTSState {
   fetchAppVersion: () => Promise<AppVersionInfo | null>;
   checkAppUpdate: () => Promise<CheckUpdateResult>;
   performAppUpdate: () => Promise<PerformUpdateResult>;
+  sendFeedback: (payload: FeedbackPayload) => Promise<FeedbackResult>;
+}
+
+export interface FeedbackPayload {
+  sender_name?: string;
+  sender_contact?: string;
+  feedback_type: "bug" | "feature" | "question" | "other";
+  message: string;
+  include_logs: boolean;
+  system_info?: Record<string, any>;
+}
+
+export interface FeedbackResult {
+  ok: boolean;
+  message: string;
+  error?: string;
 }
 
 export interface AppVersionInfo {
@@ -1206,6 +1222,25 @@ export const useTTSStore = create<TTSState>((set, get) => {
           message: "Lỗi thực thi cập nhật",
           logs: [],
           error: err.message || "Không thể kết nối máy chủ Backend",
+        };
+      }
+    },
+    sendFeedback: async (payload: FeedbackPayload) => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/settings/feedback`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+        const data: FeedbackResult = await res.json();
+        return data;
+      } catch (err: any) {
+        return {
+          ok: false,
+          message: "Không thể kết nối máy chủ Backend",
+          error: err.message || "Lỗi mạng",
         };
       }
     },

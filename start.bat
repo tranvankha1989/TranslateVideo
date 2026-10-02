@@ -49,13 +49,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\check_online_g
 cd /d "%~dp0frontend"
 call pnpm run start:all
 
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo ===================================================
-    echo [LOI] Co loi xay ra khi khoi dong hoac chay ung dung.
-    echo ===================================================
-    pause
-)
+echo.
+echo ===================================================
+echo [THONG BAO] He thong VideoTranslate AI da dung.
+echo ===================================================
 exit /b 0
 
 
