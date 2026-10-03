@@ -499,7 +499,7 @@ export default function Library() {
   });
 
   return (
-    <div className="glass-card rounded-3xl w-full max-w-5xl 2k:max-w-6xl p-6 md:p-8 2k:p-10 flex flex-col gap-8 shadow-2xl backdrop-blur-2xl border border-white/10">
+    <div className="glass-card rounded-3xl w-full max-w-[1600px] 2k:max-w-[2000px] mx-auto p-6 md:p-8 2k:p-10 flex flex-col gap-8 shadow-2xl backdrop-blur-2xl border border-white/10">
       {/* Header & Tabs */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3.5">

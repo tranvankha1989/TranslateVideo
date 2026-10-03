@@ -546,7 +546,7 @@ export default function CloningVoice() {
   };
 
   return (
-    <div className="w-full max-w-7xl 2k:max-w-[1720px] mx-auto flex flex-col gap-6 md:gap-8 2k:gap-10 animate-in fade-in duration-500">
+    <div className="w-full max-w-[1600px] 2k:max-w-[2000px] mx-auto flex flex-col gap-6 md:gap-8 2k:gap-10 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex items-center gap-4 2k:gap-5 px-2">
         <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-[0_0_15px_rgba(245,158,11,0.15)]">

@@ -82,7 +82,7 @@ export default function ProjectDetail() {
 
   if (!project) {
     return (
-      <div className="w-full max-w-4xl 2k:max-w-6xl mx-auto p-12 text-center glass-card rounded-2xl border border-white/5">
+      <div className="w-full max-w-[1600px] 2k:max-w-[2000px] mx-auto p-12 text-center glass-card rounded-2xl border border-white/5">
         <h2 className="font-display text-2xl text-on-surface mb-4">
           Không tìm thấy dự án
         </h2>
@@ -508,7 +508,7 @@ export default function ProjectDetail() {
   const readyCount = blocks.filter((b) => b.status === "ready").length;
 
   return (
-    <div className="w-full max-w-7xl 2k:max-w-[1720px] mx-auto flex flex-col gap-6 md:gap-8 2k:gap-10 animate-in fade-in duration-500 pb-24">
+    <div className="w-full max-w-[1600px] 2k:max-w-[2000px] mx-auto flex flex-col gap-6 md:gap-8 2k:gap-10 animate-in fade-in duration-500 pb-24">
       {/* Header Banner */}
       <div className="glass-card rounded-2xl p-6 md:p-8 border border-white/5 relative overflow-hidden flex flex-col gap-6 shadow-2xl">
         <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-bl-[120px] blur-[80px] pointer-events-none"></div>
