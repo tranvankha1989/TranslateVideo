@@ -47,7 +47,7 @@ export function MainLayout() {
       <nav
         className={cn(
           "hidden md:flex fixed left-0 top-0 h-full bg-surface/80 backdrop-blur-2xl border-r border-white/10 flex-col py-5 px-3.5 z-40 transition-all duration-300 ease-in-out select-none",
-          isCollapsed ? "w-[72px]" : "w-64 2k:w-72",
+          isCollapsed ? "w-[72px]" : "w-72 2k:w-80",
         )}
       >
         {/* Header & Branding Area - Chiều cao cố định h-11, không nhảy vị trí */}
@@ -81,19 +81,19 @@ export function MainLayout() {
             <div className="w-full flex items-center justify-between">
               <Link
                 to="/"
-                className="flex items-center gap-3 group overflow-hidden"
+                className="flex items-center gap-3 group flex-1 min-w-0"
               >
                 <div className="w-11 h-11 rounded-2xl bg-surface-variant flex items-center justify-center border border-white/10 shadow-sm text-primary transition-transform duration-200 group-hover:border-primary/40 group-hover:scale-105 shrink-0">
                   <span className="material-symbols-outlined text-2xl text-primary">
                       diamond
                   </span>
                 </div>
-                <div className="flex flex-col overflow-hidden whitespace-nowrap">
-                  <h2 className="font-headline-lg text-lg font-bold text-on-surface leading-tight tracking-tight">
+                <div className="flex flex-col min-w-0">
+                  <h2 className="text-base font-bold text-on-surface leading-tight tracking-tight truncate">
                     VideoTranslate AI
                   </h2>
-                  <p className="text-[11px] text-on-surface-variant font-mono-data">
-                    Studio Pro v{APP_VERSION}
+                  <p className="text-[10px] text-on-surface-variant/40 font-mono tracking-wider font-light mt-0.5 select-none">
+                    v{APP_VERSION}
                   </p>
                 </div>
               </Link>
@@ -283,7 +283,7 @@ export function MainLayout() {
             : "p-margin-mobile md:p-margin-desktop 2k:p-10",
           isCollapsed
             ? "md:ml-[72px] md:w-[calc(100%-72px)]"
-            : "md:ml-64 2k:ml-72 md:w-[calc(100%-256px)] 2k:w-[calc(100%-288px)]",
+            : "md:ml-72 2k:ml-80 md:w-[calc(100%-288px)] 2k:w-[calc(100%-320px)]",
         )}
       >
         <div key={location.pathname} className="w-full flex justify-center items-start animate-fadeIn">

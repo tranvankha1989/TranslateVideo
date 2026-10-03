@@ -507,6 +507,11 @@ export default function VideoTranslate() {
     setVideoFile(file, url);
     setTaskId(null);
     setTaskStatus(null);
+    setManualActiveStep(1); // Tự động quay về Bước 1 để người dùng không cần bấm lại
+    setManualUploadedCount(null);
+    setManualSrtFile(null);
+    setManualSrtText("");
+    setStudioSegments([]);
     // Kích hoạt nạp trước Faster-Whisper trong lúc người dùng tinh chỉnh tham số
     fetch(`${API_BASE_URL}/api/video-translate/warmup`).catch(() => {});
     toast.success(`Đã chọn video: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`);
@@ -1485,7 +1490,7 @@ export default function VideoTranslate() {
             <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface">
               Dịch & Lồng Tiếng Video
             </h1>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30 font-mono">
+            <span className="text-[10px] font-normal text-on-surface-variant/40 font-mono tracking-wider select-none">
               v3.6.0
             </span>
           </div>
