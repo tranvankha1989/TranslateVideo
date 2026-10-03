@@ -2466,7 +2466,7 @@ export default function VideoTranslate() {
               </div>
 
               {/* Main Step Content */}
-              <div className="border-t border-white/5 pt-1">
+              <div className="border-t border-white/5 pt-1 min-h-[320px] transition-all duration-300">
                 {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
                 {manualActiveStep === 1 && (
                 <div key="manual-step-1" className="space-y-4 step-transition">
