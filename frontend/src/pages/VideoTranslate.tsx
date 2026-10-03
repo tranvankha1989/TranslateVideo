@@ -223,7 +223,7 @@ export default function VideoTranslate() {
     setTimeout(() => {
       setManualActiveStep(targetStep);
       setIsStepTransitioning(false);
-    }, 200);
+    }, 500);
   };
 
   const switchTranslationMode = (targetMode: "auto" | "manual") => {
@@ -232,7 +232,7 @@ export default function VideoTranslate() {
     setTimeout(() => {
       setTranslationMode(targetMode);
       setIsModeTransitioning(false);
-    }, 200);
+    }, 500);
   };
 
   const [studioSearch, setStudioSearch] = React.useState("");
