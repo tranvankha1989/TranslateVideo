@@ -93,7 +93,7 @@ export function MainLayout() {
                     VideoTranslate AI
                   </h2>
                   <p className="text-[10px] text-on-surface-variant/40 font-mono tracking-wider font-light mt-0.5 select-none">
-                    v{APP_VERSION}
+                    Version: {APP_VERSION}-Demo
                   </p>
                 </div>
               </Link>

@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/constants/api";
+import { APP_VERSION } from "@/constants/version";
 import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
 
 import {
@@ -1491,7 +1492,7 @@ export default function VideoTranslate() {
               Dịch & Lồng Tiếng Video
             </h1>
             <span className="text-[10px] font-normal text-on-surface-variant/40 font-mono tracking-wider select-none">
-              v3.6.0
+              Version: {APP_VERSION}-Demo
             </span>
           </div>
           <p className="text-on-surface-variant text-sm 2k:text-base mt-0.5">
