@@ -223,7 +223,7 @@ export default function VideoTranslate() {
     setTimeout(() => {
       setManualActiveStep(targetStep);
       setIsStepTransitioning(false);
-    }, 500);
+    }, 250);
   };
 
   const switchTranslationMode = (targetMode: "auto" | "manual") => {
@@ -232,7 +232,7 @@ export default function VideoTranslate() {
     setTimeout(() => {
       setTranslationMode(targetMode);
       setIsModeTransitioning(false);
-    }, 500);
+    }, 250);
   };
 
   const [studioSearch, setStudioSearch] = React.useState("");
@@ -2489,7 +2489,7 @@ export default function VideoTranslate() {
               <div className={cn("border-t border-white/5 pt-1 min-h-[320px] transition-all duration-300", isStepTransitioning ? "step-fade-exit" : "step-fade-enter")}>
                 {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
                 {manualActiveStep === 1 && (
-                <div key="manual-step-1" className="space-y-4 step-transition">
+                <div key="manual-step-1" className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                       <Mic className="w-4 h-4 text-primary" />
@@ -2735,7 +2735,7 @@ export default function VideoTranslate() {
 
               {/* Bước 2: Xuất file SRT gốc & Dịch thủ công bên ngoài */}
               {manualActiveStep === 2 && (
-              <div key="manual-step-2" className="space-y-4 step-transition">
+              <div key="manual-step-2" className="space-y-4">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <Download className="w-4 h-4 text-secondary" />
@@ -2893,7 +2893,7 @@ export default function VideoTranslate() {
 
               {/* Bước 3: Nạp file SRT đã dịch */}
               {manualActiveStep === 3 && (
-              <div key="manual-step-3" className="space-y-4 step-transition">
+              <div key="manual-step-3" className="space-y-4">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <FileEdit className="w-4 h-4 text-amber-400" />
@@ -3062,7 +3062,7 @@ export default function VideoTranslate() {
 
               {/* Bước 4: Cấu hình Giọng đọc & Tiếp tục Lồng tiếng */}
               {manualActiveStep === 4 && (
-              <div id="manual-step-4-card" key="manual-step-4" className="space-y-5 step-transition">
+              <div id="manual-step-4-card" key="manual-step-4" className="space-y-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <Sliders className="w-4 h-4 text-primary" />
