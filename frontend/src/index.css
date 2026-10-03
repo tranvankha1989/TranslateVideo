@@ -102,20 +102,38 @@
     100% { background-position: 0 0; }
   }
 
-  /* Step Transition Animation */
+  /* Step & Tab Transition Animation */
   @keyframes stepFadeSlide {
-    from {
-      opacity: 0.85;
-      transform: translateY(2px);
+    0% {
+      opacity: 0;
+      transform: translateY(6px);
     }
-    to {
+    100% {
       opacity: 1;
-      transform: translateY(0) scale(1);
+      transform: translateY(0);
     }
   }
 
   .step-transition {
-    animation: stepFadeSlide 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: stepFadeSlide 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    will-change: transform, opacity;
+  }
+
+  /* Smooth Fade In Animation */
+  @keyframes smoothFadeIn {
+    0% {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fadeIn {
+    animation: smoothFadeIn 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    will-change: transform, opacity;
   }
 
   /* Hide scrollbar utility */

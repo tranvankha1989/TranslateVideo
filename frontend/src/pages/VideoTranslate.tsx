@@ -1762,7 +1762,7 @@ export default function VideoTranslate() {
 
           {translationMode === "auto" ? (
           /* Card 2: Cấu hình Ngôn Ngữ & Giọng Lồng Tiếng */
-          <div className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-lg">
+          <div key="auto-mode-card" className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-lg step-transition">
             <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
               <Sliders className="w-4 h-4 text-primary" />
               2. Cấu Hình Ngôn Ngữ & Giọng Đọc
@@ -2386,7 +2386,7 @@ export default function VideoTranslate() {
           </div>
           ) : (
             /* Chế độ Thủ Công (Manual Pipeline - 4-Step Stepper Wizard in Single Unified Block) */
-            <div className="bg-surface/80 border border-white/10 rounded-3xl p-5 sm:p-6 space-y-5 backdrop-blur-xl shadow-xl transition-all">
+            <div key="manual-mode-card" className="bg-surface/80 border border-white/10 rounded-3xl p-5 sm:p-6 space-y-5 backdrop-blur-xl shadow-xl transition-all step-transition">
               {/* Stepper Navigation Bar with < > arrow buttons */}
               <div className="bg-surface-variant/30 border border-white/5 rounded-2xl p-1.5 flex items-center gap-2">
                 {/* Nút Mũi Tên < (Bước trước) */}
@@ -2469,7 +2469,7 @@ export default function VideoTranslate() {
               <div className="border-t border-white/5 pt-1">
                 {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
                 {manualActiveStep === 1 && (
-                <div className="space-y-4 step-transition">
+                <div key="manual-step-1" className="space-y-4 step-transition">
                   <div className="flex items-center justify-between">
                     <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                       <Mic className="w-4 h-4 text-primary" />
@@ -2715,7 +2715,7 @@ export default function VideoTranslate() {
 
               {/* Bước 2: Xuất file SRT gốc & Dịch thủ công bên ngoài */}
               {manualActiveStep === 2 && (
-              <div className="space-y-4 step-transition">
+              <div key="manual-step-2" className="space-y-4 step-transition">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <Download className="w-4 h-4 text-secondary" />
@@ -2873,7 +2873,7 @@ export default function VideoTranslate() {
 
               {/* Bước 3: Nạp file SRT đã dịch */}
               {manualActiveStep === 3 && (
-              <div className="space-y-4 step-transition">
+              <div key="manual-step-3" className="space-y-4 step-transition">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <FileEdit className="w-4 h-4 text-amber-400" />
@@ -3042,7 +3042,7 @@ export default function VideoTranslate() {
 
               {/* Bước 4: Cấu hình Giọng đọc & Tiếp tục Lồng tiếng */}
               {manualActiveStep === 4 && (
-              <div id="manual-step-4-card" className="space-y-5 step-transition">
+              <div id="manual-step-4-card" key="manual-step-4" className="space-y-5 step-transition">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <Sliders className="w-4 h-4 text-primary" />
@@ -3681,7 +3681,7 @@ export default function VideoTranslate() {
                               </div>
 
                               {/* Thẻ chỉnh sửa chi tiết câu thoại hiện tại */}
-                              <div className="p-4 rounded-2xl border border-primary/30 bg-surface-variant/40 space-y-3 shadow-lg step-transition">
+                              <div key={`studio-active-seg-${currentActiveSeg.id}`} className="p-4 rounded-2xl border border-primary/30 bg-surface-variant/40 space-y-3 shadow-lg step-transition">
                                 {/* Top Controls */}
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
                                   <div className="flex items-center gap-1.5">
