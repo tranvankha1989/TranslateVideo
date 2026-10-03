@@ -40,6 +40,8 @@ import {
   ClipboardPaste,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Bug,
   ArrowRight,
   ArrowLeft,
@@ -792,10 +794,13 @@ export default function VideoTranslate() {
       const textToCopy = includePrompt ? `${promptToUse.trim()}\n\n${rawText}` : rawText;
       await navigator.clipboard.writeText(textToCopy);
       if (includePrompt) {
-        toast.success("📋 Đã sao chép Prompt yêu cầu & Phụ đề vào Clipboard! Bạn chỉ cần dán (Ctrl+V) vào ChatGPT / Claude / DeepL để dịch.");
+        toast.success("📋 Đã sao chép Prompt yêu cầu & Phụ đề vào Clipboard! Đang chuyển sang Bước 3...");
       } else {
-        toast.success("📋 Đã sao chép nội dung phụ đề SRT gốc vào Clipboard!");
+        toast.success("📋 Đã sao chép nội dung phụ đề SRT gốc vào Clipboard! Đang chuyển sang Bước 3...");
       }
+      setTimeout(() => {
+        setManualActiveStep(3);
+      }, 600);
     } catch (err: any) {
       // Fallback: thử tải trực tiếp từ URL file SRT gốc
       try {
@@ -807,7 +812,10 @@ export default function VideoTranslate() {
             const promptToUse = customTranslationPrompt || DEFAULT_TRANSLATION_PROMPT_TEMPLATE;
             const textToCopy = includePrompt ? `${promptToUse.trim()}\n\n${text}` : text;
             await navigator.clipboard.writeText(textToCopy);
-            toast.success("📋 Đã sao chép toàn bộ Prompt & Phụ đề vào Clipboard!");
+            toast.success("📋 Đã sao chép toàn bộ Prompt & Phụ đề vào Clipboard! Đang chuyển sang Bước 3...");
+            setTimeout(() => {
+              setManualActiveStep(3);
+            }, 600);
             return;
           }
         }
@@ -842,9 +850,15 @@ export default function VideoTranslate() {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success("✅ Đã tải file Prompt AI (.TXT) thành công!");
+      toast.success("✅ Đã tải file Prompt AI (.TXT) thành công! Đang chuyển sang Bước 3...");
+      setTimeout(() => {
+        setManualActiveStep(3);
+      }, 600);
     } catch {
       handleDownloadFile(currentId, "prompt_txt", `subtitles_with_prompt_${currentId}.txt`);
+      setTimeout(() => {
+        setManualActiveStep(3);
+      }, 600);
     }
   };
 
@@ -856,6 +870,9 @@ export default function VideoTranslate() {
       return;
     }
     handleDownloadFile(currentId, "srt_original", `original_subtitles_${currentId}.srt`);
+    setTimeout(() => {
+      setManualActiveStep(3);
+    }, 600);
   };
 
   // 3. Xử lý tải file SRT dịch lên
@@ -2371,9 +2388,26 @@ export default function VideoTranslate() {
           ) : (
             /* Chế độ Thủ Công (Manual Pipeline - 4-Step Stepper Wizard) */
             <div className="space-y-5 animate-fadeIn">
-              {/* Stepper Navigation Bar */}
-              <div className="bg-surface/90 border border-white/10 rounded-2xl p-2.5 backdrop-blur-xl shadow-lg">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {/* Stepper Navigation Bar with < > arrow buttons */}
+              <div className="bg-surface/90 border border-white/10 rounded-2xl p-2 backdrop-blur-xl shadow-lg flex items-center gap-2">
+                {/* Nút Mũi Tên < (Bước trước) */}
+                <button
+                  type="button"
+                  disabled={manualActiveStep <= 1}
+                  onClick={() => setManualActiveStep((prev) => Math.max(1, prev - 1))}
+                  title={manualActiveStep <= 1 ? "Đang ở bước đầu tiên" : `Quay lại Bước ${manualActiveStep - 1}`}
+                  className={cn(
+                    "w-9 h-11 rounded-xl flex items-center justify-center transition-all duration-300 shrink-0 border cursor-pointer",
+                    manualActiveStep <= 1
+                      ? "opacity-20 text-white/30 border-white/5 bg-transparent cursor-not-allowed"
+                      : "opacity-40 hover:opacity-100 text-white/70 hover:text-white bg-white/5 hover:bg-white/20 border-white/10 hover:border-white/40 hover:scale-105 active:scale-95 shadow-sm"
+                  )}
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+
+                {/* Danh sách 4 Bước */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 flex-1">
                   {[
                     { step: 1, title: "1. Phụ đề gốc", desc: "Faster-Whisper", icon: Mic, active: manualActiveStep === 1, done: isOriginalSrtReady },
                     { step: 2, title: "2. Prompt & Dịch", desc: "Gemini AI / Copy", icon: Download, active: manualActiveStep === 2, done: manualUploadedCount !== null },
@@ -2388,25 +2422,25 @@ export default function VideoTranslate() {
                         type="button"
                         onClick={() => setManualActiveStep(item.step)}
                         className={cn(
-                          "flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer border",
+                          "flex items-center gap-2 px-2.5 py-2 rounded-xl text-left transition-all cursor-pointer border",
                           isCurrent
-                            ? "bg-primary text-black font-semibold border-primary shadow-md shadow-primary/20 scale-[1.02]"
+                            ? "bg-primary text-black font-semibold border-primary shadow-md shadow-primary/20 scale-[1.01]"
                             : item.done
                             ? "bg-surface-variant/70 text-green-400 hover:bg-surface-variant border-green-500/30"
                             : "bg-surface-variant/40 text-on-surface-variant hover:bg-surface-variant/70 border-white/5 hover:text-on-surface"
                         )}
                       >
                         <div className={cn(
-                          "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold",
+                          "w-6 h-6 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold",
                           isCurrent ? "bg-black/20 text-black" : item.done ? "bg-green-500/20 text-green-400" : "bg-white/10 text-on-surface-variant"
                         )}>
-                          {item.done && !isCurrent ? <CheckCircle2 className="w-4 h-4" /> : <Icon className="w-3.5 h-3.5" />}
+                          {item.done && !isCurrent ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Icon className="w-3 h-3" />}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className={cn("text-xs leading-tight truncate", isCurrent ? "text-black font-bold" : "font-medium")}>
+                          <p className={cn("text-[11px] leading-tight truncate", isCurrent ? "text-black font-bold" : "font-medium")}>
                             {item.title}
                           </p>
-                          <p className={cn("text-[10px] leading-tight truncate opacity-80", isCurrent ? "text-black/80" : "text-on-surface-variant")}>
+                          <p className={cn("text-[9px] leading-tight truncate opacity-80", isCurrent ? "text-black/80" : "text-on-surface-variant")}>
                             {item.desc}
                           </p>
                         </div>
@@ -2414,20 +2448,62 @@ export default function VideoTranslate() {
                     );
                   })}
                 </div>
+
+                {/* Nút Mũi Tên > (Bước tiếp theo) */}
+                <button
+                  type="button"
+                  disabled={manualActiveStep >= 4}
+                  onClick={() => setManualActiveStep((prev) => Math.min(4, prev + 1))}
+                  title={manualActiveStep >= 4 ? "Đang ở bước cuối cùng" : `Sang Bước ${manualActiveStep + 1}`}
+                  className={cn(
+                    "w-9 h-11 rounded-xl flex items-center justify-center transition-all duration-300 shrink-0 border cursor-pointer",
+                    manualActiveStep >= 4
+                      ? "opacity-20 text-white/30 border-white/5 bg-transparent cursor-not-allowed"
+                      : "opacity-40 hover:opacity-100 text-white/70 hover:text-white bg-white/5 hover:bg-white/20 border-white/10 hover:border-white/40 hover:scale-105 active:scale-95 shadow-sm"
+                  )}
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
-              {manualActiveStep === 1 && (
-              <div className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
-                    <Mic className="w-4 h-4 text-primary" />
-                    Bước 1: Tạo Phụ Đề Gốc (Faster-Whisper)
-                  </h2>
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
-                    Xuất file .SRT gốc
-                  </span>
-                </div>
+              {/* Main Steps Container with Side Float Navigation Arrows */}
+              <div className="relative group/stepcontainer">
+                {/* Nút lùi bước < ở vị trí giữa cạnh trái */}
+                {manualActiveStep > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setManualActiveStep((prev) => Math.max(1, prev - 1))}
+                    title={`Quay lại Bước ${manualActiveStep - 1}`}
+                    className="hidden sm:flex absolute -left-3.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full items-center justify-center bg-black/60 border border-white/20 text-white/50 opacity-40 hover:opacity-100 hover:text-white hover:bg-white/20 hover:border-white/60 hover:scale-110 active:scale-95 transition-all duration-200 backdrop-blur-md shadow-xl cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                )}
+
+                {/* Nút tiến bước > ở vị trí giữa cạnh phải */}
+                {manualActiveStep < 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setManualActiveStep((prev) => Math.min(4, prev + 1))}
+                    title={`Sang Bước ${manualActiveStep + 1}`}
+                    className="hidden sm:flex absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full items-center justify-center bg-black/60 border border-white/20 text-white/50 opacity-40 hover:opacity-100 hover:text-white hover:bg-white/20 hover:border-white/60 hover:scale-110 active:scale-95 transition-all duration-200 backdrop-blur-md shadow-xl cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+
+                {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
+                {manualActiveStep === 1 && (
+                <div className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg step-transition">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-primary" />
+                      Bước 1: Tạo Phụ Đề Gốc (Faster-Whisper)
+                    </h2>
+                    <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
+                      Xuất file .SRT gốc
+                    </span>
+                  </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -2659,27 +2735,13 @@ export default function VideoTranslate() {
                     </>
                   )}
                 </button>
-
-                {/* Chuyển bước nhanh */}
-                {isOriginalSrtReady && (
-                  <div className="pt-2 flex items-center justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setManualActiveStep(2)}
-                      className="py-2.5 px-5 rounded-xl bg-primary text-black font-semibold text-xs flex items-center gap-1.5 hover:bg-primary-hover shadow-md transition-all cursor-pointer"
-                    >
-                      <span>Sang Bước 2: Prompt Dịch Kịch Bản</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
               </div>
               )}
 
               {/* Bước 2: Xuất file SRT gốc & Dịch thủ công bên ngoài */}
               {manualActiveStep === 2 && (
               <div className={cn(
-                "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all",
+                "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all step-transition",
                 isOriginalSrtReady ? "border-green-500/30" : "border-white/10"
               )}>
                 <div className="flex items-center justify-between flex-wrap gap-2">
@@ -2834,33 +2896,13 @@ export default function VideoTranslate() {
                     <span>Mở âm thanh tách Vocal</span>
                   </button>
                 )}
-
-                {/* Navigation Buttons for Step 2 */}
-                <div className="pt-2 flex items-center justify-between gap-3 border-t border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => setManualActiveStep(1)}
-                    className="py-2 px-3.5 rounded-xl bg-surface-variant hover:bg-surface-variant/80 text-on-surface text-xs font-medium flex items-center gap-1.5 border border-white/10 transition-all cursor-pointer"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Quay lại Bước 1</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setManualActiveStep(3)}
-                    className="py-2 px-4 rounded-xl bg-primary text-black text-xs font-semibold flex items-center gap-1.5 hover:bg-primary-hover shadow-md transition-all cursor-pointer"
-                  >
-                    <span>Sang Bước 3: Nạp SRT Đã Dịch</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
               </div>
               )}
 
               {/* Bước 3: Nạp file SRT đã dịch */}
               {manualActiveStep === 3 && (
               <div className={cn(
-                "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all",
+                "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all step-transition",
                 manualUploadedCount ? "border-green-500/30" : "border-white/10"
               )}>
                 <div className="flex items-center justify-between flex-wrap gap-2">
@@ -3026,52 +3068,23 @@ export default function VideoTranslate() {
                     </button>
                   </div>
                 )}
-
-                {/* Navigation Buttons for Step 3 */}
-                <div className="pt-2 flex items-center justify-between gap-3 border-t border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => setManualActiveStep(2)}
-                    className="py-2 px-3.5 rounded-xl bg-surface-variant hover:bg-surface-variant/80 text-on-surface text-xs font-medium flex items-center gap-1.5 border border-white/10 transition-all cursor-pointer"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Quay lại Bước 2</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setManualActiveStep(4)}
-                    className="py-2 px-4 rounded-xl bg-primary text-black text-xs font-semibold flex items-center gap-1.5 hover:bg-primary-hover shadow-md transition-all cursor-pointer"
-                  >
-                    <span>Sang Bước 4: Chọn Giọng & Render</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
               </div>
               )}
 
               {/* Bước 4: Cấu hình Giọng đọc & Tiếp tục Lồng tiếng */}
               {manualActiveStep === 4 && (
-              <div id="manual-step-4-card" className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-lg">
-                <div className="flex items-center justify-between pb-1 border-b border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => setManualActiveStep(3)}
-                    className="py-1.5 px-3 rounded-lg bg-surface-variant/60 hover:bg-surface-variant text-on-surface-variant hover:text-on-surface text-xs font-medium flex items-center gap-1.5 border border-white/10 transition-all cursor-pointer"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Quay lại Bước 3 (Nạp SRT)</span>
-                  </button>
+              <div id="manual-step-4-card" className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-lg step-transition">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-primary" />
+                    Bước 4: Cấu Hình Giọng Lồng Tiếng & Hoàn Tất Video
+                  </h2>
                   {manualUploadedCount !== null && (
-                    <span className="text-[11px] text-green-400 font-medium">
+                    <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 font-medium">
                       Đã nạp {manualUploadedCount} câu phụ đề
                     </span>
                   )}
                 </div>
-
-                <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-primary" />
-                  Bước 4: Cấu Hình Giọng Lồng Tiếng & Hoàn Tất Video
-                </h2>
 
                 {/* Chọn Giọng Đọc Lồng Tiếng */}
                 <div className="space-y-1.5">
@@ -3357,6 +3370,7 @@ export default function VideoTranslate() {
                 </button>
               </div>
               )}
+              </div>
             </div>
           )}
         </div>
