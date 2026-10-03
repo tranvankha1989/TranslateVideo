@@ -14,6 +14,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { useTTSStore, type CheckUpdateResult, type PerformUpdateResult } from "@/store/useTTSStore";
 import { APP_VERSION } from "@/constants/version";
 
@@ -157,26 +158,29 @@ export function AppUpdateModal({ isOpen, onClose }: AppUpdateModalProps) {
             <div className="space-y-5">
               {/* Status Banner */}
               {checkResult?.has_update ? (
-                <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 flex items-start gap-3.5">
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-primary/20 via-primary/10 to-amber-500/10 border border-primary/40 flex items-start gap-3.5 shadow-md shadow-primary/5">
                   <Sparkles className="w-5 h-5 text-primary shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-primary">
-                      {checkResult.message || `Tìm thấy ${checkResult.commits_behind} bản cập nhật mới!`}
+                    <p className="text-sm font-bold text-primary flex items-center gap-2">
+                      <span>🎉 Đã có bản cập nhật mới!</span>
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-primary text-black font-extrabold">
+                        {checkResult.latest_remote_commit || "Mới"}
+                      </span>
                     </p>
                     <p className="text-xs text-on-surface-variant leading-relaxed">
-                      Đã có phiên bản cải tiến với các tính năng mới và bản sửa lỗi tối ưu hóa hiệu năng.
+                      {checkResult.message || `Tìm thấy ${checkResult.commits_behind} cải tiến mới từ máy chủ.`}
                     </p>
                   </div>
                 </div>
               ) : (
-                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-start gap-3.5">
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-3.5">
                   <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-emerald-300">
-                      Bạn đang sử dụng phiên bản mới nhất (v{currentVer})!
+                    <p className="text-sm font-bold text-emerald-300">
+                      ✅ Bạn đang sử dụng phiên bản mới nhất (v{currentVer})!
                     </p>
                     <p className="text-xs text-on-surface-variant leading-relaxed">
-                      Mã nguồn của bạn đã được đồng bộ hoàn toàn với nhánh chính trên GitHub ({currentBranch}).
+                      Hệ thống của bạn đã được đồng bộ đầy đủ với kho mã nguồn mới nhất trên nhánh <strong>{currentBranch}</strong>. Không có bản nâng cấp nào cần tải về.
                     </p>
                   </div>
                 </div>
@@ -202,36 +206,40 @@ export function AppUpdateModal({ isOpen, onClose }: AppUpdateModalProps) {
                 </div>
               </div>
 
-              {/* New Commits / Changelog (if any) */}
-              {checkResult?.commit_messages && checkResult.commit_messages.length > 0 && (
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-on-surface-variant flex items-center justify-between">
-                    <span>Nội dung các bản cập nhật mới:</span>
-                    <span className="text-[11px] font-mono text-primary">
-                      {checkResult.commit_messages.length} commits
+              {/* New Commits / Changelog / Features */}
+              {checkResult?.has_update && checkResult?.commit_messages && checkResult.commit_messages.length > 0 ? (
+                <div className="space-y-2 p-4 rounded-2xl bg-black/40 border border-primary/20">
+                  <label className="text-xs font-bold text-primary flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Tính năng mới & Thay đổi trong bản cập nhật này:
+                    </span>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
+                      {checkResult.commit_messages.length} nội dung mới
                     </span>
                   </label>
-                  <div className="p-3 rounded-xl bg-black/40 border border-white/10 max-h-36 overflow-y-auto space-y-1.5 font-mono text-xs text-on-surface-variant">
+                  <div className="max-h-44 overflow-y-auto space-y-2 pr-1 pt-1">
                     {checkResult.commit_messages.map((msg, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-[11px] leading-relaxed">
-                        <span className="text-primary font-bold">#</span>
-                        <span className="text-on-surface">{msg}</span>
+                      <div key={idx} className="flex items-start gap-2.5 text-xs leading-relaxed p-2 rounded-xl bg-white/5 border border-white/5">
+                        <span className="w-5 h-5 rounded-md bg-primary/20 text-primary text-[10px] font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <span className="text-on-surface font-medium">{msg}</span>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {/* Confirmation Notice Box */}
               <div className="p-4 rounded-xl bg-surface-variant/50 border border-white/10 space-y-2">
                 <div className="flex items-center gap-2 text-xs font-semibold text-on-surface">
-                  <ShieldCheck className="w-4 h-4 text-primary" />
-                  <span>Xác nhận cập nhật hệ thống</span>
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Bảo đảm an toàn dữ liệu</span>
                 </div>
                 <ul className="text-[11px] text-on-surface-variant space-y-1 list-disc pl-4 leading-relaxed">
                   <li>Tự động kéo mã nguồn mới nhất từ GitHub qua <code className="text-primary font-mono">git pull</code>.</li>
-                  <li>Tự động kiểm tra và cài đặt bổ sung thư viện Python & Frontend cần thiết.</li>
-                  <li>Toàn bộ dữ liệu dự án, tệp âm thanh và cấu hình cá nhân của bạn được <strong className="text-on-surface">bảo lưu an toàn 100%</strong>.</li>
+                  <li>Toàn bộ dữ liệu dự án, file giọng nói đã tạo và cài đặt cá nhân của bạn được <strong className="text-on-surface">bảo toàn 100%</strong>.</li>
                 </ul>
               </div>
             </div>
@@ -336,12 +344,19 @@ export function AppUpdateModal({ isOpen, onClose }: AppUpdateModalProps) {
                 </button>
                 <button
                   type="button"
+                  disabled={!checkResult?.has_update}
                   onClick={handleStartUpdate}
-                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-primary to-accent text-on-primary hover:opacity-95 shadow-md shadow-primary/20 flex items-center gap-2 transition-transform active:scale-95"
+                  title={!checkResult?.has_update ? "Bạn đang ở phiên bản mới nhất, không có bản cập nhật mới" : "Bắt đầu cập nhật ứng dụng"}
+                  className={cn(
+                    "px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all",
+                    !checkResult?.has_update
+                      ? "bg-surface-variant/40 text-on-surface-variant/40 border border-white/5 cursor-not-allowed opacity-60"
+                      : "bg-gradient-to-r from-primary to-accent text-on-primary hover:opacity-95 shadow-md shadow-primary/20 cursor-pointer active:scale-95"
+                  )}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Xác nhận & Cập nhật ngay</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span>{checkResult?.has_update ? "Xác nhận & Cập nhật ngay" : "Đã ở bản mới nhất"}</span>
+                  {checkResult?.has_update && <ArrowRight className="w-3.5 h-3.5" />}
                 </button>
               </div>
             </>

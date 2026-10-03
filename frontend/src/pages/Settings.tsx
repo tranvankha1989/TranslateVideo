@@ -17,11 +17,6 @@ import {
   BookOpen,
   Sliders,
   FileCode,
-  GitBranch,
-  GitCommit,
-  ArrowRight,
-  ShieldCheck,
-  Terminal,
   Download,
   FolderOpen,
   Copy,
@@ -60,7 +55,7 @@ export default function Settings() {
     fetchAppVersion,
   } = useTTSStore();
 
-  const [activeTab, setActiveTab] = useState<"hardware" | "guide" | "sync" | "studio" | "filter" | "update" | "logs">("hardware");
+  const [activeTab, setActiveTab] = useState<"hardware" | "guide" | "sync" | "studio" | "filter" | "logs">("hardware");
   const [useRemoteGpu, setUseRemoteGpu] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [concurrency, setConcurrency] = useState(2);
@@ -526,18 +521,6 @@ export default function Settings() {
         >
           <Filter className="w-4 h-4" />
           Bộ Lọc & Dạy AI (Quảng Cáo)
-        </button>
-
-        <button
-          onClick={() => setActiveTab("update")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-xs md:text-sm transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === "update"
-              ? "bg-primary text-black font-semibold shadow-md shadow-primary/20"
-              : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-          }`}
-        >
-          <Sparkles className="w-4 h-4" />
-          Phiên Bản & Cập Nhật
         </button>
 
         <button
@@ -1304,115 +1287,6 @@ export default function Settings() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 5: Phiên Bản & Cập Nhật Phần Mềm */}
-      {activeTab === "update" && (
-        <div className="space-y-6 animate-fadeIn">
-          {/* Hero Update Card */}
-          <div className="p-6 md:p-8 rounded-3xl bg-gradient-to-br from-primary/15 via-surface-variant/40 to-surface-variant/20 border border-primary/30 shadow-xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/20 text-primary border border-primary/30 text-xs font-semibold">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Trình Quản Lý Phiên Bản Tự Động</span>
-                </div>
-                <h2 className="text-xl md:text-2xl font-black text-on-surface">
-                  VoiceSync AI Pro Studio
-                </h2>
-                <p className="text-xs sm:text-sm text-on-surface-variant max-w-xl leading-relaxed">
-                  Cập nhật các tính năng AI mới nhất, thuật toán khử tạp âm, mô hình dịch phim tự động và tối ưu hóa hiệu năng từ kho mã nguồn GitHub chính thức.
-                </p>
-              </div>
-
-              {/* Version Badge Box */}
-              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 text-center sm:text-right shrink-0">
-                <span className="text-[11px] text-on-surface-variant uppercase tracking-wider block">
-                  Phiên bản hiện tại
-                </span>
-                <span className="text-2xl font-black font-mono text-primary block mt-0.5">
-                  v{appVersionInfo?.version || APP_VERSION}
-                </span>
-                {appVersionInfo?.release_date && (
-                  <span className="text-[11px] text-on-surface-variant block mt-1">
-                    Ngày phát hành: {appVersionInfo.release_date}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Git Metadata Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-white/10">
-              <div className="p-3.5 rounded-xl bg-surface-variant/50 border border-white/10 space-y-1">
-                <span className="text-[11px] text-on-surface-variant font-medium flex items-center gap-1.5">
-                  <GitBranch className="w-3.5 h-3.5 text-primary" /> Nhánh Git:
-                </span>
-                <p className="text-xs font-mono font-semibold text-on-surface">
-                  {appVersionInfo?.git_branch || "main"}
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-surface-variant/50 border border-white/10 space-y-1">
-                <span className="text-[11px] text-on-surface-variant font-medium flex items-center gap-1.5">
-                  <GitCommit className="w-3.5 h-3.5 text-primary" /> Commit Hash:
-                </span>
-                <p className="text-xs font-mono font-semibold text-on-surface">
-                  {appVersionInfo?.git_commit || "HEAD"}
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-surface-variant/50 border border-white/10 space-y-1">
-                <span className="text-[11px] text-on-surface-variant font-medium flex items-center gap-1.5">
-                  <RefreshCw className="w-3.5 h-3.5 text-primary" /> Ngày Commit:
-                </span>
-                <p className="text-xs font-mono font-semibold text-on-surface">
-                  {appVersionInfo?.git_commit_date || "Mới nhất"}
-                </p>
-              </div>
-            </div>
-
-            {/* Release Description / Notes */}
-            {appVersionInfo?.description && (
-              <div className="p-4 rounded-xl bg-black/30 border border-white/10 space-y-1.5">
-                <span className="text-xs font-semibold text-primary flex items-center gap-1.5">
-                  📝 Điểm mới trên phiên bản v{appVersionInfo.version}:
-                </span>
-                <p className="text-xs text-on-surface leading-relaxed">
-                  {appVersionInfo.description}
-                </p>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
-              <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Quy trình có bước xác nhận an toàn, không ảnh hưởng dữ liệu dự án.</span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsUpdateModalOpen(true)}
-                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-primary to-accent hover:opacity-95 text-on-primary font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-primary/20 transition-all cursor-pointer active:scale-95"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Kiểm Tra & Cập Nhật Phiên Bản Mới</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Hướng Dẫn Cập Nhật Thủ Công Bằng update.bat */}
-          <div className="p-6 rounded-3xl bg-surface-variant/30 border border-white/5 space-y-4">
-            <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
-              <Terminal className="w-4 h-4 text-primary" />
-              <span>Tùy chọn: Cập nhật thủ công qua File Batch</span>
-            </h3>
-            <p className="text-xs text-on-surface-variant leading-relaxed">
-              Nếu bạn muốn cập nhật trực tiếp ngoài màn hình hoặc khi không mở trình duyệt, bạn chỉ cần chạy tệp <code className="text-primary font-mono bg-black/40 px-1.5 py-0.5 rounded border border-white/10">update.bat</code> trong thư mục gốc của phần mềm. File này sẽ tự động chạy lệnh git pull và cập nhật các gói thư viện.
-            </p>
           </div>
         </div>
       )}
