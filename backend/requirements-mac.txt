@@ -21,12 +21,13 @@ huggingface_hub>=0.24.0
 tensorboardx
 gradio
 
-# --- 3. Audio & Signal Processing ---
+# --- 3. Audio & Signal Processing & Vocal Separation ---
 soundfile>=0.12.1
 librosa>=0.10.2
 pydub>=0.25.1
 scipy>=1.13.0
 numpy>=1.26.0
+demucs>=4.0.0
 
 # --- 4. Auto Captioning & Speech-to-Text ---
 faster-whisper>=1.0.0

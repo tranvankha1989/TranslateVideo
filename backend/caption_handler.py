@@ -123,11 +123,8 @@ def separate_vocals_demucs(audio_path: Path, output_dir: Path, enable_demucs: bo
     if vocals_path.exists() and bgm_path.exists() and vocals_path.stat().st_size > 1000:
         return {"vocals": vocals_path, "bgm": bgm_path, "method": "cache"}
 
-    if enable_demucs:
-        from model_handler import is_remote_gpu_enabled
-        if is_remote_gpu_enabled():
-            logger.info("⚡ [Cloud GPU Mode] Đang bật Cloud GPU: Bỏ qua Demucs AI nặng trên máy tính, chuyển sang bộ lọc FFmpeg đa băng tần siêu tốc (0% VRAM/CPU).")
-            enable_demucs = False
+    # Demucs AI xử lý nguồn âm thanh cục bộ (chỉ mất ~20-30s trên CPU/GPU)
+    # Ưu tiên chạy Demucs để tách sạch giọng nói và nhạc nền chính xác 100%
 
     if enable_demucs:
         try:
