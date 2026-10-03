@@ -102,35 +102,39 @@
     100% { background-position: 0 0; }
   }
 
-  /* Step & Tab Transition Animation (Gradual Fade Dissolve - Mờ dần rồi hiện rõ nét) */
-  @keyframes softDissolveFade {
+  /* 2-Phase Step Transition (Bước cũ mờ dần ➔ Bước mới hiện rõ dần) */
+  .step-fade-exit {
+    opacity: 0 !important;
+    transform: translateY(-3px) scale(0.995);
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+    pointer-events: none;
+  }
+
+  .step-fade-enter {
+    animation: softFadeInClear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    will-change: opacity, transform;
+  }
+
+  @keyframes softFadeInClear {
     0% {
-      opacity: 0.1;
-      transform: translateY(2px);
+      opacity: 0;
+      transform: translateY(3px) scale(0.995);
     }
     100% {
       opacity: 1;
-      transform: translateY(0);
+      transform: translateY(0) scale(1);
     }
   }
 
+  /* Step & Tab Transition Animation */
   .step-transition {
-    animation: softDissolveFade 0.45s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    animation: softFadeInClear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     will-change: opacity, transform;
   }
 
   /* Smooth Fade In Animation */
-  @keyframes smoothFadeIn {
-    0% {
-      opacity: 0.1;
-    }
-    100% {
-      opacity: 1;
-    }
-  }
-
   .animate-fadeIn {
-    animation: smoothFadeIn 0.45s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    animation: softFadeInClear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     will-change: opacity;
   }
 

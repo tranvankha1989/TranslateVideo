@@ -97,6 +97,8 @@ export default function VideoTranslate() {
   const [manualUploadedCount, setManualUploadedCount] = React.useState<number | null>(null);
   const [isUploadingManualSrt, setIsUploadingManualSrt] = React.useState(false);
   const [manualActiveStep, setManualActiveStep] = React.useState<number>(1);
+  const [isStepTransitioning, setIsStepTransitioning] = React.useState<boolean>(false);
+  const [isModeTransitioning, setIsModeTransitioning] = React.useState<boolean>(false);
   const manualSrtFileInputRef = React.useRef<HTMLInputElement>(null);
 
   const formatSrtTime = (seconds: number) => {
@@ -214,6 +216,24 @@ export default function VideoTranslate() {
     resetAll,
     fetchActiveTask,
   } = useVideoTranslateStore();
+
+  const switchManualStep = (targetStep: number) => {
+    if (targetStep === manualActiveStep || isStepTransitioning) return;
+    setIsStepTransitioning(true);
+    setTimeout(() => {
+      setManualActiveStep(targetStep);
+      setIsStepTransitioning(false);
+    }, 200);
+  };
+
+  const switchTranslationMode = (targetMode: "auto" | "manual") => {
+    if (targetMode === translationMode || isModeTransitioning) return;
+    setIsModeTransitioning(true);
+    setTimeout(() => {
+      setTranslationMode(targetMode);
+      setIsModeTransitioning(false);
+    }, 200);
+  };
 
   const [studioSearch, setStudioSearch] = React.useState("");
   const [playingAudioSegId, setPlayingAudioSegId] = React.useState<number | null>(null);
@@ -449,7 +469,7 @@ export default function VideoTranslate() {
           setIsRedubbing(false);
           playNotificationSound();
           toast.success("✅ Đã tạo phụ đề gốc thành công! Tự động chuyển sang Bước 2 để dịch kịch bản.");
-          setManualActiveStep(2);
+          switchManualStep(2);
         } else if (data.status === "failed") {
           setIsProcessing(false);
           setIsRedubbing(false);
@@ -798,7 +818,7 @@ export default function VideoTranslate() {
         toast.success("📋 Đã sao chép nội dung phụ đề SRT gốc vào Clipboard! Đang chuyển sang Bước 3...");
       }
       setTimeout(() => {
-        setManualActiveStep(3);
+        switchManualStep(3);
       }, 600);
     } catch (err: any) {
       // Fallback: thử tải trực tiếp từ URL file SRT gốc
@@ -813,7 +833,7 @@ export default function VideoTranslate() {
             await navigator.clipboard.writeText(textToCopy);
             toast.success("📋 Đã sao chép toàn bộ Prompt & Phụ đề vào Clipboard! Đang chuyển sang Bước 3...");
             setTimeout(() => {
-              setManualActiveStep(3);
+              switchManualStep(3);
             }, 600);
             return;
           }
@@ -851,12 +871,12 @@ export default function VideoTranslate() {
       window.URL.revokeObjectURL(url);
       toast.success("✅ Đã tải file Prompt AI (.TXT) thành công! Đang chuyển sang Bước 3...");
       setTimeout(() => {
-        setManualActiveStep(3);
+        switchManualStep(3);
       }, 600);
     } catch {
       handleDownloadFile(currentId, "prompt_txt", `subtitles_with_prompt_${currentId}.txt`);
       setTimeout(() => {
-        setManualActiveStep(3);
+        switchManualStep(3);
       }, 600);
     }
   };
@@ -870,7 +890,7 @@ export default function VideoTranslate() {
     }
     handleDownloadFile(currentId, "srt_original", `original_subtitles_${currentId}.srt`);
     setTimeout(() => {
-      setManualActiveStep(3);
+      switchManualStep(3);
     }, 600);
   };
 
@@ -899,7 +919,7 @@ export default function VideoTranslate() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Lỗi khi nạp file phụ đề");
       setManualUploadedCount(data.segments_count || null);
-      setManualActiveStep(4);
+      switchManualStep(4);
       toast.success(`✅ ${data.message} • Đã chuyển sang Bước 4 để chọn giọng & render!`);
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi nạp file phụ đề");
@@ -948,7 +968,7 @@ export default function VideoTranslate() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Lỗi khi nạp nội dung phụ đề");
       setManualUploadedCount(data.segments_count || null);
-      setManualActiveStep(4);
+      switchManualStep(4);
       toast.success(`✅ ${data.message} • Đã chuyển sang Bước 4 để chọn giọng & render!`);
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi nạp nội dung phụ đề");
@@ -1527,7 +1547,7 @@ export default function VideoTranslate() {
           <div className="flex items-center p-1.5 bg-surface-variant/40 border border-white/10 rounded-2xl gap-1.5 shadow-sm">
             <button
               type="button"
-              onClick={() => setTranslationMode("manual")}
+              onClick={() => switchTranslationMode("manual")}
               className={cn(
                 "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all duration-300 ease-out cursor-pointer",
                 translationMode === "manual"
@@ -1540,7 +1560,7 @@ export default function VideoTranslate() {
             </button>
             <button
               type="button"
-              onClick={() => setTranslationMode("auto")}
+              onClick={() => switchTranslationMode("auto")}
               className={cn(
                 "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all duration-300 ease-out cursor-pointer",
                 translationMode === "auto"
@@ -1762,7 +1782,7 @@ export default function VideoTranslate() {
 
           {translationMode === "auto" ? (
           /* Card 2: Cấu hình Ngôn Ngữ & Giọng Lồng Tiếng */
-          <div key="auto-mode-card" className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-lg step-transition">
+          <div key="auto-mode-card" className={cn("bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-lg transition-all duration-300", isModeTransitioning ? "step-fade-exit" : "step-fade-enter")}>
             <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
               <Sliders className="w-4 h-4 text-primary" />
               2. Cấu Hình Ngôn Ngữ & Giọng Đọc
@@ -2386,14 +2406,14 @@ export default function VideoTranslate() {
           </div>
           ) : (
             /* Chế độ Thủ Công (Manual Pipeline - 4-Step Stepper Wizard in Single Unified Block) */
-            <div key="manual-mode-card" className="bg-surface/80 border border-white/10 rounded-3xl p-5 sm:p-6 space-y-5 backdrop-blur-xl shadow-xl transition-all step-transition">
+            <div key="manual-mode-card" className={cn("bg-surface/80 border border-white/10 rounded-3xl p-5 sm:p-6 space-y-5 backdrop-blur-xl shadow-xl transition-all duration-300", isModeTransitioning ? "step-fade-exit" : "step-fade-enter")}>
               {/* Stepper Navigation Bar with < > arrow buttons */}
               <div className="bg-surface-variant/30 border border-white/5 rounded-2xl p-1.5 flex items-center gap-2">
                 {/* Nút Mũi Tên < (Bước trước) */}
                 <button
                   type="button"
                   disabled={manualActiveStep <= 1}
-                  onClick={() => setManualActiveStep((prev) => Math.max(1, prev - 1))}
+                  onClick={() => switchManualStep(Math.max(1, manualActiveStep - 1))}
                   title={manualActiveStep <= 1 ? "Đang ở bước đầu tiên" : `Quay lại Bước ${manualActiveStep - 1}`}
                   className={cn(
                     "w-9 h-11 rounded-xl flex items-center justify-center transition-all duration-300 shrink-0 border cursor-pointer",
@@ -2419,7 +2439,7 @@ export default function VideoTranslate() {
                       <button
                         key={item.step}
                         type="button"
-                        onClick={() => setManualActiveStep(item.step)}
+                        onClick={() => switchManualStep(item.step)}
                         className={cn(
                           "flex items-center gap-2 px-2.5 py-2 rounded-xl text-left transition-all duration-300 ease-out cursor-pointer border",
                           isCurrent
@@ -2452,7 +2472,7 @@ export default function VideoTranslate() {
                 <button
                   type="button"
                   disabled={manualActiveStep >= 4}
-                  onClick={() => setManualActiveStep((prev) => Math.min(4, prev + 1))}
+                  onClick={() => switchManualStep(Math.min(4, manualActiveStep + 1))}
                   title={manualActiveStep >= 4 ? "Đang ở bước cuối cùng" : `Sang Bước ${manualActiveStep + 1}`}
                   className={cn(
                     "w-9 h-11 rounded-xl flex items-center justify-center transition-all duration-300 shrink-0 border cursor-pointer",
@@ -2466,7 +2486,7 @@ export default function VideoTranslate() {
               </div>
 
               {/* Main Step Content */}
-              <div className="border-t border-white/5 pt-1 min-h-[320px] transition-all duration-300">
+              <div className={cn("border-t border-white/5 pt-1 min-h-[320px] transition-all duration-300", isStepTransitioning ? "step-fade-exit" : "step-fade-enter")}>
                 {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
                 {manualActiveStep === 1 && (
                 <div key="manual-step-1" className="space-y-4 step-transition">
