@@ -2385,10 +2385,10 @@ export default function VideoTranslate() {
             </button>
           </div>
           ) : (
-            /* Chế độ Thủ Công (Manual Pipeline - 4-Step Stepper Wizard) */
-            <div className="space-y-5">
+            /* Chế độ Thủ Công (Manual Pipeline - 4-Step Stepper Wizard in Single Unified Block) */
+            <div className="bg-surface/80 border border-white/10 rounded-3xl p-5 sm:p-6 space-y-5 backdrop-blur-xl shadow-xl transition-all">
               {/* Stepper Navigation Bar with < > arrow buttons */}
-              <div className="bg-surface/90 border border-white/10 rounded-2xl p-2 backdrop-blur-xl shadow-lg flex items-center gap-2">
+              <div className="bg-surface-variant/30 border border-white/5 rounded-2xl p-1.5 flex items-center gap-2">
                 {/* Nút Mũi Tên < (Bước trước) */}
                 <button
                   type="button"
@@ -2466,10 +2466,10 @@ export default function VideoTranslate() {
               </div>
 
               {/* Main Step Content */}
-              <div>
+              <div className="border-t border-white/5 pt-1">
                 {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
                 {manualActiveStep === 1 && (
-                <div className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg step-transition">
+                <div className="space-y-4 step-transition">
                   <div className="flex items-center justify-between">
                     <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                       <Mic className="w-4 h-4 text-primary" />
@@ -2715,10 +2715,7 @@ export default function VideoTranslate() {
 
               {/* Bước 2: Xuất file SRT gốc & Dịch thủ công bên ngoài */}
               {manualActiveStep === 2 && (
-              <div className={cn(
-                "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all step-transition",
-                isOriginalSrtReady ? "border-green-500/30" : "border-white/10"
-              )}>
+              <div className="space-y-4 step-transition">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <Download className="w-4 h-4 text-secondary" />
@@ -2876,10 +2873,7 @@ export default function VideoTranslate() {
 
               {/* Bước 3: Nạp file SRT đã dịch */}
               {manualActiveStep === 3 && (
-              <div className={cn(
-                "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all step-transition",
-                manualUploadedCount ? "border-green-500/30" : "border-white/10"
-              )}>
+              <div className="space-y-4 step-transition">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <FileEdit className="w-4 h-4 text-amber-400" />
@@ -3048,7 +3042,7 @@ export default function VideoTranslate() {
 
               {/* Bước 4: Cấu hình Giọng đọc & Tiếp tục Lồng tiếng */}
               {manualActiveStep === 4 && (
-              <div id="manual-step-4-card" className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-lg step-transition">
+              <div id="manual-step-4-card" className="space-y-5 step-transition">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                     <Sliders className="w-4 h-4 text-primary" />
