@@ -90,7 +90,7 @@ async def start_video_translation(
     translation_provider: str = Form("google"),
     translation_api_key: str | None = Form(None),
     translation_style: str = Form("auto"),
-    translation_model: str = Form("gemini-2.5-flash"),
+    translation_model: str = Form("gemini-3.5-flash-lite"),
     translation_temperature: float = Form(0.2),
     whisper_model: str = Form("large-v3-turbo"),
     output_resolution: str = Form("720p"),
@@ -122,7 +122,7 @@ async def start_video_translation(
     raw_key = _form_val(translation_api_key, None)
     trans_key = str(raw_key).strip() if raw_key else None
     trans_style = str(_form_val(translation_style, "auto"))
-    trans_model = str(_form_val(translation_model, "gemini-2.5-flash"))
+    trans_model = str(_form_val(translation_model, "gemini-3.5-flash-lite"))
     trans_temp = float(_form_val(translation_temperature, 0.2))
     w_model = str(_form_val(whisper_model, "large-v3-turbo"))
     out_res = str(_form_val(output_resolution, "720p"))

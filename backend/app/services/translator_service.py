@@ -400,32 +400,18 @@ class GoogleAIStudioTranslator:
         # Bước 2: Test từng model chính thức và đo lường hạn mức
         standard_models = [
             {
-                "id": "gemini-3.8-flash",
-                "name": "Gemini 3.8 Flash (Thế hệ mới nhất)",
-                "rpd": "1.500 lượt/ngày",
+                "id": "gemini-3.5-flash-lite",
+                "name": "Gemini 3.5 Flash Lite (Mặc định & Khuyên dùng)",
+                "rpd": "500 lượt/ngày",
                 "rpm": "15 lượt/phút",
-                "tpm": "1.000.000 tokens/phút",
+                "tpm": "250.000 tokens/phút",
             },
             {
-                "id": "gemini-3.7-flash",
-                "name": "Gemini 3.7 Flash",
-                "rpd": "1.500 lượt/ngày",
+                "id": "gemini-3.1-flash-lite",
+                "name": "Gemini 3.1 Flash Lite (Nhanh & Ổn định)",
+                "rpd": "500 lượt/ngày",
                 "rpm": "15 lượt/phút",
-                "tpm": "1.000.000 tokens/phút",
-            },
-            {
-                "id": "gemini-3.1-pro-preview",
-                "name": "Gemini 3.1 Pro (Bản Pro thông minh)",
-                "rpd": "50 lượt/ngày",
-                "rpm": "2 lượt/phút",
-                "tpm": "32.000 tokens/phút",
-            },
-            {
-                "id": "gemma-4-26b-a4b-it",
-                "name": "Gemma 4 26B (Google AI Mở rộng)",
-                "rpd": "1.500 lượt/ngày",
-                "rpm": "30 lượt/phút",
-                "tpm": "1.000.000 tokens/phút",
+                "tpm": "250.000 tokens/phút",
             },
         ]
 
@@ -507,13 +493,8 @@ class GoogleAIStudioTranslator:
         if model and model.strip():
             candidate_models.append(model.strip())
         for m in [
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-flash-latest",
-            "gemini-3.1-pro-preview",
-            "gemini-3.5-flash",
-            "gemma-4-26b-a4b-it",
-            "gemma-4-31b-it",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
         ]:
             if m not in candidate_models:
                 candidate_models.append(m)
@@ -836,7 +817,7 @@ class TranslationService:
         translated_speakers = [""] * len(texts)
 
         if provider.lower() in ["gemini", "google_ai_studio", "google-ai-studio"] and gemini_key:
-            selected_model = model or "gemini-3.8-flash"
+            selected_model = model or "gemini-3.5-flash-lite"
             logger.info(f"🌐 Sử dụng Google AI Studio (Model={selected_model}, Temp={temperature}) dịch {len(texts)} câu phụ đề (Style={style})...")
             translated_texts, translated_speakers = await GoogleAIStudioTranslator.translate_batch_texts(
                 texts=texts,

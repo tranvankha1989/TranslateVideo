@@ -1778,10 +1778,8 @@ export default function VideoTranslate() {
                       onChange={(e) => setGeminiModel(e.target.value)}
                       className="w-full bg-surface-variant/80 border border-primary/40 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-primary font-medium text-amber-300 cursor-pointer shadow-sm"
                     >
-                      <option value="gemini-3.8-flash">gemini-3.8-flash (1.500 lượt/ngày - Mới nhất & Khuyên dùng)</option>
-                      <option value="gemini-3.7-flash">gemini-3.7-flash (1.500 lượt/ngày - Nhanh & Ổn định)</option>
-                      <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Bản Pro thông minh - Kịch bản sâu)</option>
-                      <option value="gemma-4-26b-a4b-it">gemma-4-26b-a4b-it (Google AI Mở rộng - Luôn sẵn sàng)</option>
+                      <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (500 lượt/ngày - Mặc định & Khuyên dùng)</option>
+                      <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (500 lượt/ngày - Nhanh & Ổn định)</option>
                     </select>
                   </div>
                 )}

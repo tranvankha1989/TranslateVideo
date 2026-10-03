@@ -290,7 +290,7 @@ class VideoTranslationPipeline:
         translation_provider: str = "google",
         translation_api_key: str | None = None,
         translation_style: str = "auto",
-        translation_model: str = "gemini-2.5-flash",
+        translation_model: str = "gemini-3.5-flash-lite",
         translation_temperature: float = 0.2,
         whisper_model: str = "large-v3-turbo",
         output_resolution: str = "720p",

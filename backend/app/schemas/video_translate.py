@@ -17,7 +17,7 @@ class StartTranslationRequest(BaseModel):
     max_speed_rate: float = Field(1.35, description="Tốc độ tăng tối đa để khớp khung hình")
     translation_provider: str = Field("google", description="Kênh dịch thuật: google, openai, deepseek, gemini")
     translation_api_key: str | None = Field(None, description="API Key nếu dùng LLM")
-    translation_model: str = Field("gemini-2.5-flash", description="Mô hình dịch: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash, gemini-2.5-flash-lite")
+    translation_model: str = Field("gemini-3.5-flash-lite", description="Mô hình dịch: gemini-3.5-flash-lite, gemini-3.1-flash-lite")
     translation_temperature: float = Field(0.2, description="Nhiệt độ sáng tạo (0.0 -> 1.0, mặc định 0.2)")
     output_resolution: str = Field("720p", description="Độ phân giải video đầu ra: 720p, 1080p, 480p, original")
     start_time: float = Field(0.0, description="Mốc thời gian bắt đầu cắt video (giây)")

@@ -62,7 +62,7 @@ Dự án sử dụng mô hình Gemini thế hệ mới để dịch phụ đề,
 3. Bấm **Create API key** (hoặc *Tạo khóa API*) ➔ Chọn một dự án Google Cloud hoặc tạo mới.
 4. Sao chép khóa API (dạng chuỗi `AIzaSy...`) và lưu lại.
    * Khóa này dùng để dán trực tiếp vào giao diện tab **Dịch Video** hoặc lưu vào mục **Cài Đặt** của phần mềm.
-   * *Google AI Studio cung cấp gói miễn phí lên tới 1.500 lượt yêu cầu/ngày đối với các model Gemini Flash.*
+   * *Google AI Studio cung cấp gói miễn phí lên tới 500 lượt yêu cầu/ngày đối với các model Gemini Flash Lite.*
 
 ---
 
