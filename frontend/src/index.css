@@ -102,35 +102,35 @@
     100% { background-position: 0 0; }
   }
 
-  /* Step & Tab Transition Animation (Zero-Flash, Silky Smooth) */
+  /* Step & Tab Transition Animation (Gradual Fade Dissolve - Mờ dần rồi hiện rõ nét) */
   @keyframes softDissolveFade {
-    from {
-      opacity: 0.35;
-      transform: translateY(1px);
+    0% {
+      opacity: 0.1;
+      transform: translateY(2px);
     }
-    to {
+    100% {
       opacity: 1;
       transform: translateY(0);
     }
   }
 
   .step-transition {
-    animation: softDissolveFade 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    will-change: opacity;
+    animation: softDissolveFade 0.45s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    will-change: opacity, transform;
   }
 
   /* Smooth Fade In Animation */
   @keyframes smoothFadeIn {
-    from {
-      opacity: 0.35;
+    0% {
+      opacity: 0.1;
     }
-    to {
+    100% {
       opacity: 1;
     }
   }
 
   .animate-fadeIn {
-    animation: smoothFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: smoothFadeIn 0.45s cubic-bezier(0.25, 1, 0.5, 1) forwards;
     will-change: opacity;
   }
 
