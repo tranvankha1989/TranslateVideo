@@ -49,14 +49,15 @@ from omnivoice import OmniVoice, VoiceClonePrompt
 
 # Hỗ trợ ZeroGPU decorator
 try:
+    # pyrefly: ignore [missing-import]
     import spaces
 except ImportError:
     class spaces:
         @staticmethod
         def GPU(func=None, duration=None):
-            if func is None:
-                return lambda f: f
-            return func
+            if callable(func):
+                return func
+            return lambda f: f
 
 logging.basicConfig(
     level=logging.INFO,
@@ -144,7 +145,7 @@ def get_whisper(model_size: str = "large-v3", force_cpu: bool = False):
                 num_workers=2,
             )
         else:
-            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CUDA mode)...")
+            logger.info(f"🎙️️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CUDA mode)...")
             try:
                 _whisper_model = WhisperModel(
                     model_size,
@@ -185,7 +186,8 @@ def clean_vietnamese_text(text: str) -> str:
     text = re.sub(r";\s*", ", ", text)
     for q in [chr(34), chr(8220), chr(8221), chr(39), chr(8216), chr(8217), chr(171), chr(187)]:
         text = text.replace(q, "")
-    text = re.sub(r"\.{2,}", ".", text)
+    text = text.replace("…", "...")
+    text = re.sub(r"\.{2,}", "...", text)
     text = re.sub(r"-{2,}", "-", text)
     return re.sub(r"[ \t]+", " ", text).strip()
 
@@ -407,9 +409,10 @@ def _gpu_transcribe(
             best_of=beam_size,
             condition_on_previous_text=False,
             repetition_penalty=1.2,
-            no_speech_threshold=0.85,
-            log_prob_threshold=-1.5,
-            compression_ratio_threshold=2.8,
+            no_speech_threshold=0.35,
+            log_prob_threshold=-1.8,
+            compression_ratio_threshold=2.4,
+            temperature=0.0,
             vad_filter=vad_filter,
             vad_parameters=dict(
                 threshold=vad_threshold,
@@ -587,10 +590,10 @@ async def transcribe_endpoint(
     model_size: str | None = Form(default="large-v3"),
     initial_prompt: str | None = Form(default=None),
     vad_filter: bool = Form(default=True),
-    vad_threshold: float = Form(default=0.50),
-    min_speech_duration_ms: int = Form(default=150),
-    min_silence_duration_ms: int = Form(default=350),
-    speech_pad_ms: int = Form(default=150),
+    vad_threshold: float = Form(default=0.30),
+    min_speech_duration_ms: int = Form(default=100),
+    min_silence_duration_ms: int = Form(default=1000),
+    speech_pad_ms: int = Form(default=400),
     beam_size: int = Form(default=3),
 ):
     suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
@@ -641,10 +644,10 @@ async def transcribe_with_demucs_endpoint(
     model_size: str | None = Form(default="large-v3"),
     initial_prompt: str | None = Form(default=None),
     vad_filter: bool = Form(default=True),
-    vad_threshold: float = Form(default=0.50),
-    min_speech_duration_ms: int = Form(default=150),
-    min_silence_duration_ms: int = Form(default=350),
-    speech_pad_ms: int = Form(default=150),
+    vad_threshold: float = Form(default=0.30),
+    min_speech_duration_ms: int = Form(default=100),
+    min_silence_duration_ms: int = Form(default=1000),
+    speech_pad_ms: int = Form(default=400),
     beam_size: int = Form(default=3),
 ):
     """
@@ -756,7 +759,8 @@ def register_api_routes(target_app):
         target_app.add_api_route(f"{prefix}/generate", generate_endpoint, methods=["POST"])
         target_app.add_api_route(f"{prefix}/transcribe", transcribe_endpoint, methods=["POST"])
         target_app.add_api_route(f"{prefix}/transcribe_with_demucs", transcribe_with_demucs_endpoint, methods=["POST"])
-        target_app.add_api_route(f"{prefix}/download_bgm/{filename}", download_bgm_endpoint, methods=["GET"])
+        # Dùng {{filename}} để FastAPI nhận diện đúng path parameter khi kết hợp f-string
+        target_app.add_api_route(f"{prefix}/download_bgm/{{filename}}", download_bgm_endpoint, methods=["GET"])
 
 
 # Đăng ký routes vào demo.app ban đầu

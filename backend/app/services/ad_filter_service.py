@@ -18,26 +18,37 @@ RULES_FILE = PRESETS_DIR / "ad_filter_rules.json"
 
 # Danh sách mẫu quảng cáo & watermark mặc định (Đa ngôn ngữ: Vi, En, Zh)
 DEFAULT_AD_PATTERNS = [
-    # ── 1. Kêu gọi hành động (CTA / Subscribe / Like / Share) ───────────────────
-    r"(?i)\b(?:hãy|nhớ|đừng quên|xin)?\s*(?:like|thích|share|chia sẻ|đăng ký|subscribe|sub|theo dõi|follow)\s*(?:kênh|channel|trang|page|video|chúng tôi|mình|nhé|nha|ạ)?",
-    r"(?i)\b(?:bấm|ấn|nhấn|click|chạm)\s*(?:vào|chuông|nút|link|biểu tượng)\s*(?:thông báo|đăng ký|bên dưới|để nhận|theo dõi)?",
-    r"(?i)\b(?:please\s+)?(?:like|share|comment|subscribe|follow)\s*(?:to\s+our\s+channel|this\s+video|for\s+more)?",
-    r"(?i)\b(?:don'?t\s+forget\s+to\s+)?(?:hit\s+the\s+bell|turn\s+on\s+notifications|subscribe)",
-    r"(?i)\b(?:thanks\s+for\s+watching|thank\s+you\s+for\s+watching|see\s+you\s+(?:in\s+the\s+)?next\s+video)",
-    r"[\u4e00-\u9fff]*(?:请|记得)?(?:点赞|关注|转发|投币|收藏|一键三连|订阅)[\u4e00-\u9fff]*",
+    # ── 1. Kêu gọi hành động rõ ràng (CTA: bắt buộc phải có cặp từ hoặc tân ngữ) ──
+    # Tiếng Việt: Bắt buộc có cặp từ hoặc từ ngữ rõ ràng
+    r"(?i)\b(?:hãy|nhớ|đừng quên|xin)\s+(?:like|thích)\s+(?:và|&)\s*(?:đăng ký|subscribe|chia sẻ|theo dõi|follow)\b.*",
+    r"(?i)\b(?:đăng ký|subscribe|theo dõi|follow)\s+(?:ngay\s+)?(?:kênh|channel|trang|page|fanpage)\b.*",
+    r"(?i)\b(?:bấm|ấn|nhấn|click)\s+(?:vào\s+)?(?:chuông|nút\s+đăng\s+ký|biểu\s+tượng\s+chuông)\b.*",
+    r"(?i)\b(?:like|chia sẻ)\s+(?:video|clip)\s+(?:này|để\s+ủng\s+hộ|nhé|nha)\b.*",
+
+    # Tiếng Anh: Bắt buộc là cụm CTA hoàn chỉnh, không bao giờ bắt từ 'like' hay 'share' đứng đơn độc
+    r"(?i)\b(?:please\s+)?(?:like\s+(?:and|&)\s+subscribe|subscribe\s+(?:and|&)\s+like)\b.*",
+    r"(?i)\b(?:subscribe|sub)\s+to\s+(?:my|our|the|this)\s+(?:channel|page)\b.*",
+    r"(?i)\b(?:like|share)\s+(?:this|our|the)\s+video\b.*",
+    r"(?i)\bhit\s+(?:the\s+)?(?:bell|like\s+button|notification\s+bell)\b.*",
+    r"(?i)\bdon'?t\s+forget\s+to\s+(?:like|subscribe|follow)\b.*",
+    r"(?i)\b(?:thanks|thank\s+you)\s+for\s+watching[\.\!\?\,]*$",
+    r"(?i)\bsee\s+you\s+(?:in\s+the\s+)?next\s+video[\.\!\?\,]*$",
+
+    # Tiếng Trung: Cụm CTA chuẩn
+    r"[\u4e00-\u9fff]*(?:记得|请)?(?:点赞(?:关注|投币|收藏)?|一键三连|关注公众号|订阅频道)[\u4e00-\u9fff]*",
     r"[\u4e00-\u9fff]*(?:感谢(?:您|大家)?(?:的)?(?:收看|观看)|下期再见|欢迎订阅)[\u4e00-\u9fff]*",
 
     # ── 2. Watermark / Bản quyền nhóm dịch / Credits ───────────────────────────
-    r"(?i)\b(?:phụ đề|biên dịch|vietsub|thuyết minh|lồng tiếng|nhóm dịch|dịch bởi|thực hiện bởi|bản quyền thuộc về)\b.*",
-    r"(?i)\b(?:subtitles?\s+by|translated?\s+by|captioned?\s+by|subbed?\s+by|synced?\s+by|ripped?\s+by|encoded?\s+by)\b.*",
+    r"(?i)\b(?:phụ đề|biên dịch|vietsub|thuyết minh|lồng tiếng|nhóm dịch|dịch bởi|thực hiện bởi|bản quyền thuộc về)\s*[:：].*",
+    r"(?i)\b(?:subtitles?\s+by|translated?\s+by|captioned?\s+by|subbed?\s+by|synced?\s+by|ripped?\s+by|encoded?\s+by)\s*[:：].*",
     r"[\u4e00-\u9fff]*(?:字幕(?:制作|组)?|翻译|压制|校对|时间轴|片源)[\u4e00-\u9fff]*[:：].*",
 
-    # ── 3. Liên kết mạng xã hội, Nhóm & Liên hệ quảng cáo ───────────────────────
+    # ── 3. Liên kết mạng xã hội & Liên hệ quảng cáo ───────────────────────────
     r"(?i)\b(?:https?://|www\.)[^\s]+",
-    r"(?i)\b(?:t\.me|zalo\.me|fb\.com|facebook\.com|tiktok\.com|youtube\.com|cutt\.ly|bit\.ly)/[^\s]+",
-    r"(?i)\b(?:liên hệ|nhận|book)\s*(?:quảng cáo|hợp tác|tài trợ|job)\s*(?:qua|hotline|zalo|tele|telegram|email|sđt)?.*",
-    r"(?i)\b(?:link\s*(?:tải|download|mua|ở|dưới)|tham gia\s*nhóm|inbox\s*ngay)\s*(?:phần\s*mô\s*tả|bình\s*luận|comment|bio)?",
-    r"(?i)\b(?:mọi\s*thắc\s*mắc|chi\s*tiết\s*liên\s*hệ|quét\s*mã\s*qr)\b.*",
+    r"(?i)\b(?:t\.me|zalo\.me|fb\.com|cutt\.ly|bit\.ly)/[^\s]+",
+    r"(?i)\b(?:liên hệ|nhận|book)\s+(?:quảng cáo|hợp tác|tài trợ|job)\b.*",
+    r"(?i)\b(?:link\s+(?:tải|download|mua)|inbox\s+ngay)\s+(?:ở|dưới|tại)\s+(?:phần\s+mô\s+tả|comment|bình\s+luận|bio)\b.*",
+    r"(?i)\b(?:quét\s+mã\s+qr|mọi\s+thắc\s+mắc\s+liên\s+hệ)\b.*",
 
     # ── 4. Ảo giác câu cảm ơn / kết thúc rác trên nền nhạc ─────────────────────
     r"(?i)^(?:cảm ơn|cảm ơn các bạn|cảm ơn đã theo dõi|cảm ơn đã xem|chúc các bạn xem (?:phim|video) vui vẻ)[\.\!\?\,]*$",
@@ -158,9 +169,18 @@ class AdFilterService:
 
         # 2. Kiểm tra các mẫu regex quảng cáo & watermark chuẩn
         for pattern in COMPILED_DEFAULT_PATTERNS:
-            if pattern.search(clean_t):
-                # Nếu câu chỉ toàn là lời quảng cáo hoặc CTA
-                return True, f"Khớp mẫu quảng cáo tự động"
+            match = pattern.search(clean_t)
+            if match:
+                matched_str = match.group(0).strip()
+                # Bảo vệ câu thoại hội thoại dài (Density Safeguard):
+                # Nếu câu dài (trên 8 từ hoặc trên 50 ký tự), chỉ coi là quảng cáo nếu
+                # cụm từ quảng cáo chiếm ít nhất 40% độ dài câu. Nếu chỉ là 1 mẩu nhỏ trong câu dài thì KHÔNG xóa.
+                words_count = len(clean_t.split())
+                if words_count > 8 and len(clean_t) > 50:
+                    density = len(matched_str) / len(clean_t)
+                    if density < 0.40:
+                        continue
+                return True, f"Khớp mẫu quảng cáo tự động: '{matched_str}'"
 
         # 3. Kiểm tra câu quá ngắn là ký tự rác hoặc dấu câu đơn lẻ
         alpha_only = re.sub(r"[^\w\s]", "", clean_t).strip()

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 import model_handler
-from app.core.config import BASE_DIR, LOGS_DIR, APP_LOG_FILE, logger
+from app.core.config import BASE_DIR, LOGS_DIR, APP_LOG_FILE, logger, is_verbose_logging, set_verbose_logging
 from app.schemas.feedback import FeedbackRequest, FeedbackResponse
 from app.services.telegram_service import TelegramService
 
@@ -623,8 +623,12 @@ async def perform_update_endpoint():
 # ─── Quản lý & Xem Nhật Ký Hệ Thống (Diagnostic & Log Management) ──────────────
 
 @router.get("/logs/content", summary="Đọc nội dung file log gần nhất")
-async def get_log_content(lines: int = 300):
-    """Đọc N dòng cuối cùng từ logs/app.log để hiển thị trực tiếp lên giao diện người dùng."""
+async def get_log_content(lines: int = 300, order: str = "desc"):
+    """
+    Đọc N dòng cuối cùng từ logs/app.log để hiển thị trực tiếp lên giao diện người dùng.
+    - order='desc' (mặc định): Đảo ngược thứ tự dòng để dòng mới nhất luôn hiển thị ở TRÊN CÙNG.
+    - order='asc': Giữ thứ tự tự nhiên (cũ ở trên, mới ở dưới).
+    """
     if not APP_LOG_FILE.exists():
         return {
             "content": "Chưa có file nhật ký nào được ghi. Hệ thống đang hoạt động bình thường.",
@@ -637,12 +641,15 @@ async def get_log_content(lines: int = 300):
             all_lines = f.readlines()
             total = len(all_lines)
             selected = all_lines[-lines:] if total > lines else all_lines
+            if order.lower() == "desc":
+                selected.reverse()
             return {
                 "content": "".join(selected),
                 "total_lines": total,
                 "returned_lines": len(selected),
                 "file_size_kb": round(APP_LOG_FILE.stat().st_size / 1024, 1),
                 "log_path": str(APP_LOG_FILE),
+                "order": order,
             }
     except Exception as e:
         logger.error(f"Lỗi khi đọc file log: {e}")
@@ -691,6 +698,39 @@ async def clear_logs():
     except Exception as e:
         logger.error(f"Lỗi khi làm mới file log: {e}")
         raise HTTPException(status_code=500, detail=f"Không thể xóa log: {e}")
+
+
+class VerboseLoggingRequest(BaseModel):
+    enabled: bool
+
+
+@router.get("/logs/verbose", summary="Kiểm tra trạng thái chế độ ghi nhật ký chi tiết")
+async def get_verbose_logging_status():
+    """Kiểm tra xem chế độ ghi log chi tiết từng bước (debug) có đang hoạt động hay không."""
+    enabled = is_verbose_logging()
+    return {
+        "ok": True,
+        "enabled": enabled,
+        "mode": "verbose" if enabled else "standard",
+        "description": "Ghi nhận chi tiết từng bước (FFmpeg, Demucs, Whisper, LLM, Dubbing, Alignment) để debug lỗi." if enabled else "Ghi nhật ký tiêu chuẩn (INFO)."
+    }
+
+
+@router.post("/logs/verbose", summary="Bật hoặc tắt chế độ ghi nhật ký chi tiết")
+async def toggle_verbose_logging(req: VerboseLoggingRequest):
+    """Bật/tắt chế độ ghi log chi tiết từng bước và lưu cấu hình vào .env."""
+    set_verbose_logging(req.enabled)
+    try:
+        _update_env_file({"VERBOSE_LOGGING": "true" if req.enabled else "false"})
+    except Exception as e:
+        logger.warning(f"Không thể cập nhật VERBOSE_LOGGING vào file .env: {e}")
+
+    status_str = "BẬT (ghi lại toàn bộ quá trình chạy từng bước để debug)" if req.enabled else "TẮT (ghi log tiêu chuẩn như hiện tại)"
+    return {
+        "ok": True,
+        "enabled": req.enabled,
+        "message": f"Đã {status_str} thành công!",
+    }
 
 
 # ─── BỘ LỌC QUẢNG CÁO & DẠY AI BỎ QUA TỪ/CÂU TÙY CHỈNH (AD FILTER RULES) ────

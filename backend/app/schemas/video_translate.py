@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 
 class StartTranslationRequest(BaseModel):
-    source_lang: str = Field("auto", description="Ngôn ngữ gốc của video (auto, en, zh-cn, vi, ja, ...)")
+    source_lang: str = Field("en", description="Ngôn ngữ gốc của video (en, zh-cn, vi, ja, ...)")
     target_lang: str = Field("vi", description="Ngôn ngữ cần dịch sang (vi, en, zh-cn, ...)")
     voice_id: str = Field("vi-VN-HoaiMyNeural", description="Mã giọng đọc lồng tiếng (Edge-TTS hoặc OmniVoice)")
     engine: str = Field("edge-tts", description="edge-tts hoặc omnivoice")
@@ -22,6 +22,9 @@ class StartTranslationRequest(BaseModel):
     output_resolution: str = Field("720p", description="Độ phân giải video đầu ra: 720p, 1080p, 480p, original")
     start_time: float = Field(0.0, description="Mốc thời gian bắt đầu cắt video (giây)")
     end_time: float | None = Field(None, description="Mốc thời gian kết thúc cắt video (giây)")
+    font_size: int = Field(20, description="Kích thước chữ phụ đề (16 - 36)")
+    margin_v: int = Field(30, description="Khoảng cách lề dọc của phụ đề")
+    alignment: int = Field(2, description="Vị trí hiển thị phụ đề (2=Dưới đáy, 10=Giữa, 6=Trên cùng)")
 
 
 class TranslationTaskStatus(BaseModel):
@@ -66,6 +69,9 @@ class RedubTaskRequest(BaseModel):
     subtitle_mode: str | None = Field(None, description="Kiểu gắn phụ đề: hard_target, hard_dual, none")
     max_speed_rate: float | None = Field(None, description="Tốc độ tăng tối đa")
     output_resolution: str | None = Field(None, description="Độ phân giải video đầu ra: 720p, 1080p, 480p, original")
+    font_size: int | None = Field(None, description="Kích thước chữ phụ đề (16 - 36)")
+    margin_v: int | None = Field(None, description="Khoảng cách lề dọc của phụ đề")
+    alignment: int | None = Field(None, description="Vị trí hiển thị phụ đề (2=Dưới đáy, 10=Giữa, 6=Trên cùng)")
 
 
 class StudioRedubSegmentRequest(BaseModel):
@@ -92,6 +98,9 @@ class StudioRemuxRequest(BaseModel):
     voice_volume: float | None = Field(None, description="Âm lượng giọng đọc")
     max_speed_rate: float | None = Field(None, description="Tốc độ co giãn tối đa")
     output_resolution: str | None = Field(None, description="Độ phân giải video đầu ra: 720p, 1080p, 480p, original")
+    font_size: int | None = Field(None, description="Kích thước chữ phụ đề (16 - 36)")
+    margin_v: int | None = Field(None, description="Khoảng cách lề dọc của phụ đề")
+    alignment: int | None = Field(None, description="Vị trí hiển thị phụ đề (2=Dưới đáy, 10=Giữa, 6=Trên cùng)")
 
 
 class StudioAddSegmentRequest(BaseModel):

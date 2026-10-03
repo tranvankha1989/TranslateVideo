@@ -101,8 +101,8 @@ class AlignmentService:
                 "output_audio_url": f"/outputs/alignment/{output_path.name}",
             }
 
-        # Giới hạn an toàn tối đa 1.35x - 1.40x để tránh méo tiếng
-        safe_max_speed = max(1.10, min(1.40, max_speed_rate))
+        # Ưu tiên giá trị người dùng thiết lập từ giao diện, chỉ kẹp dưới sàn 1.0x
+        safe_max_speed = max(1.0, float(max_speed_rate))
         applied_speed = min(safe_max_speed, speed_factor)
 
         # Xây dựng chuỗi filter atempo cho FFmpeg (hỗ trợ lũy tiến nếu applied_speed > 2.0)
@@ -197,6 +197,21 @@ class AlignmentService:
             seg_id = seg.get("id", orig_idx + 1)
             raw_start = float(seg.get("start", 0.0))
             raw_end = float(seg.get("end", raw_start + 1.0))
+
+            # 1. Cân chỉnh lại mốc start thực tế: Dùng w.start của từ đầu tiên thay vì mốc VAD bị đệm thô
+            words = seg.get("words", [])
+            if words and isinstance(words, list) and len(words) > 0:
+                first_w = words[0]
+                if isinstance(first_w, dict):
+                    w_start = float(first_w.get("start", raw_start))
+                else:
+                    w_start = float(getattr(first_w, "start", raw_start))
+                if w_start > raw_start:
+                    raw_start = w_start
+
+            # 2. Thêm độ trễ an toàn nhỏ (Audio Lead Offset: +80ms / 0.08s) để khớp hoàn hảo khẩu hình môi
+            raw_start = raw_start + 0.08
+
             if raw_start < 0:
                 raw_start = 0.0
             if raw_end <= raw_start:

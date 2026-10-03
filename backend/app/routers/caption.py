@@ -94,8 +94,8 @@ async def transcribe_video(
     vad_threshold: float = Form(0.35),
     speech_pad_ms: int = Form(400),
     min_speech_duration_ms: int = Form(150),
+    min_silence_duration_ms: int = Form(1000),
     beam_size: int = Form(3),
-    filter_hallucinations: bool = Form(False),
 ):
     session_id = uuid.uuid4().hex[:12]
 
@@ -127,9 +127,9 @@ async def transcribe_video(
             reference_script=reference_script,
             vad_threshold=vad_threshold,
             min_speech_duration_ms=min_speech_duration_ms,
+            min_silence_duration_ms=min_silence_duration_ms,
             speech_pad_ms=speech_pad_ms,
             beam_size=beam_size,
-            filter_hallucinations=filter_hallucinations,
         )
 
         raw_json_path = session_dir / "subtitles_raw.json"

@@ -75,7 +75,7 @@ def _form_val(val: Any, default: Any = None) -> Any:
 @router.post("/start")
 async def start_video_translation(
     video: UploadFile = File(..., description="File video MP4 / MKV / MOV cần dịch"),
-    source_lang: str = Form("auto"),
+    source_lang: str = Form("en"),
     target_lang: str = Form("vi"),
     voice_id: str = Form("vi-VN-HoaiMyNeural"),
     engine: str = Form("edge-tts"),
@@ -96,17 +96,20 @@ async def start_video_translation(
     output_resolution: str = Form("720p"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
-    vad_threshold: float = Form(0.35),
+    vad_threshold: float = Form(0.15),
     speech_pad_ms: int = Form(400),
     min_speech_duration_ms: int = Form(150),
-    beam_size: int = Form(3),
-    filter_hallucinations: bool = Form(False),
+    min_silence_duration_ms: int = Form(1000),
+    beam_size: int = Form(5),
+    font_size: int = Form(20),
+    margin_v: int = Form(30),
+    alignment: int = Form(2),
 ):
     """
     Tiếp nhận video tải lên và kích hoạt Pipeline dịch & lồng tiếng tự động chạy ngầm.
     Trả về ngay task_id để client theo dõi tiến trình.
     """
-    s_lang = str(_form_val(source_lang, "auto"))
+    s_lang = str(_form_val(source_lang, "en"))
     t_lang = str(_form_val(target_lang, "vi"))
     v_id = str(_form_val(voice_id, "vi-VN-HoaiMyNeural"))
     eng = str(_form_val(engine, "edge-tts"))
@@ -129,11 +132,14 @@ async def start_video_translation(
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
     c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None
-    v_thresh = float(_form_val(vad_threshold, 0.35))
+    v_thresh = float(_form_val(vad_threshold, 0.15))
     s_pad = int(_form_val(speech_pad_ms, 400))
     m_speech = int(_form_val(min_speech_duration_ms, 150))
-    b_size = int(_form_val(beam_size, 3))
-    f_halluc = bool(_form_val(filter_hallucinations, False))
+    m_silence = int(_form_val(min_silence_duration_ms, 1000))
+    b_size = int(_form_val(beam_size, 5))
+    f_size = int(_form_val(font_size, 20))
+    m_v = int(_form_val(margin_v, 30))
+    align = int(_form_val(alignment, 2))
 
     if trans_provider.lower() in ["gemini", "google_ai_studio", "google-ai-studio"]:
         effective_key = trans_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_STUDIO_API_KEY")
@@ -171,6 +177,9 @@ async def start_video_translation(
         "output_resolution": out_res,
         "start_time": c_start,
         "end_time": c_end,
+        "font_size": f_size,
+        "margin_v": m_v,
+        "alignment": align,
         "video_url": None,
         "audio_url": None,
         "subtitles_srt_url": None,
@@ -211,8 +220,11 @@ async def start_video_translation(
             vad_threshold=v_thresh,
             speech_pad_ms=s_pad,
             min_speech_duration_ms=m_speech,
+            min_silence_duration_ms=m_silence,
             beam_size=b_size,
-            filter_hallucinations=f_halluc,
+            font_size=f_size,
+            margin_v=m_v,
+            alignment=align,
         )
     )
     _BACKGROUND_TASKS.add(bg_task)
@@ -228,33 +240,33 @@ async def start_video_translation(
 @router.post("/manual/start-transcribe")
 async def start_manual_transcription(
     video: UploadFile = File(..., description="File video cần tạo phụ đề gốc"),
-    source_lang: str = Form("auto"),
+    source_lang: str = Form("en"),
     target_lang: str = Form("vi"),
     whisper_model: str = Form("large-v3"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
-    vad_threshold: float = Form(0.35),
+    vad_threshold: float = Form(0.15),
     speech_pad_ms: int = Form(400),
     min_speech_duration_ms: int = Form(150),
-    beam_size: int = Form(3),
-    filter_hallucinations: bool = Form(False),
+    min_silence_duration_ms: int = Form(1000),
+    beam_size: int = Form(5),
 ):
     """
     Giai đoạn 1 (Chế độ thủ công):
     Tải video lên -> Tách audio -> Chạy Whisper tạo phụ đề gốc (subtitles_original.srt).
     Sau khi xong, hệ thống dừng lại chờ người dùng tải file về dịch và nạp lại.
     """
-    s_lang = str(_form_val(source_lang, "auto"))
+    s_lang = str(_form_val(source_lang, "en"))
     t_lang = str(_form_val(target_lang, "vi"))
     w_model = str(_form_val(whisper_model, "large-v3"))
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
     c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None
-    v_thresh = float(_form_val(vad_threshold, 0.35))
+    v_thresh = float(_form_val(vad_threshold, 0.15))
     s_pad = int(_form_val(speech_pad_ms, 400))
     m_speech = int(_form_val(min_speech_duration_ms, 150))
-    b_size = int(_form_val(beam_size, 3))
-    f_halluc = bool(_form_val(filter_hallucinations, False))
+    m_silence = int(_form_val(min_silence_duration_ms, 1000))
+    b_size = int(_form_val(beam_size, 5))
 
     task_id = uuid.uuid4().hex[:12]
     task_dir = TRANSLATE_OUTPUT_DIR / task_id
@@ -305,8 +317,8 @@ async def start_manual_transcription(
             vad_threshold=v_thresh,
             speech_pad_ms=s_pad,
             min_speech_duration_ms=m_speech,
+            min_silence_duration_ms=m_silence,
             beam_size=b_size,
-            filter_hallucinations=f_halluc,
         )
     )
     _BACKGROUND_TASKS.add(bg_task)
@@ -387,6 +399,9 @@ async def resume_manual_pipeline(
     subtitle_mode: str = Form("hard_target"),
     max_speed_rate: float = Form(1.35),
     output_resolution: str = Form("720p"),
+    font_size: int = Form(20),
+    margin_v: int = Form(30),
+    alignment: int = Form(2),
     srt_file: UploadFile | None = File(None),
     srt_content: str | None = Form(None),
 ):
@@ -415,10 +430,14 @@ async def resume_manual_pipeline(
             generate_srt_file(parsed_new, task_dir / "subtitles.srt", mode="hard_target")
 
     if not (task_dir / "subtitles.srt").exists():
-        raise HTTPException(
-            status_code=400,
-            detail="Chưa có file phụ đề dịch subtitles.srt. Vui lòng tải lên file phụ đề đã dịch trước khi tiếp tục.",
-        )
+        if (task_dir / "subtitles_original.srt").exists():
+            import shutil
+            shutil.copyfile(task_dir / "subtitles_original.srt", task_dir / "subtitles.srt")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Chưa có file phụ đề dịch subtitles.srt. Vui lòng tải lên file phụ đề đã dịch trước khi tiếp tục.",
+            )
 
     v_id = str(_form_val(voice_id, "vi-VN-HoaiMyNeural"))
     eng = str(_form_val(engine, "edge-tts"))
@@ -432,6 +451,9 @@ async def resume_manual_pipeline(
     sub_mode = str(_form_val(subtitle_mode, "hard_target"))
     max_speed = float(_form_val(max_speed_rate, 1.35))
     out_res = str(_form_val(output_resolution, "720p"))
+    f_size = int(_form_val(font_size, 20))
+    m_v = int(_form_val(margin_v, 30))
+    align = int(_form_val(alignment, 2))
 
     VideoTranslationPipeline.update_task(
         task_id,
@@ -440,6 +462,9 @@ async def resume_manual_pipeline(
         current_step="dubbing",
         message="Đang khởi tạo lồng tiếng và render video...",
         output_resolution=out_res,
+        font_size=f_size,
+        margin_v=m_v,
+        alignment=align,
         error=None,
     )
 
@@ -457,6 +482,9 @@ async def resume_manual_pipeline(
             subtitle_mode=sub_mode,
             max_speed_rate=max_speed,
             output_resolution=out_res,
+            font_size=f_size,
+            margin_v=m_v,
+            alignment=align,
         )
     )
     _BACKGROUND_TASKS.add(bg_task)
@@ -586,7 +614,15 @@ async def stream_translated_video(task_id: str):
     ]
     for cand in candidates:
         if cand.exists() and cand.is_file():
-            return FileResponse(path=str(cand), media_type="video/mp4")
+            return FileResponse(
+                path=str(cand),
+                media_type="video/mp4",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
 
     raise HTTPException(status_code=404, detail="File video chưa sẵn sàng")
 
@@ -691,6 +727,7 @@ async def download_file_endpoint(
             "2. Phân tích logic hội thoại và quan hệ nhân vật để xưng hô chuẩn xác theo cốt truyện.\n"
             "3. Kiểm tra mốc thời gian và ngữ pháp để gộp các câu thoại bị ngắt dở dang thành câu hoàn chỉnh trước khi dịch.\n"
             "4. Tối ưu độ dài câu (CPS) và chèn dấu ngắt nghỉ phù hợp để làm giọng đọc AI/thuyết minh.\n"
+            "5. Lọc các câu mang tính chất quảng cáo.\n"
             "Đây là file/nội dung phụ đề:\n\n"
             + raw_srt
         )
@@ -1094,7 +1131,7 @@ async def get_subtitles_original_content(task_id: str):
             "2. Phân tích logic hội thoại và quan hệ nhân vật để xưng hô chuẩn xác theo cốt truyện.\n"
             "3. Kiểm tra mốc thời gian và ngữ pháp để gộp các câu thoại bị ngắt dở dang thành câu hoàn chỉnh trước khi dịch.\n"
             "4. Tối ưu độ dài câu (CPS) và chèn dấu ngắt nghỉ phù hợp để làm giọng đọc AI/thuyết minh.\n"
-            "5. Nếu thấy có lời bài hát, hãy xóa toàn bộ lời bài hát trong phụ đề.\n"
+            "5. Lọc các câu mang tính chất quảng cáo.\n"
             "Đây là file/nội dung phụ đề:\n\n"
             + content
         )
@@ -1213,6 +1250,10 @@ async def redub_video_from_subtitles(task_id: str, req: RedubTaskRequest | None 
             bgm_volume=req_data.get("bgm_volume"),
             subtitle_mode=req_data.get("subtitle_mode"),
             max_speed_rate=req_data.get("max_speed_rate"),
+            output_resolution=req_data.get("output_resolution"),
+            font_size=req_data.get("font_size"),
+            margin_v=req_data.get("margin_v"),
+            alignment=req_data.get("alignment"),
         )
     )
 
@@ -1448,6 +1489,9 @@ async def studio_quick_remux_endpoint(task_id: str, req: StudioRemuxRequest | No
             voice_volume=req_data.get("voice_volume"),
             max_speed_rate=req_data.get("max_speed_rate"),
             output_resolution=req_data.get("output_resolution"),
+            font_size=req_data.get("font_size"),
+            margin_v=req_data.get("margin_v"),
+            alignment=req_data.get("alignment"),
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

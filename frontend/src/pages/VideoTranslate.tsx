@@ -40,6 +40,7 @@ import {
   ClipboardPaste,
   ChevronDown,
   ChevronUp,
+  Bug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/constants/api";
@@ -90,7 +91,7 @@ export default function VideoTranslate() {
   const segmentPlaybackTargetRef = React.useRef<{ end: number; segId: number } | null>(null);
 
   const [manualSrtFile, setManualSrtFile] = React.useState<File | null>(null);
-  const [manualSrtMode, setManualSrtMode] = React.useState<"file" | "text">("file");
+  const [manualSrtMode, setManualSrtMode] = React.useState<"file" | "text">("text");
   const [manualSrtText, setManualSrtText] = React.useState<string>("");
   const [manualUploadedCount, setManualUploadedCount] = React.useState<number | null>(null);
   const [isUploadingManualSrt, setIsUploadingManualSrt] = React.useState(false);
@@ -121,6 +122,9 @@ export default function VideoTranslate() {
     bgmType,
     bgmVolume,
     subtitleMode,
+    subtitleFontSize,
+    subtitlePosition,
+    subtitleMarginV,
     maxSpeedRate,
     outputResolution,
     translationProvider,
@@ -138,10 +142,10 @@ export default function VideoTranslate() {
     setSpeechPadMs,
     minSpeechDurationMs,
     setMinSpeechDurationMs,
+    minSilenceDurationMs,
+    setMinSilenceDurationMs,
     beamSize,
     setBeamSize,
-    filterHallucinations,
-    setFilterHallucinations,
     showTranscribeAdvanced,
     setShowTranscribeAdvanced,
     translationMode,
@@ -171,6 +175,9 @@ export default function VideoTranslate() {
     setBgmType,
     setBgmVolume,
     setSubtitleMode,
+    setSubtitleFontSize,
+    setSubtitlePosition,
+    setSubtitleMarginV,
     setMaxSpeedRate,
     setOutputResolution,
     setTranslationProvider,
@@ -281,8 +288,41 @@ export default function VideoTranslate() {
     }
   };
 
+  const [isVerbose, setIsVerbose] = useState<boolean>(false);
+
+  const fetchVerboseStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/settings/logs/verbose`);
+      if (res.ok) {
+        const data = await res.json();
+        setIsVerbose(Boolean(data.enabled));
+      }
+    } catch {
+      // silent
+    }
+  };
+
+  const handleToggleVerbose = async () => {
+    const nextVal = !isVerbose;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/settings/logs/verbose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: nextVal }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setIsVerbose(nextVal);
+        toast.success(data.message || (nextVal ? "Đã BẬT ghi log chi tiết từng bước (debug)" : "Đã TẮT ghi log chi tiết"));
+      }
+    } catch (err: any) {
+      toast.error("Không thể thay đổi chế độ log: " + err.message);
+    }
+  };
+
   useEffect(() => {
     fetchMemoryCount();
+    fetchVerboseStatus();
   }, []);
 
   // 1. Tải danh mục ngôn ngữ từ Backend
@@ -510,6 +550,9 @@ export default function VideoTranslate() {
     formData.append("subtitle_mode", subtitleMode);
     formData.append("max_speed_rate", maxSpeedRate.toString());
     formData.append("output_resolution", outputResolution);
+    formData.append("font_size", subtitleFontSize.toString());
+    formData.append("margin_v", subtitleMarginV.toString());
+    formData.append("alignment", subtitlePosition === "top" ? "6" : "2");
     formData.append("translation_provider", translationProvider);
     formData.append("translation_style", translationStyle);
     formData.append("translation_model", geminiModel);
@@ -518,8 +561,8 @@ export default function VideoTranslate() {
     formData.append("vad_threshold", vadThreshold.toString());
     formData.append("speech_pad_ms", speechPadMs.toString());
     formData.append("min_speech_duration_ms", minSpeechDurationMs.toString());
+    formData.append("min_silence_duration_ms", minSilenceDurationMs.toString());
     formData.append("beam_size", beamSize.toString());
-    formData.append("filter_hallucinations", filterHallucinations ? "true" : "false");
     if (geminiApiKey.trim()) {
       formData.append("translation_api_key", geminiApiKey.trim());
     }
@@ -606,6 +649,9 @@ export default function VideoTranslate() {
           bgm_volume: bgmVolume,
           subtitle_mode: subtitleMode,
           max_speed_rate: maxSpeedRate,
+          font_size: subtitleFontSize,
+          margin_v: subtitleMarginV,
+          alignment: subtitlePosition === "top" ? 6 : 2,
         }),
       });
       const data = await res.json();
@@ -642,8 +688,8 @@ export default function VideoTranslate() {
     formData.append("vad_threshold", vadThreshold.toString());
     formData.append("speech_pad_ms", speechPadMs.toString());
     formData.append("min_speech_duration_ms", minSpeechDurationMs.toString());
+    formData.append("min_silence_duration_ms", minSilenceDurationMs.toString());
     formData.append("beam_size", beamSize.toString());
-    formData.append("filter_hallucinations", filterHallucinations ? "true" : "false");
     if (videoStartTime > 0) {
       formData.append("start_time", videoStartTime.toString());
     }
@@ -669,18 +715,22 @@ export default function VideoTranslate() {
 
   // Khôi phục các thông số bóc tách Whisper / VAD về mặc định tối ưu
   const handleResetTranscribeDefaults = () => {
-    setVadThreshold(0.35);
+    setVadThreshold(0.15);
     setSpeechPadMs(400);
     setMinSpeechDurationMs(150);
-    setBeamSize(3);
-    setFilterHallucinations(false);
+    setMinSilenceDurationMs(1000);
+    setBeamSize(5);
     setWhisperModel("large-v3");
+    setSourceLang("en");
     toast.success("✅ Đã khôi phục các thông số bóc tách về chuẩn tối ưu!");
   };
 
   // Khôi phục các tùy chỉnh phụ đề & âm thanh về mặc định tối ưu
   const handleResetAudioSubtitleDefaults = () => {
     setSubtitleMode("hard_target");
+    setSubtitleFontSize(20);
+    setSubtitlePosition("bottom");
+    setSubtitleMarginV(30);
     setOutputResolution("720p");
     setBgmType("bgm");
     setPreserveBgm(true);
@@ -697,6 +747,7 @@ export default function VideoTranslate() {
 2. Phân tích logic hội thoại và quan hệ nhân vật để xưng hô chuẩn xác theo cốt truyện.
 3. Kiểm tra mốc thời gian và ngữ pháp để gộp các câu thoại bị ngắt dở dang thành câu hoàn chỉnh trước khi dịch.
 4. Tối ưu độ dài câu (CPS) và chèn dấu ngắt nghỉ phù hợp để làm giọng đọc AI/thuyết minh.
+5. Lọc các câu mang tính chất quảng cáo.
 Đây là file/nội dung phụ đề:
 
 `;
@@ -909,6 +960,9 @@ export default function VideoTranslate() {
     formData.append("subtitle_mode", subtitleMode);
     formData.append("max_speed_rate", maxSpeedRate.toString());
     formData.append("output_resolution", outputResolution);
+    formData.append("font_size", subtitleFontSize.toString());
+    formData.append("margin_v", subtitleMarginV.toString());
+    formData.append("alignment", subtitlePosition === "top" ? "6" : "2");
 
     if (manualSrtMode === "file" && manualSrtFile) {
       formData.append("srt_file", manualSrtFile);
@@ -1419,6 +1473,24 @@ export default function VideoTranslate() {
               <Trash2 className="w-3.5 h-3.5" />
             )}
             <span>{isCleaning ? "Đang dọn..." : "Dọn dẹp bộ nhớ đệm"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleVerbose}
+            className={cn(
+              "inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border transition-all cursor-pointer font-semibold",
+              isVerbose
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/10"
+                : "bg-white/5 text-on-surface-variant hover:text-on-surface border-white/10"
+            )}
+            title={
+              isVerbose
+                ? "Chế độ ghi log chi tiết từng bước đang BẬT. Nhấp để tắt quay về ghi log tiêu chuẩn."
+                : "Nhấp để BẬT chế độ ghi log chi tiết từng bước phục vụ debug và chẩn đoán lỗi."
+            }
+          >
+            <Bug className="w-3.5 h-3.5" />
+            <span>{isVerbose ? "Debug Log: BẬT" : "Debug Log: TẮT"}</span>
           </button>
           <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant/80 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
             <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -2060,6 +2132,64 @@ export default function VideoTranslate() {
                     </div>
                   </div>
 
+                  {/* Tùy chỉnh chi tiết phụ đề (Font Size, Vị trí MarginV) - Tự động ẩn khi Không gắn sub */}
+                  {subtitleMode !== "none" && (
+                    <div className="space-y-3 pt-2 border-t border-white/5 bg-surface-variant/30 p-3 rounded-2xl border border-white/5 animate-fadeIn">
+                      {/* Kích thước chữ */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-on-surface-variant">
+                          <span className="font-medium text-on-surface">Kích thước chữ phụ đề (Font Size):</span>
+                          <span className="font-mono text-primary font-bold">{subtitleFontSize}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="16"
+                          max="36"
+                          step="1"
+                          value={subtitleFontSize}
+                          onChange={(e) => setSubtitleFontSize(parseInt(e.target.value))}
+                          className="w-full accent-primary cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-on-surface-variant/70">
+                          <span>16px (Nhỏ)</span>
+                          <span className="text-primary font-semibold">Mặc định: 20px</span>
+                          <span>36px (Lớn)</span>
+                        </div>
+                      </div>
+
+                      {/* Vị trí hiển thị */}
+                      <div className="space-y-1.5 pt-2 border-t border-white/5">
+                        <label className="font-medium text-on-surface flex items-center justify-between text-xs">
+                          <span>Vị trí hiển thị phụ đề:</span>
+                          <span className="text-[10px] text-primary font-bold">
+                            {subtitlePosition === "bottom" ? "Dưới đáy" : subtitlePosition === "middle" ? "Giữa màn hình" : "Trên cùng"}
+                          </span>
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { id: "bottom", label: "⬇️ Dưới đáy" },
+                            { id: "middle", label: "⏹️ Giữa màn hình" },
+                            { id: "top", label: "⬆️ Trên cùng" },
+                          ].map((pos) => (
+                            <button
+                              key={pos.id}
+                              type="button"
+                              onClick={() => setSubtitlePosition(pos.id as any)}
+                              className={cn(
+                                "py-1.5 px-2 rounded-xl text-xs font-medium border transition-all text-center cursor-pointer",
+                                subtitlePosition === pos.id
+                                  ? "bg-primary text-black border-primary font-bold shadow-md"
+                                  : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
+                              )}
+                            >
+                              {pos.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Chuẩn Video Đầu Ra (Resolution) */}
                   <div className="space-y-1.5 pt-2 border-t border-white/5">
                     <label className="font-medium text-on-surface flex items-center justify-between">
@@ -2342,7 +2472,7 @@ export default function VideoTranslate() {
                         </p>
                       </div>
 
-                      {/* Grid: Speech Pad & Min Speech Duration */}
+                      {/* Grid: Speech Pad & Min Silence Duration */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/5">
                         {/* Speech Pad */}
                         <div className="space-y-1.5">
@@ -2369,6 +2499,34 @@ export default function VideoTranslate() {
                           </p>
                         </div>
 
+                        {/* Min Silence Duration */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <label className="font-medium text-on-surface flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                              Khoảng lặng ngắt câu (Min Silence):
+                            </label>
+                            <span className="font-mono text-[11px] font-bold text-emerald-300 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                              {minSilenceDurationMs}ms
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="300"
+                            max="2000"
+                            step="100"
+                            value={minSilenceDurationMs}
+                            onChange={(e) => setMinSilenceDurationMs(parseInt(e.target.value))}
+                            className="w-full accent-emerald-400 h-1.5 bg-white/10 rounded-lg cursor-pointer"
+                          />
+                          <p className="text-[10px] text-on-surface-variant/70">
+                            Đặt 800ms - 1200ms để không nuốt đoạn thoại khi diễn viên ngắt nghỉ lấy hơi giữa câu (chống nuốt 8s).
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Grid: Min Speech Duration & Beam Size */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/5 items-center">
                         {/* Min Speech Duration */}
                         <div className="space-y-1.5">
                           <div className="flex justify-between items-center">
@@ -2382,7 +2540,7 @@ export default function VideoTranslate() {
                           </div>
                           <input
                             type="range"
-                            min="100"
+                            min="50"
                             max="500"
                             step="50"
                             value={minSpeechDurationMs}
@@ -2393,10 +2551,8 @@ export default function VideoTranslate() {
                             Giảm xuống 100ms - 150ms để bắt được cả các từ ngắn như "ừ", "hả", tiếng cảm thán.
                           </p>
                         </div>
-                      </div>
 
-                      {/* Beam Size & Hallucination Filter */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/5 items-center">
+                        {/* Beam Size */}
                         <div>
                           <label className="font-medium text-on-surface block mb-1">
                             Độ sâu dò từ (Beam Size):
@@ -2410,30 +2566,16 @@ export default function VideoTranslate() {
                             <option value="3">3 (Cân bằng chuẩn - Khuyên dùng)</option>
                             <option value="5">5 (Độ chính xác sâu nhất)</option>
                           </select>
-                        </div>
-
-                        <div className="pt-2">
-                          <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={filterHallucinations}
-                              onChange={(e) => setFilterHallucinations(e.target.checked)}
-                              className="w-4 h-4 rounded accent-primary cursor-pointer"
-                            />
-                            <div>
-                              <span className="font-medium text-on-surface block">Lọc ảo giác nhạc nền nghiêm ngặt</span>
-                              <span className="text-[10px] text-on-surface-variant/70 block">
-                                Tắt (Khuyên dùng) để tránh xóa nhầm câu thoại khi video có nhạc nền to.
-                              </span>
-                            </div>
-                          </label>
+                          <p className="text-[10px] text-on-surface-variant/70 mt-1">
+                            Dò tìm nhiều nhánh từ đồng âm để chọn kết quả chính xác nhất.
+                          </p>
                         </div>
                       </div>
 
                       {/* 🔄 Nút Phục Hồi Mặc Định */}
                       <div className="pt-3 border-t border-white/10 flex items-center justify-between flex-wrap gap-2">
                         <span className="text-[11px] text-on-surface-variant/70">
-                          💡 Chuẩn khuyến nghị: <code>large-v3</code>, <code>VAD 0.35</code>, <code>Pad 400ms</code>, <code>Min 150ms</code>.
+                          💡 Chuẩn khuyến nghị: <code>large-v3</code>, <code>VAD 0.35</code>, <code>Pad 400ms</code>, <code>Silence 1000ms</code>.
                         </span>
                         <button
                           type="button"
@@ -2904,6 +3046,64 @@ export default function VideoTranslate() {
                         </select>
                       </div>
 
+                      {/* Tùy chỉnh chi tiết phụ đề (Font Size, Vị trí MarginV) - Tự động ẩn khi Không gắn sub */}
+                      {subtitleMode !== "none" && (
+                        <div className="space-y-3 pt-2 border-t border-white/5 bg-surface-variant/30 p-3 rounded-2xl border border-white/5 animate-fadeIn">
+                          {/* Kích thước chữ */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs text-on-surface-variant">
+                              <span className="font-medium text-on-surface">Kích thước chữ phụ đề (Font Size):</span>
+                              <span className="font-mono text-primary font-bold">{subtitleFontSize}px</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="16"
+                              max="36"
+                              step="1"
+                              value={subtitleFontSize}
+                              onChange={(e) => setSubtitleFontSize(parseInt(e.target.value))}
+                              className="w-full accent-primary cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-on-surface-variant/70">
+                              <span>16px (Nhỏ)</span>
+                              <span className="text-primary font-semibold">Mặc định: 20px</span>
+                              <span>36px (Lớn)</span>
+                            </div>
+                          </div>
+
+                          {/* Vị trí hiển thị */}
+                          <div className="space-y-1.5 pt-2 border-t border-white/5">
+                            <label className="font-medium text-on-surface flex items-center justify-between text-xs">
+                              <span>Vị trí hiển thị phụ đề:</span>
+                              <span className="text-[10px] text-primary font-bold">
+                                {subtitlePosition === "bottom" ? "Dưới đáy" : subtitlePosition === "middle" ? "Giữa màn hình" : "Trên cùng"}
+                              </span>
+                            </label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { id: "bottom", label: "⬇️ Dưới đáy" },
+                                { id: "middle", label: "⏹️ Giữa màn hình" },
+                                { id: "top", label: "⬆️ Trên cùng" },
+                              ].map((pos) => (
+                                <button
+                                  key={pos.id}
+                                  type="button"
+                                  onClick={() => setSubtitlePosition(pos.id as any)}
+                                  className={cn(
+                                    "py-1.5 px-2 rounded-xl text-xs font-medium border transition-all text-center cursor-pointer",
+                                    subtitlePosition === pos.id
+                                      ? "bg-primary text-black border-primary font-bold shadow-md"
+                                      : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
+                                  )}
+                                >
+                                  {pos.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Chuẩn Video Đầu Ra (Resolution) - Dạng Dropdown */}
                       <div className="space-y-1.5 pt-2 border-t border-white/5">
                         <label className="font-medium text-on-surface flex items-center gap-1.5">
@@ -3102,17 +3302,29 @@ export default function VideoTranslate() {
                   {/* Layer 1: Video Gốc / Video Stream */}
                   <video
                     ref={resultVideoRef}
-                    key={`result-${taskStatus.task_id}`}
-                    src={`${API_BASE_URL}/api/video-translate/stream/${taskStatus.task_id}`}
+                    key={`result-${taskStatus.task_id}-${taskStatus.status}-${taskStatus.elapsed_time || ""}`}
+                    src={`${API_BASE_URL}/api/video-translate/stream/${taskStatus.task_id}?t=${taskStatus.elapsed_time || Date.now()}`}
                     controls
                     playsInline
                     autoPlay
                     onTimeUpdate={handleVideoTimeUpdate}
                     className="w-full h-full object-contain"
                   />
-                  {currentLiveSubtitle && (
-                    <div className="absolute bottom-12 left-4 right-4 flex justify-center pointer-events-none animate-fadeIn">
-                      <div className="px-4 py-2 rounded-xl bg-black/80 backdrop-blur-md border border-white/20 text-white font-bold text-center text-xs sm:text-sm shadow-2xl tracking-wide max-w-[90%] drop-shadow-md">
+                  {subtitleMode !== "none" && subtitleMode !== "off" && subtitleMode !== "no_sub" && currentLiveSubtitle && (
+                    <div
+                      className={cn(
+                        "absolute left-4 right-4 flex justify-center pointer-events-none animate-fadeIn transition-all duration-200",
+                        subtitlePosition === "top"
+                          ? "top-8"
+                          : subtitlePosition === "middle"
+                          ? "top-1/2 -translate-y-1/2"
+                          : "bottom-12"
+                      )}
+                    >
+                      <div
+                        style={{ fontSize: `${subtitleFontSize}px` }}
+                        className="px-4 py-2 rounded-xl bg-black/80 backdrop-blur-md border border-white/20 text-white font-bold text-center shadow-2xl tracking-wide max-w-[90%] drop-shadow-md"
+                      >
                         {currentLiveSubtitle}
                       </div>
                     </div>

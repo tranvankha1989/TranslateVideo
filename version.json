@@ -1,6 +1,6 @@
 {
-  "version": "3.5.0",
+  "version": "3.6.0",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-03",
-  "description": "Nâng cấp V3.5.0: Tích hợp Demucs AI tách nhạc nền BGM & Vocals trên Cloud GPU/Colab, chuẩn hóa đồng bộ timestamp âm thanh (aresample PTS=0), chống lệch câu thoại bằng ID mapping trong dịch thuật và lồng tiếng, thiết lập mặc định Faster-Whisper large-v3."
+  "description": "Nâng cấp V3.6.0: Đồng bộ hóa tốc độ đọc (TTS Speed & Max SpeedRate), Audio Lead Offset khớp khẩu hình môi, chuẩn hóa thông số VAD/Whisper, tùy chỉnh kiểu phụ đề động (font size, margin), cập nhật quy tắc dịch AI chống quảng cáo, tối ưu render & player cache Bước 4."
 }

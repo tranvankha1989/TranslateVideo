@@ -275,7 +275,7 @@ class OpenAITranslator:
                 f"3. XỬ LÝ NHẠC NỀN & TỪ ĐỆM (NHẸ NHÀNG): Nếu phân đoạn chỉ toàn tiếng nhạc đệm vô nghĩa (như 'bloop bloop'), hãy lược bỏ từ rác; nhưng nếu là câu thoại của nhân vật thì LUÔN DỊCH ĐẦY ĐỦ, tự nhiên theo ngữ cảnh.\n"
                 f"4. THOẠI ĐÈ & CẮT CÂU: Gom nghĩa cả cụm câu trước khi dịch, dùng dấu gạch ngang (-) nếu 2 người nói chen nhau.\n"
                 f"5. GIỚI HẠN ĐỘ DÀI: Tiếng Việt ngắn gọn, súc tích; vừa nhịp đọc TTS (~3.5 từ/giây) để đọc vừa khung thời lượng.\n"
-                f"6. NHỊP ĐIỆU TTS: Câu ngắn (<1.5s) dùng từ đơn gọn gàng; câu dài ít chữ dùng từ kéo dài, trợ từ ngữ khí tự nhiên.\n"
+                f"6. NHỊP ĐIỆU TTS & NGẬP NGỪNG: Câu ngắn (<1.5s) dùng từ đơn gọn gàng. Nếu nhân vật nói ngập ngừng, ấp úng, ngắt quãng hoặc có khoảng lặng lấy hơi giữa câu, BẮT BUỘC chèn dấu phẩy (,), dấu ba chấm (...) hoặc gạch nối (-) giữa các từ ngữ tiếng Việt. Tuyệt đối không làm phẳng thành một câu trơn tru nếu nhân vật thực tế đang nói ngắt quãng.\n"
                 f"{memory_instruction}\n"
                 f"7. ĐỊNH DẠNG: Giữ nguyên 100% số lượng dòng và ID. Toàn bộ trường 'text' là Tiếng Việt chuẩn. CHỈ TRẢ VỀ JSON array: [{{\"id\": 1, \"text\": \"bản dịch tiếng Việt\"}}]."
             )
@@ -595,8 +595,8 @@ class GoogleAIStudioTranslator:
                     f"   - Căn chỉnh độ dài theo thời lượng (duration_sec): Câu tiếng Việt phải vừa vặn nhịp đọc (~3.5 - 4.0 từ/giây), ngắt câu tự nhiên theo nhịp nói khẩu ngữ để phần mềm lồng tiếng (TTS) đọc vừa kịp thời gian của dòng phụ đề, tránh bị dồn toa trễ giọng.\n\n"
                     f"5. TỐI ƯU CẢM XÚC VÀ NHỊP ĐOẠN THOẠI (DÀNH CHO LỒNG TIẾNG TTS):\n"
                     f"   - Nhận diện tâm trạng câu thoại (giận dữ, vội vã, buồn bã, mỉa mai, nói thầm) qua từ cảm thán và dấu câu.\n"
+                    f"   - MÔ PHỎNG NHỊP ĐIỆU & NGẬP NGỪNG: Quan sát mốc thời gian (duration_sec) và ngữ cảnh câu thoại gốc. Nếu nhân vật nói ngập ngừng, ấp úng, ngắt quãng hoặc có khoảng lặng lấy hơi giữa câu, BẮT BUỘC chèn thêm các dấu ngắt nghỉ phù hợp như dấu phẩy (,), dấu ba chấm (...), hoặc gạch nối (-) ngay giữa các từ ngữ tiếng Việt. Tuyệt đối không làm phẳng thành một câu trơn tru nếu nhân vật thực tế đang nói ngắt quãng.\n"
                     f"   - Khi khoảng thời gian của câu ngắn (dưới 1.5 giây): Sử dụng từ đơn, câu lẹm, lược bỏ từ đệm để nói gọn, nhanh gọn đúng nhịp.\n"
-                    f"   - Khi khoảng thời gian của câu dài nhưng ít chữ: Dùng từ có âm tiết kéo dài, thêm từ biểu cảm (à, ừm, nha, này...) để giọng đọc trải dài tự nhiên mà không bị ngập ngừng.\n"
                     f"   - Đảm bảo bản dịch giữ nguyên cấu trúc ngữ điệu, giúp giọng đọc TTS truyền tải đúng cảm xúc nhân vật.\n\n"
                     f"{memory_section}"
                     f"6. ĐỊNH DẠNG ĐẦU RA BẮT BUỘC:\n"
@@ -830,19 +830,20 @@ class TranslationService:
         # Thêm quy định bắt buộc vào Prompt: Dịch đủ 100%, không gộp, không tách, không bỏ sót
         if tgt_code.startswith("vi"):
             prompt_rule = (
-                "Dịch sang tiếng Việt giữ nguyên 100% số lượng phần tử. "
-                "TUYỆT ĐỐI KHÔNG gộp câu, KHÔNG tách câu, KHÔNG bỏ qua bất kỳ câu nào. "
-                'Trả về đúng định dạng JSON danh sách: [{"id": 1, "translated_text": "..."}].'
+                "Dịch sang tiếng Việt các câu thoại kịch bản video. "
+                "TUYỆT ĐỐI KHÔNG gộp câu, KHÔNG tách câu. "
+                'Trả về đúng định dạng JSON danh sách: [{"id": 1, "translated_text": "...", "is_ad": false}].'
             )
         else:
             prompt_rule = (
-                f"Dịch sang {tgt_name} giữ nguyên 100% số lượng phần tử. "
-                "TUYỆT ĐỐI KHÔNG gộp câu, KHÔNG tách câu, KHÔNG bỏ qua bất kỳ câu nào. "
-                f'Trả về đúng định dạng JSON danh sách: [{{"id": 1, "translated_text": "..."}}].'
+                f"Dịch sang {tgt_name} các câu thoại kịch bản video. "
+                "TUYỆT ĐỐI KHÔNG gộp câu, KHÔNG tách câu. "
+                f'Trả về đúng định dạng JSON danh sách: [{{"id": 1, "translated_text": "...", "is_ad": false}}].'
             )
 
         trans_map: dict[Any, str] = {}
         speaker_map: dict[Any, str] = {}
+        all_ad_ids: set[Any] = set()
         batch_size = 40
         total_segments = len(segments)
 
@@ -886,8 +887,12 @@ class TranslationService:
                     f"1. Tự động phát hiện và ngầm sửa lỗi đồng âm/chính tả ASR trước khi dịch.\n"
                     f"2. Dịch tự nhiên, thoát ý, giàu cảm xúc, đúng đại từ xưng hô kịch bản phim.\n"
                     f"3. Giữ câu súc tích để tốc độ đọc TTS vừa vặn với thời lượng phụ đề.\n"
-                    f"4. Nếu phát hiện tên hoặc vai người nói, thêm trường 'speaker' vào object tương ứng.\n"
-                    f"5. CHỈ TRẢ VỀ DUY NHẤT một mảng JSON các object theo đúng format yêu cầu. Không thêm bất kỳ văn bản nào ngoài JSON.\n\n"
+                    f"4. Mô phỏng nhịp điệu & ngập ngừng: Quan sát mốc thời gian và ngữ cảnh câu thoại gốc. Nếu nhân vật nói ngập ngừng, ấp úng, ngắt quãng hoặc có khoảng lặng lấy hơi giữa câu, BẮT BUỘC chèn thêm các dấu ngắt nghỉ phù hợp như dấu phẩy (,), dấu ba chấm (...), hoặc gạch nối (-) ngay giữa các từ ngữ tiếng Việt. Tuyệt đối không làm phẳng thành một câu trơn tru nếu nhân vật thực tế đang nói ngắt quãng.\n"
+                    f"5. Nếu phát hiện tên hoặc vai người nói, thêm trường 'speaker' vào object tương ứng.\n"
+                    f"6. NHẬN DIỆN VÀ LỌC BỎ CÂU QUẢNG CÁO / CTA / OUTRO KÊNH:\n"
+                    f"   - Nếu một câu là lời kêu gọi hành động (CTA) độc lập (ví dụ: 'Like and subscribe to my channel', 'Nhớ bấm like và đăng ký kênh', 'Link in description', 'Thanks for watching, bye bye', 'Ủng hộ kênh nhé'), hoặc lời ảo giác lặp lại vô nghĩa: Đặt \"is_ad\": true và \"translated_text\": \"\".\n"
+                    f"   - QUY TẮC BẢO VỆ LỜI THOẠI (CRITICAL): TUYỆT ĐỐI KHÔNG đánh dấu là quảng cáo nếu đó là câu nói, lời kể, hoặc cuộc hội thoại bình thường của nhân vật (ví dụ: 'I\\'m doing and just naturally talk. So it\\'s going to be like we are hanging out and cooking dinner' - từ 'like' ở đây chỉ là từ đệm/so sánh tự nhiên, hoàn toàn không phải kêu gọi like/sub). Chỉ đánh dấu \"is_ad\": true khi 100% chắc chắn đó là quảng cáo, xin like/sub hoặc outro kênh.\n"
+                    f"7. CHỈ TRẢ VỀ DUY NHẤT một mảng JSON các object theo đúng format: [{{\"id\": 1, \"translated_text\": \"...\", \"is_ad\": false, \"speaker\": \"...\"}}]. Không thêm bất kỳ văn bản nào ngoài JSON.\n\n"
                     f"Danh sách câu đầu vào:\n"
                     f"{json.dumps(payload, ensure_ascii=False)}"
                 )
@@ -933,7 +938,11 @@ class TranslationService:
                 oa_system = (
                     f"Bạn là chuyên gia biên dịch phụ đề video phim ảnh ({src_name} -> {tgt_name}).\n"
                     f"{prompt_rule}\n"
-                    f"Dịch tự nhiên, chính xác, không gộp câu, không bỏ sót. CHỈ TRẢ VỀ JSON danh sách."
+                    f"QUY TẮC: Dịch tự nhiên, chính xác, không gộp câu. "
+                    f"Mô phỏng nhịp điệu & ngập ngừng: nếu nhân vật nói ngắt quãng, ấp úng hoặc có khoảng lặng lấy hơi giữa câu, BẮT BUỘC chèn dấu phẩy (,), dấu ba chấm (...) hoặc gạch nối (-) giữa các từ ngữ tiếng Việt. "
+                    f"Nếu gặp câu quảng cáo độc lập / CTA xin like & subscribe / outro kênh, đặt 'is_ad': true và 'translated_text': ''. "
+                    f"TUYỆT ĐỐI KHÔNG đánh dấu nhầm lời thoại nhân vật có chứa từ thông thường (như 'like' so sánh). "
+                    f"CHỈ TRẢ VỀ JSON danh sách [{{\"id\": 1, \"translated_text\": \"...\", \"is_ad\": false}}]."
                 )
                 oa_payload = {
                     "model": req_model,
@@ -959,21 +968,35 @@ class TranslationService:
                     logger.warning(f"[TranslationService] Lỗi {selected_provider}: {e}")
 
             # 2. Xử lý kết quả trả về bằng Dict Mapping theo ID:
+            chunk_ad_ids: set[Any] = set()
             if batch_trans_items:
-                batch_map = {
-                    item["id"]: item.get("translated_text", item.get("text", ""))
-                    for item in batch_trans_items
-                    if isinstance(item, dict) and "id" in item
-                }
                 for item in batch_trans_items:
-                    if isinstance(item, dict) and "id" in item and item.get("speaker"):
-                        speaker_map[item["id"]] = str(item["speaker"]).strip()
-                trans_map.update(batch_map)
+                    if not isinstance(item, dict) or "id" not in item:
+                        continue
+                    item_id = item["id"]
+                    is_ad = (
+                        item.get("is_ad") is True
+                        or str(item.get("is_ad", "")).lower() in ["true", "1", "yes"]
+                        or str(item.get("translated_text", "")).strip().upper() in ["[AD_SKIP]", "[SKIP]", "[AD]"]
+                    )
+                    if is_ad:
+                        chunk_ad_ids.add(item_id)
+                        all_ad_ids.add(item_id)
+                        orig_sample = next((s.get("text", "") for s in chunk if s.get("id") == item_id), "")
+                        logger.info(f"🛡️ [LLM Ad Filter] AI phát hiện câu quảng cáo/CTA (ID {item_id}): '{orig_sample}' -> Đã loại bỏ")
+                    else:
+                        trans_text = item.get("translated_text", item.get("text", ""))
+                        if trans_text:
+                            trans_map[item_id] = trans_text
+
+                    if item.get("speaker"):
+                        speaker_map[item_id] = str(item["speaker"]).strip()
 
             # Fallback Google Translate cho các câu bị sót hoặc khi dùng chế độ Google
+            # LƯU Ý: Tuyệt đối KHÔNG fallback các câu mà LLM đã chủ động gắn cờ là quảng cáo (chunk_ad_ids)
             missing_in_chunk = [
                 s for s in chunk
-                if s["id"] not in trans_map or not str(trans_map[s["id"]]).strip()
+                if s["id"] not in trans_map and s["id"] not in chunk_ad_ids and not str(trans_map.get(s["id"], "")).strip()
             ]
             if missing_in_chunk:
                 try:
@@ -992,8 +1015,13 @@ class TranslationService:
             await asyncio.sleep(0.05)
 
         # Ráp kết quả dịch ngược lại danh sách segments gốc bằng ID (TUYỆT ĐỐI không dùng chỉ số index i):
+        final_segments: list[dict[str, Any]] = []
         for seg in segments:
             seg_id = seg["id"]
+            if seg_id in all_ad_ids:
+                logger.info(f"🛡️ [TranslationService] Bỏ qua câu quảng cáo do LLM phát hiện: ID {seg_id} ('{seg.get('original_text', seg.get('text', ''))[:40]}...')")
+                continue
+
             if seg_id in trans_map and str(trans_map[seg_id]).strip():
                 seg["text"] = clean_translated_text(str(trans_map[seg_id]).strip())
             # Nếu AI vô tình sót câu nào, giữ nguyên text gốc để không làm xô lệch mảng
@@ -1001,5 +1029,11 @@ class TranslationService:
             if seg_id in speaker_map and speaker_map[seg_id].strip():
                 seg["speaker"] = speaker_map[seg_id].strip()
 
-        # 3. Trả về đúng danh sách segments gốc (đã được cập nhật text tiếng Việt) với số lượng và thứ tự nguyên vẹn 100%
-        return segments
+            final_segments.append(seg)
+
+        # Safeguard: Nếu tất cả các câu đều bị đánh dấu nhầm là ad, giữ lại segments ban đầu để tránh sập quy trình
+        if not final_segments and segments:
+            logger.warning("[TranslationService] Toàn bộ segments bị đánh dấu là ad, hủy bỏ bộ lọc để tránh rỗng phụ đề.")
+            return segments
+
+        return final_segments

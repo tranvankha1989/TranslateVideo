@@ -32,6 +32,9 @@ import {
   Plus,
   ListFilter,
   ShieldAlert,
+  Bug,
+  Activity,
+  ArrowDownUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -146,10 +149,58 @@ export default function Settings() {
   const [logLinesCount, setLogLinesCount] = useState(300);
   const [logStats, setLogStats] = useState<{ total_lines: number; file_size_kb: number; log_path: string } | null>(null);
 
-  const fetchLogContent = async (lines = logLinesCount) => {
+  // Chế độ Ghi nhật ký chi tiết từng bước (Verbose / Debug Step-by-Step)
+  const [verboseLogging, setVerboseLogging] = useState(false);
+  const [isTogglingVerbose, setIsTogglingVerbose] = useState(false);
+
+  const fetchVerboseStatus = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/settings/logs/verbose");
+      if (res.ok) {
+        const data = await res.json();
+        setVerboseLogging(Boolean(data.enabled));
+      }
+    } catch (e) {
+      console.warn("Lỗi khi tải trạng thái verbose logging:", e);
+    }
+  };
+
+  const handleToggleVerboseLogging = async () => {
+    const nextVal = !verboseLogging;
+    setIsTogglingVerbose(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/settings/logs/verbose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: nextVal }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVerboseLogging(nextVal);
+        toast.success(
+          data.message ||
+            (nextVal
+              ? "Đã BẬT chế độ ghi log chi tiết từng bước để debug lỗi!"
+              : "Đã TẮT chế độ ghi log chi tiết. Quay về ghi log tiêu chuẩn.")
+        );
+        fetchLogContent();
+      } else {
+        toast.error("Không thể thay đổi cấu hình log!");
+      }
+    } catch (err: any) {
+      toast.error("Lỗi khi kết nối backend: " + err.message);
+    } finally {
+      setIsTogglingVerbose(false);
+    }
+  };
+
+  // Thứ tự hiển thị log: mặc định 'desc' (dòng mới nhất ở trên cùng)
+  const [logOrder, setLogOrder] = useState<"desc" | "asc">("desc");
+
+  const fetchLogContent = async (lines = logLinesCount, order = logOrder) => {
     setIsLoadingLogs(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/settings/logs/content?lines=${lines}`);
+      const res = await fetch(`http://localhost:8000/api/settings/logs/content?lines=${lines}&order=${order}`);
       if (res.ok) {
         const data = await res.json();
         setLogContent(data.content || "");
@@ -164,6 +215,13 @@ export default function Settings() {
     } finally {
       setIsLoadingLogs(false);
     }
+  };
+
+  const handleToggleLogOrder = () => {
+    const nextOrder = logOrder === "desc" ? "asc" : "desc";
+    setLogOrder(nextOrder);
+    fetchLogContent(logLinesCount, nextOrder);
+    toast.info(nextOrder === "desc" ? "Đã chuyển sắp xếp: Mới nhất trên cùng ⬇" : "Đã chuyển sắp xếp: Cũ nhất trên cùng ⬆");
   };
 
   const handleDownloadLog = () => {
@@ -261,6 +319,7 @@ export default function Settings() {
     fetchHardwareSettings();
     checkStorageStatus();
     fetchAppVersion();
+    fetchVerboseStatus();
   }, [fetchHardwareSettings, checkStorageStatus, fetchAppVersion]);
 
   useEffect(() => {
@@ -1452,36 +1511,122 @@ export default function Settings() {
             </div>
           </div>
 
+          {/* Card Bật/Tắt Ghi Nhật Ký Chi Tiết Từng Bước (Verbose / Debug Step-by-Step) */}
+          <div className="p-5 md:p-6 rounded-3xl bg-surface-variant/30 border border-white/10 space-y-4 backdrop-blur-md relative overflow-hidden shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1.5 max-w-2xl">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={cn(
+                      "w-9 h-9 rounded-xl flex items-center justify-center transition-all",
+                      verboseLogging
+                        ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-md shadow-amber-500/10"
+                        : "bg-white/5 text-on-surface-variant border border-white/10"
+                    )}
+                  >
+                    <Bug className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
+                    <span>Chế Độ Ghi Nhật Ký Chi Tiết Từng Bước (Debug Step Logs)</span>
+                    <span
+                      className={cn(
+                        "text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border",
+                        verboseLogging
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                          : "bg-white/10 text-on-surface-variant border-white/15"
+                      )}
+                    >
+                      {verboseLogging ? "ĐANG BẬT (VERBOSE DEBUG)" : "TIÊU CHUẨN (NORMAL)"}
+                    </span>
+                  </h3>
+                </div>
+                <p className="text-xs text-on-surface-variant leading-relaxed">
+                  {verboseLogging
+                    ? "Hệ thống đang ghi chép toàn bộ tiến trình chạy chi tiết của ứng dụng (lệnh FFmpeg, tham số Whisper, phản hồi AI dịch, quá trình tách nhạc Demucs, cân chỉnh timeline âm thanh và lỗi ngầm) vào app.log để phục vụ chẩn đoán lỗi."
+                    : "Hệ thống đang ghi nhật ký ở mức tiêu chuẩn (INFO). Bật tính năng này nếu bạn gặp lỗi cần ghi lại toàn bộ quá trình chạy từng bước để kiểm tra nguyên nhân."}
+                </p>
+              </div>
+
+              {/* Nút Toggle Switch */}
+              <button
+                type="button"
+                onClick={handleToggleVerboseLogging}
+                disabled={isTogglingVerbose}
+                className={cn(
+                  "px-5 py-3 rounded-2xl font-bold text-xs flex items-center gap-2.5 transition-all shadow-lg cursor-pointer shrink-0 disabled:opacity-50",
+                  verboseLogging
+                    ? "bg-amber-400 hover:bg-amber-300 text-black shadow-amber-500/25"
+                    : "bg-white/10 hover:bg-white/15 text-on-surface border border-white/15"
+                )}
+              >
+                {isTogglingVerbose ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Activity className="w-4 h-4" />
+                )}
+                <span>
+                  {verboseLogging ? "Tắt Chế Độ Ghi Chi Tiết" : "Bật Ghi Chi Tiết Từng Bước"}
+                </span>
+              </button>
+            </div>
+          </div>
+
           {/* Hộp Tìm Kiếm & Live Log Console */}
           <div className="p-5 md:p-6 rounded-3xl bg-black/60 border border-white/10 space-y-3.5 shadow-2xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="relative flex-1 max-w-md">
-                <Search className="w-4 h-4 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={logSearch}
-                  onChange={(e) => setLogSearch(e.target.value)}
-                  placeholder="Lọc từ khóa: ERROR, WARNING, CUDA, Colab, Prompt..."
-                  className="w-full pl-9 pr-4 py-2 rounded-xl bg-surface-variant/40 border border-white/10 text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary/50"
-                />
+              <div className="flex items-center gap-2 flex-1 max-w-lg">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                    placeholder="Lọc từ khóa: ERROR, WARNING, DEBUG-STEP, Whisper, Prompt..."
+                    className="w-full pl-9 pr-4 py-2 rounded-xl bg-surface-variant/40 border border-white/10 text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary/50"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLogSearch(logSearch === "DEBUG-STEP" ? "" : "DEBUG-STEP")}
+                  className={cn(
+                    "px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer shrink-0",
+                    logSearch === "DEBUG-STEP"
+                      ? "bg-cyan-500/20 text-cyan-300 border-cyan-400"
+                      : "bg-white/5 text-on-surface-variant hover:text-on-surface border-white/10"
+                  )}
+                >
+                  🔍 Debug Steps
+                </button>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-on-surface-variant">Hiển thị:</span>
-                <select
-                  value={logLinesCount}
-                  onChange={(e) => {
-                    const l = parseInt(e.target.value, 10);
-                    setLogLinesCount(l);
-                    fetchLogContent(l);
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg bg-surface-variant/50 border border-white/10 text-xs text-on-surface focus:outline-none"
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleToggleLogOrder}
+                  className="px-2.5 py-1.5 rounded-lg bg-surface-variant/50 hover:bg-surface-variant/80 border border-white/10 text-xs text-on-surface flex items-center gap-1.5 transition-all cursor-pointer font-medium"
+                  title="Thay đổi thứ tự hiển thị dòng log"
                 >
-                  <option value={100}>100 dòng cuối</option>
-                  <option value={300}>300 dòng cuối</option>
-                  <option value={500}>500 dòng cuối</option>
-                  <option value={1000}>1000 dòng cuối</option>
-                </select>
+                  <ArrowDownUp className="w-3.5 h-3.5 text-primary" />
+                  <span>{logOrder === "desc" ? "Mới nhất trên cùng ⬇" : "Cũ nhất trên cùng ⬆"}</span>
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-on-surface-variant">Hiển thị:</span>
+                  <select
+                    value={logLinesCount}
+                    onChange={(e) => {
+                      const l = parseInt(e.target.value, 10);
+                      setLogLinesCount(l);
+                      fetchLogContent(l, logOrder);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-surface-variant/50 border border-white/10 text-xs text-on-surface focus:outline-none"
+                  >
+                    <option value={100}>100 dòng</option>
+                    <option value={300}>300 dòng</option>
+                    <option value={500}>500 dòng</option>
+                    <option value={1000}>1000 dòng</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -1500,11 +1645,13 @@ export default function Settings() {
                 <div className="space-y-0.5">
                   {logContent
                     .split("\n")
+                    .filter((line) => line.trim().length > 0)
                     .filter((line) => !logSearch.trim() || line.toLowerCase().includes(logSearch.toLowerCase()))
                     .map((line, idx) => {
                       const isError = line.includes("[ERROR]") || line.includes("Exception") || line.includes("Traceback") || line.includes("Error:") || line.includes("❌");
                       const isWarn = line.includes("[WARNING]") || line.includes("[WARN]") || line.includes("⚠️");
                       const isSuccess = line.includes("✅") || line.includes("🚀") || line.includes("SUCCESS") || line.includes("thành công");
+                      const isStep = line.includes("[DEBUG-STEP]") || line.includes("🔍") || line.includes("[DEBUG-MODE]");
 
                       return (
                         <div
@@ -1514,7 +1661,8 @@ export default function Settings() {
                             isError && "bg-rose-500/15 text-rose-300 font-semibold border-l-2 border-rose-500",
                             isWarn && "bg-amber-500/10 text-amber-300 border-l-2 border-amber-500",
                             isSuccess && "text-emerald-300",
-                            !isError && !isWarn && !isSuccess && "text-slate-300 hover:bg-white/5"
+                            isStep && !isError && "bg-cyan-500/10 text-cyan-300 font-medium border-l-2 border-cyan-400",
+                            !isError && !isWarn && !isSuccess && !isStep && "text-slate-300 hover:bg-white/5"
                           )}
                         >
                           {line}

@@ -21,13 +21,21 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from app.core.config import OUTPUTS_DIR, logger
+from app.core.config import OUTPUTS_DIR, logger, log_verbose_step, is_verbose_logging
 from app.services.dubbing_service import DubbingService, get_audio_duration, DUBBING_OUTPUT_DIR
 from app.services.translator_service import TranslationService, GoogleTranslator
 from app.services.alignment_service import AlignmentService
 from app.services.ad_filter_service import AdFilterService
 import model_handler
-from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local, sanitize_word_timestamps, separate_vocals_demucs
+from caption_handler import (
+    extract_audio,
+    get_whisper_model,
+    transcribe_with_remote_or_local,
+    sanitize_word_timestamps,
+    separate_vocals_demucs,
+    heal_and_merge_segments,
+    resegment_words,
+)
 
 TRANSLATE_OUTPUT_DIR = OUTPUTS_DIR / "video_translate"
 TRANSLATE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -93,7 +101,7 @@ def generate_srt_file(segments: list[dict[str, Any]], output_srt_path: Path, mod
         seg_idx += 1
 
     content = "\n".join(lines)
-    output_srt_path.write_text(content, encoding="utf-8")
+    output_srt_path.write_text(content, encoding="utf-8-sig")
     return output_srt_path
 
 def get_ffmpeg_scale_filter(resolution: str | None) -> str | None:
@@ -107,101 +115,6 @@ def get_ffmpeg_scale_filter(resolution: str | None) -> str | None:
         return "scale=-2:480"
     return None  # Giữ nguyên độ phân giải gốc
 
-
-def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.85) -> list[dict[str, Any]]:
-    """
-    Thuật toán tự động phát hiện và nối các câu bị ngắt quãng / chém đôi do AI ASR nhận diện nhầm,
-    đảm bảo ngữ nghĩa câu văn trọn vẹn trước khi chuyển sang bước dịch.
-    
-    Quy tắc chống lệch timestamp tuyệt đối:
-    1. start: Giữ nguyên 100% mốc bắt đầu của phân đoạn đầu tiên, tuyệt đối không tính lại.
-    2. end: Cập nhật bằng đúng mốc kết thúc của phân đoạn hiện tại (seg["end"]).
-    3. words: Gộp mảng word-level timestamps của phân đoạn mới vào câu gộp.
-    4. Điều kiện an toàn: Nếu khoảng lặng gap > max_gap hoặc câu trước đã có dấu ngắt câu (. ! ? 。 ！ ？ …),
-       tuyệt đối không gộp mà tách thành segment độc lập.
-    """
-    if not segments or len(segments) <= 1:
-        return segments
-
-    SENTENCE_ENDS = ('.', '!', '?', '。', '！', '？', '…')
-    CONNECTORS_VI = {
-        "và", "nhưng", "hoặc", "vì", "mà", "để", "với", "rằng", "của", "tại", "thì", "là", "do",
-        "nếu", "khi", "như", "thế", "nên", "cho", "về", "trong", "bởi", "tuy", "dù", "rồi", "lại"
-    }
-    CONNECTORS_EN = {
-        "and", "but", "or", "because", "which", "that", "to", "with", "for", "about", "so",
-        "then", "if", "when", "as", "although", "while", "where", "after", "before", "by"
-    }
-    CONNECTORS_ZH = {
-        "和", "但是", "因为", "所以", "如果", "虽然", "而且", "或者", "关于", "然后", "就是", "还有"
-    }
-
-    merged: list[dict[str, Any]] = [dict(segments[0])]
-
-    for seg in segments[1:]:
-        prev = merged[-1]
-        prev_txt = str(prev.get("text", "")).strip()
-        curr_txt = str(seg.get("text", "")).strip()
-
-        if not curr_txt:
-            continue
-        if not prev_txt:
-            merged[-1] = dict(seg)
-            continue
-
-        prev_end = float(prev.get("end", 0.0))
-        curr_start = float(seg.get("start", 0.0))
-        curr_end = float(seg.get("end", curr_start))
-        gap = curr_start - prev_end
-
-        # Kiểm tra dấu câu kết thúc của câu trước
-        has_sentence_end = any(prev_txt.endswith(punct) for punct in SENTENCE_ENDS)
-
-        # 1. Điều kiện chặn: Khoảng lặng quá lớn hoặc câu trước đã kết thúc trọn vẹn
-        if gap > max_gap or has_sentence_end or gap < 0:
-            merged.append(dict(seg))
-            continue
-
-        # 2. Kiểm tra câu sau có phải là vế tiếp nối tự nhiên (chữ thường hoặc từ nối)
-        first_word = curr_txt.split()[0].lower() if curr_txt.split() else ""
-        first_char = curr_txt[0]
-
-        is_continuation = (
-            first_char.islower()
-            or first_word in CONNECTORS_VI
-            or first_word in CONNECTORS_EN
-            or any(curr_txt.startswith(zh_c) for zh_c in CONNECTORS_ZH)
-            or (not has_sentence_end and gap <= 0.40)  # Câu trước bị ngắt cụt và nối tiếp ngay lập tức
-        )
-
-        if is_continuation:
-            is_cjk = any('\u4e00' <= char <= '\u9fff' for char in prev_txt[-2:] + curr_txt[:2])
-            separator = "" if is_cjk else " "
-
-            # Ghép văn bản
-            prev["text"] = f"{prev_txt}{separator}{curr_txt}".strip()
-            
-            # Cập nhật end của câu trước thành end của câu hiện tại (giữ nguyên start của prev)
-            prev["end"] = curr_end
-
-            # Bảo tồn danh sách word-level timestamps gốc từ Whisper
-            if "words" in seg and isinstance(seg["words"], list):
-                if "words" not in prev or not isinstance(prev["words"], list):
-                    prev["words"] = []
-                prev["words"].extend(seg["words"])
-
-            if "original_text" in prev and "original_text" in seg:
-                prev_orig = str(prev.get("original_text", "")).strip()
-                curr_orig = str(seg.get("original_text", "")).strip()
-                prev["original_text"] = f"{prev_orig}{separator}{curr_orig}".strip()
-        else:
-            merged.append(dict(seg))
-
-    # Đánh lại ID cho các phân đoạn
-    for i, s in enumerate(merged, start=1):
-        s["id"] = i
-
-    return merged
 
 
 def cleanup_task_temp_files(task_dir: Path | str) -> None:
@@ -406,7 +319,7 @@ class VideoTranslationPipeline:
         cls,
         task_id: str,
         video_path: Path,
-        source_lang: str = "auto",
+        source_lang: str = "en",
         target_lang: str = "vi",
         voice_id: str = "vi-VN-HoaiMyNeural",
         engine: str = "edge-tts",
@@ -427,11 +340,14 @@ class VideoTranslationPipeline:
         output_resolution: str = "720p",
         clip_start: float = 0.0,
         clip_end: float | None = None,
-        vad_threshold: float = 0.35,
+        vad_threshold: float = 0.15,
         speech_pad_ms: int = 400,
         min_speech_duration_ms: int = 150,
-        beam_size: int = 3,
-        filter_hallucinations: bool = False,
+        min_silence_duration_ms: int = 1000,
+        beam_size: int = 5,
+        font_size: int = 20,
+        margin_v: int = 30,
+        alignment: int = 2,
     ) -> None:
         start_time = time.time()
         try:
@@ -491,6 +407,7 @@ class VideoTranslationPipeline:
                 "created_at": start_time,
             }
             cls.update_task(task_id, **task_config)
+            log_verbose_step("PIPELINE_INIT", f"Khởi tạo tác vụ dịch video [{task_id}]", task_config)
 
             # ── BƯỚC 1: TÁCH ÂM THANH & NHẠC NỀN (0% -> 15%) ──────────────
             cls.update_task(
@@ -532,6 +449,13 @@ class VideoTranslationPipeline:
                 raw_audio_path=str(raw_audio_path) if raw_audio_path else None,
                 bgm_path=str(bgm_path) if bgm_path else None,
             )
+            log_verbose_step("STEP_1_AUDIO_EXTRACT", f"Trích xuất âm thanh & tách giọng Demucs thành công", {
+                "duration_seconds": round(video_duration, 2),
+                "raw_audio": str(raw_audio_path),
+                "whisper_audio": str(whisper_audio_path),
+                "bgm_path": str(bgm_path) if bgm_path else None,
+                "preserve_bgm": preserve_bgm,
+            })
 
             # ── BƯỚC 2: BÓC BĂNG PHỤ ĐỀ GỐC BẰNG WHISPER (15% -> 40%) ──────
             whisper_tag = "trên Cloud GPU" if is_cloud_gpu_active() else f"Faster-Whisper ({whisper_model.upper()})"
@@ -548,7 +472,7 @@ class VideoTranslationPipeline:
                 prompt_to_use = "以下是普通话的句子，请用简体中文输出。"
 
             # Nếu dùng Cloud GPU, truyền raw_audio_path để Demucs trên worker bóc tách cả Vocals và BGM
-            audio_for_stt = raw_audio_path if (is_cloud_gpu_active() or is_remote_gpu_enabled()) else whisper_audio_path
+            audio_for_stt = raw_audio_path if is_cloud_gpu_active() else whisper_audio_path
 
             def run_whisper():
                 logger.info(
@@ -562,12 +486,24 @@ class VideoTranslationPipeline:
                     vad_filter=True,
                     vad_threshold=vad_threshold,
                     min_speech_duration_ms=min_speech_duration_ms,
+                    min_silence_duration_ms=min_silence_duration_ms,
                     speech_pad_ms=speech_pad_ms,
                     beam_size=beam_size,
                     word_timestamps=True,
-                    filter_hallucinations=filter_hallucinations,
                     task_dir=task_dir,
                 )
+
+            log_verbose_step("STEP_2_WHISPER_START", f"Bắt đầu bóc tách phụ đề Faster-Whisper", {
+                "whisper_model": whisper_model,
+                "audio_input": str(audio_for_stt),
+                "source_lang": source_lang,
+                "vad_threshold": vad_threshold,
+                "min_speech_duration_ms": min_speech_duration_ms,
+                "min_silence_duration_ms": min_silence_duration_ms,
+                "speech_pad_ms": speech_pad_ms,
+                "beam_size": beam_size,
+                "is_cloud_gpu": is_cloud_gpu_active(),
+            })
 
             cls.update_task(
                 task_id,
@@ -587,6 +523,11 @@ class VideoTranslationPipeline:
                 remote_bgm_path = None
 
             detected_source_lang = source_lang if source_lang != "auto" else detected_lang
+            log_verbose_step("STEP_2_WHISPER_DONE", f"Hoàn tất bóc tách Whisper STT", {
+                "raw_segments_count": len(segments_raw),
+                "detected_source_lang": detected_source_lang,
+                "remote_bgm_received": bool(remote_bgm_path),
+            })
 
             # Lưu bgm_path vào biến của task: nếu có file no_vocals.wav thì gán làm nhạc nền chính
             if remote_bgm_path and Path(remote_bgm_path).exists():
@@ -605,63 +546,62 @@ class VideoTranslationPipeline:
                     logger.info("🎶 [BGM Sync] Fallback dùng audio gốc đã hạ âm lượng làm nhạc nền.")
 
             original_segments = []
+            all_words_flat = []
             for s in segments_raw:
-                if isinstance(s, dict):
-                    txt = str(s.get("text", "")).strip()
-                    words = s.get("words", [])
-                    raw_start = float(s.get("start", 0.0))
-                    raw_end = float(s.get("end", 0.0))
-                    if words and isinstance(words, list) and len(words) > 0:
-                        w0 = words[0]
-                        w1 = words[-1]
-                        w0_start = float(w0.get("start", raw_start)) if isinstance(w0, dict) else float(getattr(w0, "start", raw_start))
-                        w1_end = float(w1.get("end", raw_end)) if isinstance(w1, dict) else float(getattr(w1, "end", raw_end))
-                        s_start = w0_start
-                        s_end = w1_end
-                    else:
-                        s_start = raw_start
-                        s_end = raw_end
-                else:
-                    txt = str(getattr(s, "text", "")).strip()
-                    raw_start = float(getattr(s, "start", 0.0))
-                    raw_end = float(getattr(s, "end", 0.0))
-                    words = getattr(s, "words", None)
-                    if words and len(words) > 0:
-                        w0_start = float(getattr(words[0], "start", raw_start))
-                        w1_end = float(getattr(words[-1], "end", raw_end))
-                        s_start = w0_start
-                        s_end = w1_end
-                    else:
-                        s_start = raw_start
-                        s_end = raw_end
+                w_list = s.get("words", []) if isinstance(s, dict) else getattr(s, "words", None)
+                if w_list and isinstance(w_list, list):
+                    for w in w_list:
+                        if isinstance(w, dict):
+                            all_words_flat.append(w)
+                        else:
+                            all_words_flat.append({
+                                "word": str(getattr(w, "word", "")),
+                                "start": float(getattr(w, "start", 0.0)),
+                                "end": float(getattr(w, "end", 0.0)),
+                                "probability": float(getattr(w, "probability", 1.0)),
+                            })
 
-                if not txt:
-                    continue
+            # 1. Nếu có word_timestamps, ưu tiên resegment_words để chia nhỏ câu 3.0s - 6.0s (5-9 từ)
+            if all_words_flat:
+                original_segments = resegment_words(
+                    all_words_flat,
+                    max_words=8,
+                    min_duration=3.0,
+                    max_duration=6.0,
+                    min_words=5,
+                    min_silence_split=0.40,
+                )
+                logger.info(f"✂️ [Pipeline Resegment] Đã chia nhỏ thành {len(original_segments)} câu chuẩn nhịp nói diễn viên (3-6s).")
+            else:
+                for s in segments_raw:
+                    if isinstance(s, dict):
+                        txt = str(s.get("text", "")).strip()
+                        raw_start = float(s.get("start", 0.0))
+                        raw_end = float(s.get("end", 0.0))
+                    else:
+                        txt = str(getattr(s, "text", "")).strip()
+                        raw_start = float(getattr(s, "start", 0.0))
+                        raw_end = float(getattr(s, "end", 0.0))
 
-                # Chống ảo giác lặp lại liên tiếp trong khoảng thời gian sát nhau (< 1.5s)
-                if original_segments:
-                    prev_seg = original_segments[-1]
-                    if txt.lower() == prev_seg["text"].lower() and abs(s_start - prev_seg["end"]) < 1.5:
-                        logger.warning(f"[Whisper Hallucination Filter] Bỏ qua câu lặp ảo giác liên tiếp: '{txt}' tại [{s_start:.2f}s -> {s_end:.2f}s]")
+                    if not txt:
                         continue
+                    if raw_end <= raw_start:
+                        raw_end = round(raw_start + 0.3, 3)
 
-                if s_end <= s_start:
-                    s_end = round(s_start + 0.3, 3)
-
-                original_segments.append({
-                    "id": len(original_segments) + 1,
-                    "start": round(s_start, 3),
-                    "end": round(s_end, 3),
-                    "text": txt,
-                })
+                    original_segments.append({
+                        "id": len(original_segments) + 1,
+                        "start": round(raw_start, 3),
+                        "end": round(raw_end, 3),
+                        "text": txt,
+                    })
 
             # Lọc sạch quảng cáo, watermark và các câu tùy chỉnh do người dùng dạy cho AI bỏ qua
             original_segments, removed_ad_cnt = AdFilterService.filter_subtitle_segments(original_segments)
             if removed_ad_cnt > 0:
                 logger.info(f"🛡️ [Pipeline] Đã loại bỏ {removed_ad_cnt} câu quảng cáo/rác/câu bỏ qua khỏi phụ đề gốc.")
 
-            # Tự động phát hiện và nối câu ngắt quãng / chém đôi để ngữ nghĩa chuẩn chỉnh trước khi dịch
-            original_segments = heal_and_merge_segments(original_segments, max_gap=0.85)
+            # Tự động phát hiện và nối câu ngắt quãng với giới hạn tối đa 6.0s và khoảng lặng < 0.40s
+            original_segments = heal_and_merge_segments(original_segments, max_gap=0.40, max_duration=6.0)
 
             if not original_segments:
                 raise RuntimeError("Không phát hiện được câu thoại nào rõ ràng trong video.")
@@ -680,6 +620,12 @@ class VideoTranslationPipeline:
                 subtitles_original_srt_url=rel_orig_srt_url,
                 message=f"Đã nhận diện & chuẩn hóa {len(original_segments)} câu thoại gốc.",
             )
+            log_verbose_step("STEP_2_SUBTITLES_READY", f"Chuẩn hóa phụ đề gốc hoàn tất", {
+                "total_segments": len(original_segments),
+                "ad_filtered_count": removed_ad_cnt,
+                "srt_file": str(srt_orig_file),
+                "sample_first_3": original_segments[:3] if original_segments else [],
+            })
 
             # ── BƯỚC 3: DỊCH PHỤ ĐỀ SANG NGÔN NGỮ ĐÍCH (40% -> 55%) ────────
             cls.update_task(
@@ -690,6 +636,14 @@ class VideoTranslationPipeline:
                 elapsed_time=round(time.time() - start_time, 1),
                 elapsed_str=format_duration_vietnamese(time.time() - start_time),
             )
+            log_verbose_step("STEP_3_TRANSLATE_START", f"Bắt đầu dịch thuật {len(original_segments)} câu thoại", {
+                "provider": translation_provider,
+                "model": translation_model,
+                "style": translation_style,
+                "temperature": translation_temperature,
+                "target_lang": target_lang,
+                "source_lang": detected_source_lang,
+            })
 
             async def on_trans_progress(cur, total, msg):
                 pct = 40 + int((cur / max(1, total)) * 15)
@@ -714,11 +668,30 @@ class VideoTranslationPipeline:
                 progress_callback=on_trans_progress,
             )
 
+            # Đồng bộ lại original_segments nếu LLM đã lọc bớt câu quảng cáo/CTA ở Bước 3
+            if len(translated_segments) < len(original_segments):
+                llm_removed_cnt = len(original_segments) - len(translated_segments)
+                translated_ids = {s.get("id") for s in translated_segments}
+                original_segments = [s for s in original_segments if s.get("id") in translated_ids]
+                logger.info(f"🛡️ [Pipeline] LLM đã loại bỏ thêm {llm_removed_cnt} câu quảng cáo/CTA ngữ cảnh ở Bước 3.")
+                try:
+                    generate_srt_file(original_segments, srt_orig_file, mode="hard_target")
+                except Exception as e:
+                    logger.warning(f"Lỗi cập nhật lại srt_orig_file sau khi LLM lọc ad: {e}")
+
             orig_text_map = {s["id"]: s.get("text", "") for s in original_segments}
             for ts in translated_segments:
                 seg_id = ts.get("id")
                 if seg_id in orig_text_map and not ts.get("original_text"):
                     ts["original_text"] = orig_text_map[seg_id]
+
+            log_verbose_step("STEP_3_TRANSLATE_DONE", f"Hoàn tất dịch thuật {len(translated_segments)} câu", {
+                "total_translated": len(translated_segments),
+                "sample_first_3": [
+                    {"id": s.get("id"), "orig": s.get("original_text", ""), "trans": s.get("text", "")}
+                    for s in translated_segments[:3]
+                ],
+            })
 
             # ── BƯỚC 4: LỒNG TIẾNG TỰ ĐỘNG (55% -> 75%) ───────────────────
             cls.update_task(
@@ -773,6 +746,17 @@ class VideoTranslationPipeline:
                 ref_audio=clean_vocal_ref,
             )
 
+            log_verbose_step("STEP_4_DUBBING_DONE", f"Hoàn tất lồng tiếng AI cho {len(dub_res.get('dubbed_segments', []))} câu", {
+                "engine": engine,
+                "voice_id": voice_id,
+                "total_segments_dubbed": len(dub_res.get("dubbed_segments", [])),
+                "total_voice_duration": dub_res.get("total_duration"),
+                "sample_dubbed": [
+                    {"id": s.get("id"), "dur": s.get("audio_duration"), "text": s.get("text", "")[:30]}
+                    for s in dub_res.get("dubbed_segments", [])[:3]
+                ],
+            })
+
             # Lưu checkpoint dữ liệu câu thoại & cấu hình để phục vụ Studio chỉnh sửa theo thời gian thực
             task_meta = {
                 "task_id": task_id,
@@ -793,6 +777,9 @@ class VideoTranslationPipeline:
                 "detected_source_lang": detected_source_lang,
                 "target_lang": target_lang,
                 "output_resolution": output_resolution,
+                "font_size": font_size,
+                "margin_v": margin_v,
+                "alignment": alignment,
             }
             try:
                 (task_dir / "task_meta.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -809,6 +796,13 @@ class VideoTranslationPipeline:
                 elapsed_time=round(time.time() - start_time, 1),
                 elapsed_str=format_duration_vietnamese(time.time() - start_time),
             )
+            log_verbose_step("STEP_5_ALIGNMENT_START", f"Bắt đầu cân chỉnh tốc độ & ráp nối timeline", {
+                "max_speed_rate": max_speed_rate,
+                "preserve_bgm": preserve_bgm,
+                "bgm_type": bgm_type,
+                "bgm_volume": bgm_volume,
+                "total_video_duration": video_duration,
+            })
 
             # Chọn nguồn âm thanh nền theo tùy chọn: "original" (âm thanh gốc), "bgm" (nhạc nền tách vocal), hoặc "none"
             selected_bgm_path = None
@@ -830,6 +824,11 @@ class VideoTranslationPipeline:
                 session_id=task_id,
             )
             final_audio_path = Path(timeline_res["final_audio_path"])
+            log_verbose_step("STEP_5_ALIGNMENT_DONE", f"Hoàn tất ráp nối timeline âm thanh", {
+                "final_audio": str(final_audio_path),
+                "audio_exists": final_audio_path.exists(),
+                "file_size_kb": round(final_audio_path.stat().st_size / 1024, 1) if final_audio_path.exists() else 0,
+            })
 
             # ── BƯỚC 6: XUẤT PHỤ ĐỀ VÀ RENDER VIDEO MP4 (85% -> 100%) ───────
             # Đọc cấu hình phụ đề & kiểu dáng tùy chỉnh động
@@ -948,7 +947,7 @@ class VideoTranslationPipeline:
                 )
 
                 srt_escaped = str(srt_file.resolve()).replace("\\", "/").replace(":", "\\:")
-                sub_filter = f"subtitles='{srt_escaped}':force_style='{style_str}'"
+                sub_filter = f"subtitles='{srt_escaped}':charenc=UTF-8:force_style='{style_str}'"
                 scale_filter = get_ffmpeg_scale_filter(output_resolution)
                 vf_filter = f"{scale_filter},{sub_filter}" if scale_filter else sub_filter
 
@@ -976,6 +975,12 @@ class VideoTranslationPipeline:
             if res.returncode != 0:
                 raise RuntimeError(f"FFmpeg render thất bại: {res.stderr}")
 
+            log_verbose_step("STEP_6_RENDER_DONE", f"Render video MP4 thành công", {
+                "output_video": str(output_video_path),
+                "file_size_mb": round(output_video_path.stat().st_size / (1024 * 1024), 2) if output_video_path.exists() else 0,
+                "ffmpeg_cmd": ffmpeg_cmd,
+            })
+
             # Hoàn thành xuất sắc!
             total_elapsed_sec = round(time.time() - start_time, 1)
             total_elapsed_str = format_duration_vietnamese(total_elapsed_sec)
@@ -997,12 +1002,24 @@ class VideoTranslationPipeline:
                 elapsed_time=total_elapsed_sec,
                 elapsed_str=total_elapsed_str,
             )
+            log_verbose_step("PIPELINE_COMPLETE", f"Hoàn tất toàn bộ quy trình dịch video cho task {task_id}", {
+                "task_id": task_id,
+                "total_elapsed_sec": total_elapsed_sec,
+                "total_elapsed_str": total_elapsed_str,
+                "video_url": rel_video_url,
+            })
             logger.info(f"✅ [Task {task_id}] Hoàn tất video translation ({total_elapsed_str}): {output_video_path}")
 
             # ── DỌN DẸP FILE TẠM NGAY SAU KHI BƯỚC 6 XUẤT VIDEO THÀNH CÔNG ──
             cleanup_task_temp_files(task_dir)
 
         except Exception as e:
+            log_verbose_step("PIPELINE_EXCEPTION", f"Lỗi xảy ra trong quá trình chạy pipeline: {e}", {
+                "task_id": task_id,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "current_step": _TASK_STORE.get(task_id, {}).get("current_step"),
+            })
             logger.error(f"❌ [Task {task_id}] Thất bại: {e}", exc_info=True)
             cls.update_task(
                 task_id,
@@ -1029,8 +1046,8 @@ class VideoTranslationPipeline:
         vad_threshold: float = 0.35,
         speech_pad_ms: int = 400,
         min_speech_duration_ms: int = 150,
+        min_silence_duration_ms: int = 1000,
         beam_size: int = 3,
-        filter_hallucinations: bool = False,
     ) -> None:
         """
         Giai đoạn 1 của Chế độ Thủ công (Manual SRT Workflow):
@@ -1080,6 +1097,7 @@ class VideoTranslationPipeline:
                 "is_manual_mode": True,
             }
             cls.update_task(task_id, **task_config)
+            log_verbose_step("MANUAL_INIT", f"Khởi tạo tác vụ tạo phụ đề gốc thủ công [{task_id}]", task_config)
 
             # BƯỚC 1: Trích xuất âm thanh và tách giọng nói sạch
             raw_audio = task_dir / "raw_audio.wav"
@@ -1107,6 +1125,12 @@ class VideoTranslationPipeline:
                 raw_audio_path=str(raw_audio_path),
                 bgm_path=str(bgm_path),
             )
+            log_verbose_step("MANUAL_STEP_1_AUDIO", f"Trích xuất âm thanh tách giọng hoàn tất", {
+                "duration_seconds": round(video_duration, 2),
+                "raw_audio": str(raw_audio_path),
+                "whisper_audio": str(whisper_audio_path),
+                "bgm_path": str(bgm_path),
+            })
 
             # BƯỚC 2: Whisper tạo phụ đề gốc
             whisper_tag = "trên Cloud GPU" if is_cloud_gpu_active() else f"Faster-Whisper ({whisper_model.upper()})"
@@ -1122,7 +1146,7 @@ class VideoTranslationPipeline:
                 prompt_to_use = "以下是普通话的句子，请用简体中文输出。"
 
             # Nếu dùng Cloud GPU, truyền raw_audio_path để Demucs trên worker bóc tách cả Vocals và BGM
-            audio_for_stt = raw_audio_path if (is_cloud_gpu_active() or is_remote_gpu_enabled()) else whisper_audio_path
+            audio_for_stt = raw_audio_path if is_cloud_gpu_active() else whisper_audio_path
 
             def run_whisper():
                 logger.info(f"🎙️ [Manual Whisper STT] Bắt đầu tạo phụ đề gốc video '{video_path.name}' bằng '{whisper_model}' (VAD Thresh={vad_threshold})")
@@ -1134,10 +1158,10 @@ class VideoTranslationPipeline:
                     vad_filter=True,
                     vad_threshold=vad_threshold,
                     min_speech_duration_ms=min_speech_duration_ms,
+                    min_silence_duration_ms=min_silence_duration_ms,
                     speech_pad_ms=speech_pad_ms,
                     beam_size=beam_size,
                     word_timestamps=True,
-                    filter_hallucinations=filter_hallucinations,
                     task_dir=task_dir,
                 )
 
@@ -1154,63 +1178,62 @@ class VideoTranslationPipeline:
             detected_source_lang = source_lang if source_lang != "auto" else detected_lang
 
             original_segments = []
+            all_words_flat = []
             for s in segments_raw:
-                if isinstance(s, dict):
-                    txt = str(s.get("text", "")).strip()
-                    words = s.get("words", [])
-                    raw_start = float(s.get("start", 0.0))
-                    raw_end = float(s.get("end", 0.0))
-                    if words and isinstance(words, list) and len(words) > 0:
-                        w0 = words[0]
-                        w1 = words[-1]
-                        w0_start = float(w0.get("start", raw_start)) if isinstance(w0, dict) else float(getattr(w0, "start", raw_start))
-                        w1_end = float(w1.get("end", raw_end)) if isinstance(w1, dict) else float(getattr(w1, "end", raw_end))
-                        s_start = w0_start
-                        s_end = w1_end
-                    else:
-                        s_start = raw_start
-                        s_end = raw_end
-                else:
-                    txt = str(getattr(s, "text", "")).strip()
-                    raw_start = float(getattr(s, "start", 0.0))
-                    raw_end = float(getattr(s, "end", 0.0))
-                    words = getattr(s, "words", None)
-                    if words and len(words) > 0:
-                        w0_start = float(getattr(words[0], "start", raw_start))
-                        w1_end = float(getattr(words[-1], "end", raw_end))
-                        s_start = w0_start
-                        s_end = w1_end
-                    else:
-                        s_start = raw_start
-                        s_end = raw_end
+                w_list = s.get("words", []) if isinstance(s, dict) else getattr(s, "words", None)
+                if w_list and isinstance(w_list, list):
+                    for w in w_list:
+                        if isinstance(w, dict):
+                            all_words_flat.append(w)
+                        else:
+                            all_words_flat.append({
+                                "word": str(getattr(w, "word", "")),
+                                "start": float(getattr(w, "start", 0.0)),
+                                "end": float(getattr(w, "end", 0.0)),
+                                "probability": float(getattr(w, "probability", 1.0)),
+                            })
 
-                if not txt:
-                    continue
+            # 1. Nếu có word_timestamps, ưu tiên resegment_words để chia nhỏ câu 3.0s - 6.0s (5-9 từ)
+            if all_words_flat:
+                original_segments = resegment_words(
+                    all_words_flat,
+                    max_words=8,
+                    min_duration=3.0,
+                    max_duration=6.0,
+                    min_words=5,
+                    min_silence_split=0.40,
+                )
+                logger.info(f"✂️ [Manual Pipeline Resegment] Đã chia nhỏ thành {len(original_segments)} câu chuẩn nhịp nói diễn viên (3-6s).")
+            else:
+                for s in segments_raw:
+                    if isinstance(s, dict):
+                        txt = str(s.get("text", "")).strip()
+                        raw_start = float(s.get("start", 0.0))
+                        raw_end = float(s.get("end", 0.0))
+                    else:
+                        txt = str(getattr(s, "text", "")).strip()
+                        raw_start = float(getattr(s, "start", 0.0))
+                        raw_end = float(getattr(s, "end", 0.0))
 
-                # Chống ảo giác lặp lại liên tiếp trong khoảng thời gian sát nhau (< 1.5s)
-                if original_segments:
-                    prev_seg = original_segments[-1]
-                    if txt.lower() == prev_seg["text"].lower() and abs(s_start - prev_seg["end"]) < 1.5:
-                        logger.warning(f"[Whisper Hallucination Filter] Bỏ qua câu lặp ảo giác liên tiếp: '{txt}' tại [{s_start:.2f}s -> {s_end:.2f}s]")
+                    if not txt:
                         continue
+                    if raw_end <= raw_start:
+                        raw_end = round(raw_start + 0.3, 3)
 
-                if s_end <= s_start:
-                    s_end = round(s_start + 0.3, 3)
-
-                original_segments.append({
-                    "id": len(original_segments) + 1,
-                    "start": round(s_start, 3),
-                    "end": round(s_end, 3),
-                    "text": txt,
-                })
+                    original_segments.append({
+                        "id": len(original_segments) + 1,
+                        "start": round(raw_start, 3),
+                        "end": round(raw_end, 3),
+                        "text": txt,
+                    })
 
             # Lọc sạch quảng cáo, watermark và các câu tùy chỉnh do người dùng dạy cho AI bỏ qua
             original_segments, removed_ad_cnt = AdFilterService.filter_subtitle_segments(original_segments)
             if removed_ad_cnt > 0:
                 logger.info(f"🛡️ [Manual Pipeline] Đã loại bỏ {removed_ad_cnt} câu quảng cáo/rác/câu bỏ qua khỏi phụ đề gốc.")
 
-            # Tự động phát hiện và nối câu ngắt quãng
-            original_segments = heal_and_merge_segments(original_segments, max_gap=0.85)
+            # Tự động phát hiện và nối câu ngắt quãng với giới hạn tối đa 6.0s và khoảng lặng < 0.40s
+            original_segments = heal_and_merge_segments(original_segments, max_gap=0.40, max_duration=6.0)
 
             if not original_segments:
                 raise RuntimeError("Không phát hiện được câu thoại nào rõ ràng trong video.")
@@ -1235,8 +1258,18 @@ class VideoTranslationPipeline:
                 elapsed_time=total_elapsed_sec,
                 elapsed_str=total_elapsed_str,
             )
+            log_verbose_step("MANUAL_COMPLETE", f"Hoàn tất tạo phụ đề gốc thủ công cho task {task_id}", {
+                "total_segments": len(original_segments),
+                "srt_file": str(srt_orig_file),
+                "total_elapsed_sec": total_elapsed_sec,
+                "detected_source_lang": detected_source_lang,
+            })
             logger.info(f"✅ [Task {task_id}] Hoàn tất tạo phụ đề gốc thủ công ({total_elapsed_str}): {srt_orig_file}")
         except Exception as e:
+            log_verbose_step("MANUAL_EXCEPTION", f"Lỗi tạo phụ đề gốc thủ công task {task_id}: {e}", {
+                "error": str(e),
+                "error_type": type(e).__name__,
+            })
             logger.error(f"❌ [Task {task_id}] Lỗi tạo phụ đề gốc: {e}", exc_info=True)
             cls.update_task(
                 task_id,
@@ -1253,6 +1286,8 @@ class VideoTranslationPipeline:
         r"\d+[\.\)]\s*Phân tích logic hội thoại.*",
         r"\d+[\.\)]\s*Kiểm tra mốc thời gian.*",
         r"\d+[\.\)]\s*Tối ưu độ dài câu.*",
+        r"\d+[\.\)]\s*Lọc các câu mang tính chất quảng cáo.*",
+        r"\d+[\.\)]\s*Nếu thấy có lời bài hát.*",
         r"Đây là file/nội dung phụ đề:?",
         r"(Dưới đây là|Đây là)\s+(bản dịch|phụ đề|nội dung|kịch bản).*",
         r"Chắc chắn rồi.*",
@@ -1414,6 +1449,9 @@ class VideoTranslationPipeline:
         subtitle_mode: str | None = None,
         max_speed_rate: float | None = None,
         output_resolution: str | None = None,
+        font_size: int | None = None,
+        margin_v: int | None = None,
+        alignment: int | None = None,
     ) -> None:
         """
         Lồng tiếng và render lại video từ file phụ đề .srt (Chế độ thủ công hoặc Re-dub từ Studio).
@@ -1428,7 +1466,7 @@ class VideoTranslationPipeline:
 
             srt_file = task_dir / "subtitles.srt"
             if srt_content is not None and srt_content.strip():
-                srt_file.write_text(srt_content.strip(), encoding="utf-8")
+                srt_file.write_text(srt_content.strip(), encoding="utf-8-sig")
 
             if not srt_file.exists():
                 raise RuntimeError(f"File phụ đề {srt_file.name} không tồn tại.")
@@ -1450,6 +1488,9 @@ class VideoTranslationPipeline:
             b_type = bgm_type or task.get("bgm_type", "bgm")
             b_vol = bgm_volume if bgm_volume is not None else float(task.get("bgm_volume", 0.30))
             sub_mode = subtitle_mode or task.get("subtitle_mode", "hard_target")
+            f_size = font_size if font_size is not None else int(task.get("font_size") or 20)
+            m_v = margin_v if margin_v is not None else int(task.get("margin_v") or 30)
+            align = alignment if alignment is not None else int(task.get("alignment") or 2)
             max_speed = max_speed_rate if max_speed_rate is not None else float(task.get("max_speed_rate", 1.35))
             out_res = output_resolution or task.get("output_resolution", "720p")
 
@@ -1522,6 +1563,9 @@ class VideoTranslationPipeline:
                 "subtitle_mode": sub_mode,
                 "max_speed_rate": max_speed,
                 "output_resolution": out_res,
+                "font_size": f_size,
+                "margin_v": m_v,
+                "alignment": align,
             }
             try:
                 (task_dir / "task_meta.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1606,8 +1650,8 @@ class VideoTranslationPipeline:
 
             if sub_mode in ["hard_target", "hard_dual"]:
                 srt_escaped = str(render_srt_file.resolve()).replace("\\", "/").replace(":", r"\:")
-                style_str = "FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=30"
-                sub_filter = f"subtitles='{srt_escaped}':force_style='{style_str}'"
+                style_str = f"FontSize={f_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment={align},MarginV={m_v}"
+                sub_filter = f"subtitles='{srt_escaped}':charenc=UTF-8:force_style='{style_str}'"
                 vf_filter = f"{scale_filter},{sub_filter}" if scale_filter else sub_filter
 
                 ffmpeg_cmd.extend(["-vf", vf_filter])
@@ -1644,7 +1688,10 @@ class VideoTranslationPipeline:
                     ffmpeg_cmd.extend([
                         "-map", "0:v:0",
                         "-map", "1:a:0",
-                        "-c:v", "copy",
+                        "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p",
+                        "-preset", "fast",
+                        "-crf", "19",
                         "-c:a", "aac",
                         "-b:a", "192k",
                         "-shortest",
@@ -2072,6 +2119,9 @@ class VideoTranslationPipeline:
         voice_volume: float | None = None,
         max_speed_rate: float | None = None,
         output_resolution: str | None = None,
+        font_size: int | None = None,
+        margin_v: int | None = None,
+        alignment: int | None = None,
     ) -> dict[str, Any]:
         """
         Trộn lại âm thanh và ghép video siêu tốc (chỉ 2-5 giây) sau khi người dùng sửa câu trong Studio.
@@ -2112,6 +2162,9 @@ class VideoTranslationPipeline:
         v_vol = voice_volume if voice_volume is not None else float(task_meta.get("voice_volume", 1.0))
         max_speed = max_speed_rate if max_speed_rate is not None else float(task_meta.get("max_speed_rate", 1.35))
         out_res = output_resolution or task_meta.get("output_resolution", "720p")
+        f_size = font_size if font_size is not None else int(task_meta.get("font_size") or 20)
+        m_v = margin_v if margin_v is not None else int(task_meta.get("margin_v") or 30)
+        align = alignment if alignment is not None else int(task_meta.get("alignment") or 2)
 
         bgm_path = task_dir / "no_vocals.wav"
         if not bgm_path.exists():
@@ -2163,11 +2216,11 @@ class VideoTranslationPipeline:
 
         if sub_mode in ["hard_target", "hard_dual"]:
             srt_escaped = str(srt_file).replace("\\", "/").replace(":", "\\:")
-            style_str = "FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=30"
+            style_str = f"FontSize={f_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment={align},MarginV={m_v}"
             vf_filters = []
             if scale_filter:
                 vf_filters.append(scale_filter)
-            vf_filters.append(f"subtitles='{srt_escaped}':force_style='{style_str}'")
+            vf_filters.append(f"subtitles='{srt_escaped}':charenc=UTF-8:force_style='{style_str}'")
 
             ffmpeg_cmd.extend(["-vf", ",".join(vf_filters)])
             ffmpeg_cmd.extend([

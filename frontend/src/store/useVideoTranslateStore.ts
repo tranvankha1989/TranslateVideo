@@ -75,6 +75,9 @@ interface VideoTranslateState {
   bgmType: "bgm" | "original" | "none";
   bgmVolume: number;
   subtitleMode: string;
+  subtitleFontSize: number;
+  subtitlePosition: "bottom" | "middle" | "top";
+  subtitleMarginV: number;
   maxSpeedRate: number;
   outputResolution: string;
 
@@ -91,8 +94,8 @@ interface VideoTranslateState {
   vadThreshold: number;
   speechPadMs: number;
   minSpeechDurationMs: number;
+  minSilenceDurationMs: number;
   beamSize: number;
-  filterHallucinations: boolean;
   showTranscribeAdvanced: boolean;
 
   // Mode
@@ -129,6 +132,9 @@ interface VideoTranslateState {
   setBgmType: (type: "bgm" | "original" | "none") => void;
   setBgmVolume: (vol: number) => void;
   setSubtitleMode: (mode: string) => void;
+  setSubtitleFontSize: (val: number) => void;
+  setSubtitlePosition: (pos: "bottom" | "middle" | "top") => void;
+  setSubtitleMarginV: (val: number) => void;
   setMaxSpeedRate: (rate: number) => void;
   setOutputResolution: (res: string) => void;
   setTranslationProvider: (provider: string) => void;
@@ -141,8 +147,8 @@ interface VideoTranslateState {
   setVadThreshold: (val: number) => void;
   setSpeechPadMs: (val: number) => void;
   setMinSpeechDurationMs: (val: number) => void;
+  setMinSilenceDurationMs: (val: number) => void;
   setBeamSize: (val: number) => void;
-  setFilterHallucinations: (val: boolean) => void;
   setShowTranscribeAdvanced: (val: boolean) => void;
 
   setIsProcessing: (val: boolean) => void;
@@ -189,7 +195,7 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       videoPreviewUrl: null,
 
       languages: [],
-      sourceLang: "auto",
+      sourceLang: "en",
       targetLang: "vi",
 
       voices: [],
@@ -201,6 +207,9 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       bgmType: "bgm",
       bgmVolume: 0.30,
       subtitleMode: "hard_target",
+      subtitleFontSize: 20,
+      subtitlePosition: "bottom",
+      subtitleMarginV: 30,
       maxSpeedRate: 1.35,
       outputResolution: "720p",
 
@@ -212,11 +221,11 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       whisperModel: "large-v3",
       showAdvanced: false,
 
-      vadThreshold: 0.35,
+      vadThreshold: 0.15,
       speechPadMs: 400,
       minSpeechDurationMs: 150,
-      beamSize: 3,
-      filterHallucinations: false,
+      minSilenceDurationMs: 1000,
+      beamSize: 5,
       showTranscribeAdvanced: false,
 
       translationMode: "manual",
@@ -261,6 +270,14 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setBgmType: (bgmType) => set({ bgmType }),
       setBgmVolume: (bgmVolume) => set({ bgmVolume }),
       setSubtitleMode: (subtitleMode) => set({ subtitleMode }),
+      setSubtitleFontSize: (subtitleFontSize) => set({ subtitleFontSize }),
+      setSubtitlePosition: (subtitlePosition) => {
+        let margin = 30;
+        if (subtitlePosition === "middle") margin = 180;
+        else if (subtitlePosition === "top") margin = 40;
+        set({ subtitlePosition, subtitleMarginV: margin });
+      },
+      setSubtitleMarginV: (subtitleMarginV) => set({ subtitleMarginV }),
       setMaxSpeedRate: (maxSpeedRate) => set({ maxSpeedRate }),
       setOutputResolution: (outputResolution) => set({ outputResolution }),
       setTranslationProvider: (translationProvider) => set({ translationProvider }),
@@ -278,8 +295,8 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setVadThreshold: (vadThreshold) => set({ vadThreshold }),
       setSpeechPadMs: (speechPadMs) => set({ speechPadMs }),
       setMinSpeechDurationMs: (minSpeechDurationMs) => set({ minSpeechDurationMs }),
+      setMinSilenceDurationMs: (minSilenceDurationMs) => set({ minSilenceDurationMs }),
       setBeamSize: (beamSize) => set({ beamSize }),
-      setFilterHallucinations: (filterHallucinations) => set({ filterHallucinations }),
       setShowTranscribeAdvanced: (showTranscribeAdvanced) => set({ showTranscribeAdvanced }),
 
       setIsProcessing: (isProcessing) => set({ isProcessing }),
@@ -395,6 +412,9 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
         bgmType: state.bgmType,
         bgmVolume: state.bgmVolume,
         subtitleMode: state.subtitleMode,
+        subtitleFontSize: state.subtitleFontSize,
+        subtitlePosition: state.subtitlePosition,
+        subtitleMarginV: state.subtitleMarginV,
         maxSpeedRate: state.maxSpeedRate,
         translationProvider: state.translationProvider,
         translationStyle: state.translationStyle,
@@ -405,8 +425,8 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
         vadThreshold: state.vadThreshold,
         speechPadMs: state.speechPadMs,
         minSpeechDurationMs: state.minSpeechDurationMs,
+        minSilenceDurationMs: state.minSilenceDurationMs,
         beamSize: state.beamSize,
-        filterHallucinations: state.filterHallucinations,
         showTranscribeAdvanced: state.showTranscribeAdvanced,
         taskId: state.taskId,
         taskStatus: state.taskStatus,

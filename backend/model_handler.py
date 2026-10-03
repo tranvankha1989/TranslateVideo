@@ -336,8 +336,9 @@ def clean_vietnamese_text(text: str) -> str:
     text = re.sub(r";\s*", ", ", text)
     # Loại bỏ ngoặc kép và ngoặc đơn lạ
     text = re.sub(r'["“”\'‘’«»]', '', text)
-    # Chuẩn hóa nhiều dấu chấm, gạch ngang liên tiếp
-    text = re.sub(r"\.{2,}", ".", text)
+    # Chuẩn hóa ký tự ellipsis unicode và chuỗi 2+ dấu chấm liên tiếp về đúng 1 cụm ba chấm '...'
+    text = text.replace("…", "...")
+    text = re.sub(r"\.{2,}", "...", text)
     text = re.sub(r"-{2,}", "-", text)
     # Chuẩn hóa khoảng trắng
     text = re.sub(r"[ \t]+", " ", text).strip()

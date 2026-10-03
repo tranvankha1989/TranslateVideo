@@ -189,17 +189,21 @@ SENTENCE_ENDINGS = re.compile(r"[.!?。！？…]+['\"”’]?$")
 CLAUSE_ENDINGS = re.compile(r"[,;:\-–—，、；：]+['\"”’]?$")
 
 
-def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.85) -> list[dict[str, Any]]:
+def heal_and_merge_segments(
+    segments: list[dict[str, Any]],
+    max_gap: float = 0.40,
+    max_duration: float = 6.0,
+) -> list[dict[str, Any]]:
     """
     Thuật toán tự động phát hiện và nối các câu bị ngắt quãng / chém đôi do AI ASR nhận diện nhầm,
-    đảm bảo ngữ nghĩa câu văn trọn vẹn trước khi chuyển sang bước dịch.
-    
-    Quy tắc chống lệch timestamp tuyệt đối:
-    1. start: Giữ nguyên 100% mốc bắt đầu của phân đoạn đầu tiên, tuyệt đối không tính lại.
-    2. end: Cập nhật bằng đúng mốc kết thúc của phân đoạn hiện tại (seg["end"]).
-    3. words: Gộp mảng word-level timestamps của phân đoạn mới vào câu gộp.
-    4. Điều kiện an toàn: Nếu khoảng lặng gap > max_gap hoặc câu trước đã có dấu ngắt câu (. ! ? 。 ！ ？ …),
-       tuyệt đối không gộp mà tách thành segment độc lập.
+    đồng thời tuân thủ kỷ luật nghiêm ngặt về nhịp thở và thời lượng để phục vụ lồng tiếng TTS.
+
+    Quy tắc an toàn chống tràn câu:
+    1. Giới hạn thời lượng: Tuyệt đối KHÔNG gộp 2 câu nếu tổng thời lượng sau khi gộp (curr_end - prev_start) vượt quá max_duration (6.0s).
+    2. Giữ nguyên khoảng lặng ngắt nghỉ: Nếu khoảng cách nghỉ giữa 2 câu liên tiếp (curr_start - prev_end) >= max_gap (0.40s) hoặc < 0,
+       BẮT BUỘC giữ tách rời làm 2 câu độc lập, không được gộp.
+    3. Dấu câu kết thúc: Nếu câu trước đã kết thúc bằng dấu câu (. ? ! 。 ！ ？ …), TUYỆT ĐỐI không gộp câu sau vào.
+    4. Mốc thời gian chuẩn xác: start giữ nguyên 100% của câu trước, end cập nhật bằng đúng end của câu sau.
     """
     if not segments or len(segments) <= 1:
         return segments
@@ -230,20 +234,30 @@ def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.8
             merged[-1] = dict(seg)
             continue
 
-        prev_end = float(prev.get("end", 0.0))
+        prev_start = float(prev.get("start", 0.0))
+        prev_end = float(prev.get("end", prev_start))
         curr_start = float(seg.get("start", 0.0))
         curr_end = float(seg.get("end", curr_start))
         gap = curr_start - prev_end
+        merged_duration = curr_end - prev_start
 
-        # Kiểm tra dấu câu kết thúc của câu trước
+        # 1. Điều kiện 1: Dấu câu kết thúc (. ? ! 。 ！ ？ …) -> Không bao giờ gộp
         has_sentence_end = any(prev_txt.endswith(punct) for punct in SENTENCE_ENDS)
-
-        # 1. Điều kiện chặn: Khoảng lặng quá lớn hoặc câu trước đã kết thúc trọn vẹn
-        if gap > max_gap or has_sentence_end or gap < 0:
+        if has_sentence_end:
             merged.append(dict(seg))
             continue
 
-        # 2. Kiểm tra câu sau có phải là vế tiếp nối tự nhiên (chữ thường hoặc từ nối)
+        # 2. Điều kiện 2: Khoảng cách nghỉ giữa 2 câu >= max_gap (0.40s) hoặc bị ngược thời gian -> Không gộp
+        if gap >= max_gap or gap < 0:
+            merged.append(dict(seg))
+            continue
+
+        # 3. Điều kiện 3: Tổng thời lượng sau khi gộp vượt quá max_duration (6.0s) -> Không gộp
+        if merged_duration > max_duration:
+            merged.append(dict(seg))
+            continue
+
+        # 4. Kiểm tra xem câu sau có phải là vế tiếp nối tự nhiên (chữ thường hoặc từ nối)
         first_word = curr_txt.split()[0].lower() if curr_txt.split() else ""
         first_char = curr_txt[0]
 
@@ -252,7 +266,7 @@ def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.8
             or first_word in CONNECTORS_VI
             or first_word in CONNECTORS_EN
             or any(curr_txt.startswith(zh_c) for zh_c in CONNECTORS_ZH)
-            or (not has_sentence_end and gap <= 0.40)  # Câu trước bị ngắt cụt và nối tiếp ngay lập tức
+            or (not has_sentence_end and gap <= 0.25)
         )
 
         if is_continuation:
@@ -263,7 +277,7 @@ def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.8
             prev["text"] = f"{prev_txt}{separator}{curr_txt}".strip()
             
             # Cập nhật end của câu trước thành end của câu hiện tại (giữ nguyên start của prev)
-            prev["end"] = curr_end
+            prev["end"] = round(curr_end, 3)
 
             # Bảo tồn danh sách word-level timestamps gốc từ Whisper
             if "words" in seg and isinstance(seg["words"], list):
@@ -316,41 +330,73 @@ def sanitize_word_timestamps(words: list[dict[str, Any]]) -> list[dict[str, Any]
 
 def resegment_words(
     all_words: list[dict[str, Any]],
-    max_words: int = 7,
+    max_words: int = 8,
     max_chars: int = 36,
-    min_silence_split: float = 0.38,
+    min_silence_split: float = 0.40,
+    min_duration: float = 3.0,
+    max_duration: float = 6.0,
+    min_words: int = 5,
 ) -> list[dict[str, Any]]:
     """
-    Chia nhỏ toàn bộ danh sách từ thành các câu phụ đề ngắn, chuẩn độ dài cho Shorts/Reels/Video.
-    Hỗ trợ đầy đủ tiếng Trung/Nhật/Hàn (CJK) và các ngôn ngữ có dấu câu đa dạng.
+    Chia nhỏ toàn bộ danh sách từ thành các câu phụ đề ngắn gọn, đúng theo nhịp thở và tốc độ nói tự nhiên của diễn viên.
+    - Giới hạn thời lượng: Mỗi câu chỉ dài từ 3.0 đến 6.0 giây (khoảng 5 đến 9 từ), chống tuyệt đối lỗi dồn câu kéo dài 15-35s.
+    - Mốc thời gian chính xác: Bắt đúng mốc start tại từ đầu tiên và mốc end tại từ cuối cùng của nhịp nói đó.
+    - Hỗ trợ đầy đủ tiếng Trung/Nhật/Hàn (CJK) và các ngôn ngữ có dấu câu đa dạng.
     """
-    valid_words = [w for w in all_words if w.get("word", "").strip()]
+    valid_words = [
+        w for w in all_words
+        if (w.get("word") if isinstance(w, dict) else getattr(w, "word", "")).strip()
+    ]
     if not valid_words:
         return []
 
-    valid_words = sanitize_word_timestamps(valid_words)
+    # Chuẩn hóa về dạng dictionary đồng nhất
+    normalized_words: list[dict[str, Any]] = []
+    for w in valid_words:
+        if isinstance(w, dict):
+            normalized_words.append({
+                "word": str(w.get("word", "")).strip(),
+                "start": float(w.get("start", 0.0)),
+                "end": float(w.get("end", 0.0)),
+                "probability": float(w.get("probability", 1.0)),
+            })
+        else:
+            normalized_words.append({
+                "word": str(getattr(w, "word", "")).strip(),
+                "start": float(getattr(w, "start", 0.0)),
+                "end": float(getattr(w, "end", 0.0)),
+                "probability": float(getattr(w, "probability", 1.0)),
+            })
+
+    normalized_words = sanitize_word_timestamps(normalized_words)
 
     # Kiểm tra xem có phải tiếng Trung / CJK hay không
-    sample_text = "".join(w.get("word", "") for w in valid_words[:20])
+    sample_text = "".join(w["word"] for w in normalized_words[:20])
     is_cjk = any('\u4e00' <= char <= '\u9fff' or '\u3040' <= char <= '\u30ff' for char in sample_text)
-    effective_max_words = 16 if is_cjk else max_words
+    effective_max_words = 14 if is_cjk else max_words
+    effective_min_words = 6 if is_cjk else min_words
     effective_max_chars = 42 if is_cjk else max_chars
 
     new_segments: list[dict[str, Any]] = []
     current_words: list[dict[str, Any]] = []
     seg_id = 1
 
-    for i, w in enumerate(valid_words):
+    for i, w in enumerate(normalized_words):
         current_words.append(w)
-        word_text = w.get("word", "").strip()
-        has_next = i < len(valid_words) - 1
-        next_w = valid_words[i + 1] if has_next else None
+        word_text = w["word"]
+        has_next = i < len(normalized_words) - 1
+        next_w = normalized_words[i + 1] if has_next else None
 
-        # Kiểm tra khoảng cách tới dấu chấm hết câu gần nhất (lookahead)
+        seg_start = current_words[0]["start"]
+        curr_duration = w["end"] - seg_start
+        word_count = len(current_words)
+        silence_gap = (next_w["start"] - w["end"]) if next_w else 0.0
+
+        # Kiểm tra khoảng cách tới dấu chấm hết câu gần nhất (lookahead 1-2 từ)
         words_until_sentence_end = 999
         for lookahead in range(1, 3):
-            if i + lookahead < len(valid_words):
-                if SENTENCE_ENDINGS.search(valid_words[i + lookahead].get("word", "").strip()):
+            if i + lookahead < len(normalized_words):
+                if SENTENCE_ENDINGS.search(normalized_words[i + lookahead]["word"]):
                     words_until_sentence_end = lookahead
                     break
 
@@ -359,49 +405,55 @@ def resegment_words(
         if not has_next:
             should_split = True
         else:
-            # 1. Kết thúc câu bằng dấu câu (. ! ? 。 ！ ？ …)
-            if SENTENCE_ENDINGS.search(word_text):
+            # 1. BẮT BUỘC NGẮT CỨNG: Thời lượng chạm trần max_duration (6.0s) hoặc số từ chạm max_words
+            if curr_duration >= max_duration:
+                should_split = True
+            elif word_count >= effective_max_words:
                 should_split = True
 
-            # Nếu chỉ còn 1-2 từ nữa là kết thúc câu, gộp nốt thay vì ngắt lơ lửng
-            elif words_until_sentence_end <= 2 and len(current_words) < (effective_max_words + 4):
-                should_split = False
+            # 2. DẤU CÂU KẾT THÚC (. ? ! 。 ！ ？ …)
+            elif SENTENCE_ENDINGS.search(word_text):
+                # Ngắt ngay khi hết câu nếu câu đã có độ dài hợp lý (>= min_duration hoặc >= min_words hoặc >= 2.0s)
+                if curr_duration >= min_duration or word_count >= effective_min_words or silence_gap >= 0.30 or curr_duration >= 2.0:
+                    should_split = True
 
-            # 2. Khoảng lặng tự nhiên giữa 2 từ >= min_silence_split khi đã có ít nhất 3 từ
-            elif (
-                len(current_words) >= (3 if is_cjk else 4)
-                and next_w
-                and (next_w["start"] - w["end"] >= min_silence_split)
-            ):
-                should_split = True
+            # 3. KHOẢNG LẶNG TỰ NHIÊN (NHỊP NGHỈ THỞ >= min_silence_split = 0.40s)
+            elif silence_gap >= min_silence_split:
+                # Nếu câu đã đạt từ 4 từ trở lên hoặc đã dài >= 2.5s thì tách theo nhịp thở của nhân vật
+                if word_count >= 4 or curr_duration >= 2.5:
+                    should_split = True
 
-            # 3. Dấu phẩy / dấu ngắt vế khi câu đã có từ 3 từ trở lên
-            elif len(current_words) >= (3 if is_cjk else 4) and CLAUSE_ENDINGS.search(word_text):
-                should_split = True
+            # 4. DẤU PHẨY / NGẮT VẾ CÂU (, ; : -) khi câu đã đủ dài (>= 3.0s hoặc >= 5 từ)
+            elif CLAUSE_ENDINGS.search(word_text):
+                if curr_duration >= min_duration or word_count >= effective_min_words:
+                    # Nếu sắp hết câu chính (chỉ còn 1-2 từ nữa), cố gộp nốt thay vì ngắt lơ lửng
+                    if words_until_sentence_end <= 2 and (curr_duration + 1.2 <= max_duration):
+                        should_split = False
+                    else:
+                        should_split = True
 
-            # 4. Quá giới hạn từ hoặc ký tự
-            elif len(current_words) >= effective_max_words:
-                should_split = True
-            elif (
-                sum(len(cw.get("word", "")) for cw in current_words) >= effective_max_chars
-                and len(current_words) >= (3 if is_cjk else 4)
-            ):
+            # 5. DỰ BÁO: Nếu từ tiếp theo sẽ đẩy câu vượt quá max_duration (6.0s)
+            elif next_w and (next_w["end"] - seg_start) > max_duration and word_count >= 3:
                 should_split = True
 
         if should_split and current_words:
-            seg_start = current_words[0]["start"]
-            seg_end = current_words[-1]["end"]
+            # Bắt đúng mốc start tại từ đầu tiên và mốc end tại từ cuối cùng của nhịp nói
+            s_start = current_words[0]["start"]
+            s_end = current_words[-1]["end"]
+            if s_end <= s_start:
+                s_end = round(s_start + 0.3, 3)
+
             if is_cjk:
-                seg_text = "".join(cw.get("word", "").strip() for cw in current_words)
+                seg_text = "".join(cw["word"] for cw in current_words)
             else:
-                seg_text = " ".join(cw.get("word", "").strip() for cw in current_words)
+                seg_text = " ".join(cw["word"] for cw in current_words)
 
             new_segments.append(
                 {
                     "id": seg_id,
-                    "start": round(seg_start, 3),
-                    "end": round(seg_end, 3),
-                    "text": seg_text,
+                    "start": round(s_start, 3),
+                    "end": round(s_end, 3),
+                    "text": seg_text.strip(),
                     "words": current_words,
                 }
             )
@@ -575,13 +627,12 @@ def transcribe_with_remote_or_local(
     model_size: str | None = None,
     initial_prompt: str | None = None,
     vad_filter: bool = True,
-    vad_threshold: float = 0.50,
-    min_speech_duration_ms: int = 150,
-    min_silence_duration_ms: int = 350,
-    speech_pad_ms: int = 150,
+    vad_threshold: float = 0.30,
+    min_speech_duration_ms: int = 100,
+    min_silence_duration_ms: int = 1000,
+    speech_pad_ms: int = 400,
     beam_size: int = 3,
     word_timestamps: bool = True,
-    filter_hallucinations: bool = False,
     task_dir: Path | None = None,
 ) -> tuple[list[dict[str, Any]], str, Path | None]:
     """
@@ -717,6 +768,23 @@ def transcribe_with_remote_or_local(
                     except Exception as dl_err:
                         logger.warning(f"⚠️ Lỗi khi tải file BGM từ worker ({dl_err}), fallback sang audio gốc")
 
+                # Tự động chia nhỏ câu theo word_timestamps thành các phân đoạn 3.0s - 6.0s (5-9 từ)
+                all_words_flat = []
+                for s in segments:
+                    w_list = s.get("words", []) if isinstance(s, dict) else getattr(s, "words", None)
+                    if w_list and isinstance(w_list, list):
+                        all_words_flat.extend(w_list)
+                if all_words_flat:
+                    segments = resegment_words(
+                        all_words_flat,
+                        max_words=8,
+                        min_duration=3.0,
+                        max_duration=6.0,
+                        min_words=5,
+                        min_silence_split=0.40,
+                    )
+                    logger.info(f"✂️ [Cloud STT] Đã chia nhỏ phụ đề thành {len(segments)} phân đoạn (3-6s/câu)")
+
                 logger.info(
                     f"🎉 [Remote STT + Demucs] Nhận diện thành công {len(segments)} câu trên Cloud GPU (Ngôn ngữ: {detected_lang}, BGM: {bool(bgm_path)})!"
                 )
@@ -753,9 +821,18 @@ def transcribe_with_remote_or_local(
         best_of=beam_size,
         condition_on_previous_text=False,
         repetition_penalty=1.2,
-        no_speech_threshold=0.85 if not filter_hallucinations else 0.60,
-        log_prob_threshold=-1.5 if not filter_hallucinations else -1.1,
-        compression_ratio_threshold=2.8,
+        
+        # --- KHẮC PHỤC TRIỆT ĐỂ LỖI MẤT CÂU THOẠI ---
+        # Hạ xuống 0.35 để không bao giờ vứt bỏ câu nói nhỏ hoặc câu dính tạp âm:
+        no_speech_threshold=0.35,
+        
+        # Nới lỏng ngưỡng xác thực từ ngữ xuống -1.8 để không xóa câu khi bị nuốt âm:
+        log_prob_threshold=-1.8,
+        
+        # Tăng nhẹ ngưỡng nén để tránh bỏ sót câu dài:
+        compression_ratio_threshold=2.4,
+        
+        temperature=0.0,
         vad_filter=vad_filter,
         vad_parameters=dict(
             threshold=vad_threshold,
@@ -764,18 +841,13 @@ def transcribe_with_remote_or_local(
             speech_pad_ms=speech_pad_ms,
         ) if vad_filter else None,
         word_timestamps=word_timestamps,
-    )
+        )
 
     result_segments = []
     for i, s in enumerate(segments_gen):
         no_speech_p = getattr(s, "no_speech_prob", 0.0)
         avg_logprob = getattr(s, "avg_logprob", 0.0)
         txt = s.text.strip()
-
-        # Nếu bật lọc ảo giác chặt chẽ: bỏ qua các đoạn nhạc không lời
-        if filter_hallucinations and (no_speech_p > 0.70 or avg_logprob < -1.3):
-            logger.info(f"🚫 [Lọc ảo giác nhạc nền] Bỏ qua đoạn nhạc không có lời thoại (no_speech={no_speech_p:.2f}): '{txt}'")
-            continue
 
         words_data = []
         if getattr(s, "words", None):
@@ -818,6 +890,23 @@ def transcribe_with_remote_or_local(
             "words": words_data,
         })
 
+    # Tự động chia nhỏ câu theo word_timestamps thành các phân đoạn 3.0s - 6.0s (5-9 từ)
+    all_words_flat = []
+    for s in result_segments:
+        w_list = s.get("words", []) if isinstance(s, dict) else getattr(s, "words", None)
+        if w_list and isinstance(w_list, list):
+            all_words_flat.extend(w_list)
+    if all_words_flat:
+        result_segments = resegment_words(
+            all_words_flat,
+            max_words=8,
+            min_duration=3.0,
+            max_duration=6.0,
+            min_words=5,
+            min_silence_split=0.40,
+        )
+        logger.info(f"✂️ [Local STT] Đã chia nhỏ phụ đề thành {len(result_segments)} phân đoạn (3-6s/câu)")
+
     return result_segments, info.language, None
 
 
@@ -832,9 +921,9 @@ def transcribe_video_audio(
     reference_script: str | None = None,
     vad_threshold: float = 0.35,
     min_speech_duration_ms: int = 150,
+    min_silence_duration_ms: int = 1000,
     speech_pad_ms: int = 400,
     beam_size: int = 3,
-    filter_hallucinations: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Phân tích âm thanh và trích xuất mốc thời gian chi tiết từng từ (Word-level timestamps).
@@ -856,10 +945,10 @@ def transcribe_video_audio(
         vad_filter=True,
         vad_threshold=vad_threshold,
         min_speech_duration_ms=min_speech_duration_ms,
+        min_silence_duration_ms=min_silence_duration_ms,
         speech_pad_ms=speech_pad_ms,
         beam_size=beam_size,
         word_timestamps=True,
-        filter_hallucinations=filter_hallucinations,
     )
     result_segments = stt_res[0] if isinstance(stt_res, (list, tuple)) else stt_res
 
@@ -1059,7 +1148,7 @@ def generate_ass_subtitles(
         )
 
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_ass_path, "w", encoding="utf-8") as f:
+    with open(output_ass_path, "w", encoding="utf-8-sig") as f:
         f.write("\n".join(ass_content) + "\n")
 
     logger.info(f"Đã tạo file phụ đề ASS: {output_ass_path.name}")
