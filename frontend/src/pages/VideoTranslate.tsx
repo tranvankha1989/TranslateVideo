@@ -13,7 +13,6 @@ import {
   FileVideo,
   FileText,
   Sliders,
-  Wand2,
   Subtitles,
   Trash2,
   ExternalLink,
@@ -2137,8 +2136,10 @@ export default function VideoTranslate() {
                 </span>
               </button>
 
-              {showAdvanced && (
-                <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
+              {/* Curtain slide-down container */}
+              <div className={cn("curtain-collapse", showAdvanced && "curtain-expanded")}>
+                <div className="curtain-inner">
+                  <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
                   {/* Chế độ phụ đề */}
                   <div className="space-y-1.5">
                     <label className="font-medium text-on-surface flex items-center gap-1.5">
@@ -2377,31 +2378,35 @@ export default function VideoTranslate() {
                     </button>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
+          </div>
 
             {/* CTA Button Bắt Đầu Tự Động */}
             <button
               onClick={handleStartTranslation}
-              disabled={!videoFile || isProcessing}
+              disabled={!videoFile || isProcessing || taskStatus?.status === "completed"}
+              title={
+                !videoFile
+                  ? "Vui lòng tải video lên trước"
+                  : isProcessing
+                  ? "Đang xử lý dịch video..."
+                  : taskStatus?.status === "completed"
+                  ? "Đã hoàn thành xuất video. Nạp video mới để dịch tác vụ mới."
+                  : "Bắt đầu toàn bộ quy trình dịch và lồng tiếng tự động"
+              }
               className={cn(
-                "w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all duration-300 shadow-xl cursor-pointer",
-                !videoFile || isProcessing
-                  ? "bg-surface-variant/40 text-on-surface-variant cursor-not-allowed opacity-60"
-                  : "bg-gradient-to-r from-primary via-primary/90 to-primary text-black hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] shadow-primary/20"
+                "w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all duration-300 shadow-xl",
+                !videoFile || isProcessing || taskStatus?.status === "completed"
+                  ? "bg-surface-variant/40 text-on-surface-variant/60 cursor-not-allowed opacity-60 border border-white/5"
+                  : "bg-gradient-to-r from-primary via-primary/90 to-primary text-black hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] shadow-primary/20 cursor-pointer"
               )}
             >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Đang xử lý dịch video ({taskStatus?.progress || 0}%)...
-                </>
-              ) : (
-                <>
-                  <Wand2 className="w-5 h-5" />
-                  Bắt Đầu Dịch & Lồng Tiếng Tự Động
-                </>
-              )}
+              {isProcessing
+                ? `Đang xử lý dịch video (${taskStatus?.progress || 0}%)...`
+                : taskStatus?.status === "completed"
+                ? "Đã hoàn thành xuất video"
+                : "Bắt Đầu Dịch & Lồng Tiếng Tự Động"}
             </button>
           </div>
           ) : (
@@ -2562,8 +2567,10 @@ export default function VideoTranslate() {
                     </span>
                   </button>
 
-                  {showTranscribeAdvanced && (
-                    <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
+                  {/* Curtain slide-down container */}
+                  <div className={cn("curtain-collapse", showTranscribeAdvanced && "curtain-expanded")}>
+                    <div className="curtain-inner">
+                      <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
                       {/* VAD Threshold */}
                       <div className="space-y-1.5">
                         <div className="flex justify-between items-center">
@@ -2704,31 +2711,35 @@ export default function VideoTranslate() {
                         </button>
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
+              </div>
 
                 <button
                   type="button"
                   onClick={handleStartManualTranscribe}
-                  disabled={!videoFile || isProcessing}
+                  disabled={!videoFile || isProcessing || isOriginalSrtReady}
+                  title={
+                    !videoFile
+                      ? "Vui lòng tải video lên trước"
+                      : isProcessing
+                      ? "Đang tạo phụ đề Whisper..."
+                      : isOriginalSrtReady
+                      ? "Đã hoàn thành tạo phụ đề gốc cho video này. Tải video mới lên để tạo lại từ đầu."
+                      : "Bắt đầu bóc tách âm thanh và tạo file phụ đề gốc bằng Faster-Whisper"
+                  }
                   className={cn(
-                    "w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg",
-                    !videoFile || isProcessing
-                      ? "bg-surface-variant/40 text-on-surface-variant cursor-not-allowed opacity-60"
-                      : "bg-gradient-to-r from-primary to-primary/80 text-black hover:opacity-90 active:scale-[0.99]"
+                    "w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg",
+                    !videoFile || isProcessing || isOriginalSrtReady
+                      ? "bg-surface-variant/40 text-on-surface-variant/60 cursor-not-allowed opacity-60 border border-white/5"
+                      : "bg-gradient-to-r from-primary to-primary/80 text-black hover:opacity-90 active:scale-[0.99] cursor-pointer"
                   )}
                 >
-                  {isProcessing && taskStatus?.current_step === "transcribing" ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Đang tạo phụ đề Whisper ({taskStatus?.progress || 0}%)...
-                    </>
-                  ) : (
-                    <>
-                      <Mic className="w-4 h-4" />
-                      🚀 1. Bắt Đầu Tạo Phụ Đề Gốc
-                    </>
-                  )}
+                  {isProcessing && taskStatus?.current_step === "transcribing"
+                    ? `Đang tạo phụ đề Whisper (${taskStatus?.progress || 0}%)...`
+                    : isOriginalSrtReady
+                    ? "Đã Hoàn Thành Tạo Phụ Đề Gốc"
+                    : "Bắt Đầu Tạo Phụ Đề Gốc"}
                 </button>
               </div>
               )}
@@ -2783,30 +2794,33 @@ export default function VideoTranslate() {
                     </span>
                   </button>
 
-                  {showPromptPreview && (
-                    <div className="p-3.5 border-t border-white/10 bg-black/30 space-y-2.5 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-on-surface-variant font-medium">
-                          💡 Bạn có thể dán hoặc chỉnh sửa quy tắc dịch thuật theo ý muốn (hệ thống sẽ tự ghi nhớ):
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleResetCustomPrompt}
-                          className="px-2 py-0.5 rounded-lg bg-surface-variant/60 hover:bg-surface-variant text-[10px] text-on-surface-variant hover:text-on-surface border border-white/10 cursor-pointer"
-                          title="Khôi phục về prompt chuẩn ban đầu"
-                        >
-                          Khôi phục mặc định
-                        </button>
+                  {/* Curtain slide-down container */}
+                  <div className={cn("curtain-collapse", showPromptPreview && "curtain-expanded")}>
+                    <div className="curtain-inner">
+                      <div className="p-3.5 border-t border-white/10 bg-black/30 space-y-2.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-on-surface-variant font-medium">
+                            💡 Bạn có thể dán hoặc chỉnh sửa quy tắc dịch thuật theo ý muốn (hệ thống sẽ tự ghi nhớ):
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleResetCustomPrompt}
+                            className="px-2 py-0.5 rounded-lg bg-surface-variant/60 hover:bg-surface-variant text-[10px] text-on-surface-variant hover:text-on-surface border border-white/10 cursor-pointer"
+                            title="Khôi phục về prompt chuẩn ban đầu"
+                          >
+                            Khôi phục mặc định
+                          </button>
+                        </div>
+                        <textarea
+                          value={customTranslationPrompt}
+                          onChange={(e) => handleUpdateCustomPrompt(e.target.value)}
+                          rows={6}
+                          className="w-full text-xs font-mono bg-surface/80 border border-white/10 rounded-xl p-3 text-on-surface focus:outline-none focus:border-cyan-400 resize-y leading-relaxed"
+                          placeholder="Nhập hoặc dán các quy tắc yêu cầu AI dịch vào đây..."
+                        />
                       </div>
-                      <textarea
-                        value={customTranslationPrompt}
-                        onChange={(e) => handleUpdateCustomPrompt(e.target.value)}
-                        rows={6}
-                        className="w-full text-xs font-mono bg-surface/80 border border-white/10 rounded-xl p-3 text-on-surface focus:outline-none focus:border-cyan-400 resize-y leading-relaxed"
-                        placeholder="Nhập hoặc dán các quy tắc yêu cầu AI dịch vào đây..."
-                      />
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -3134,8 +3148,10 @@ export default function VideoTranslate() {
                     </span>
                   </button>
 
-                  {showAdvanced && (
-                    <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
+                  {/* Curtain slide-down container */}
+                  <div className={cn("curtain-collapse", showAdvanced && "curtain-expanded")}>
+                    <div className="curtain-inner">
+                      <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
                       {/* Chế độ phụ đề - Dạng Dropdown */}
                       <div className="space-y-1.5">
                         <label className="font-medium text-on-surface flex items-center gap-1.5">
@@ -3324,38 +3340,39 @@ export default function VideoTranslate() {
                           <RotateCcw className="w-3.5 h-3.5" />
                           Phục hồi mặc định
                         </button>
+                        </div>
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 {/* CTA Button Tiếp Tục Lồng Tiếng & Render */}
                 <button
                   onClick={handleResumeManualPipeline}
-                  disabled={(!taskStatus?.task_id && !taskId) || isProcessing || !isOriginalSrtReady}
+                  disabled={(!taskStatus?.task_id && !taskId) || isProcessing || !isOriginalSrtReady || taskStatus?.status === "completed"}
+                  title={
+                    (!taskStatus?.task_id && !taskId) || !isOriginalSrtReady
+                      ? "Vui lòng hoàn thành các bước bóc tách và nạp phụ đề trước"
+                      : isProcessing
+                      ? "Đang tiến hành lồng tiếng & render video..."
+                      : taskStatus?.status === "completed"
+                      ? "Đã hoàn thành xuất video. Nạp video mới để thực hiện tác vụ mới."
+                      : "Bắt đầu lồng tiếng và render video thành phẩm"
+                  }
                   className={cn(
-                    "w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all duration-300 shadow-xl cursor-pointer",
-                    (!taskStatus?.task_id && !taskId) || isProcessing || !isOriginalSrtReady
-                      ? "bg-surface-variant/40 text-on-surface-variant cursor-not-allowed opacity-60"
-                      : "bg-gradient-to-r from-primary via-primary/90 to-primary text-black hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] shadow-primary/20"
+                    "w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all duration-300 shadow-xl",
+                    (!taskStatus?.task_id && !taskId) || isProcessing || !isOriginalSrtReady || taskStatus?.status === "completed"
+                      ? "bg-surface-variant/40 text-on-surface-variant/60 cursor-not-allowed opacity-60 border border-white/5"
+                      : "bg-gradient-to-r from-primary via-primary/90 to-primary text-black hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] shadow-primary/20 cursor-pointer"
                   )}
                 >
-                  {isProcessing && taskStatus?.current_step !== "transcribing" ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Đang lồng tiếng & render video ({taskStatus?.progress || 0}%)...
-                    </>
-                  ) : isTranscribingOriginal ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Đang chờ tạo phụ đề thoại xong...
-                    </>
-                  ) : (
-                    <>
-                      <Wand2 className="w-5 h-5" />
-                      🎬 Tiếp Tục Lồng Tiếng & Render Video Thành Phẩm
-                    </>
-                  )}
+                  {isProcessing && taskStatus?.current_step !== "transcribing"
+                    ? `Đang lồng tiếng & render video (${taskStatus?.progress || 0}%)...`
+                    : isTranscribingOriginal
+                    ? "Đang chờ tạo phụ đề thoại xong..."
+                    : taskStatus?.status === "completed"
+                    ? "Đã Hoàn Thành Xuất Video"
+                    : "Tiếp Tục Lồng Tiếng & Render Video"}
                 </button>
               </div>
               )}
@@ -3536,9 +3553,10 @@ export default function VideoTranslate() {
                     </div>
                   </div>
 
-                  {/* Nội dung bên trong khi xổ ra */}
-                  {isStudioOpen && (
-                    <div className="p-4 space-y-4 step-transition">
+                  {/* Nội dung bên trong khi xổ ra (Hiệu ứng kéo màn từ trên xuống) */}
+                  <div className={cn("curtain-collapse", isStudioOpen && "curtain-expanded")}>
+                    <div className="curtain-inner">
+                      <div className="p-4 space-y-4">
                       {/* Status Banner */}
                       {studioRemuxMessage && (
                         <div className="p-2.5 rounded-xl bg-green-500/10 border border-green-500/30 text-green-300 text-xs flex items-center justify-between">
@@ -4052,9 +4070,6 @@ export default function VideoTranslate() {
                           </div>
                         </div>
                       )}
-                    </div>
-                  )}
-                </div>
 
                   {/* Phân vùng Chỉnh sửa phụ đề SRT & Lồng tiếng lại (Gộp chung trong Studio) */}
                   <div className="p-3.5 rounded-2xl bg-surface-variant/30 border border-primary/20 space-y-2.5 pt-3">
@@ -4156,8 +4171,12 @@ export default function VideoTranslate() {
                     )}
                   </div>
                 </div>
-              )}
+              </div>
             </div>
+          </div>
+        </div>
+        )}
+      </div>
 
           {/* Card Trạng Thái Tạm Dừng: Chờ Nạp Phụ Đề Dịch (Manual Workflow Pause State) */}
           {taskStatus?.status === "waiting_manual_translation" && (
