@@ -209,7 +209,7 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       geminiApiKey: typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") || "" : "",
       geminiModel: "gemini-3.5-flash-lite",
       geminiTemperature: 0.2,
-      whisperModel: "large-v3-turbo",
+      whisperModel: "large-v3",
       showAdvanced: false,
 
       vadThreshold: 0.35,

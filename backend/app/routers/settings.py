@@ -410,7 +410,7 @@ async def check_update_endpoint():
     1. Kiểm tra trực tiếp qua GitHub HTTP API (Hoạt động 100% không cần cài Git).
     2. Nếu có Git, kiểm tra thêm số lượng commit chưa kéo về.
     """
-    cur_ver = "3.4.9"
+    cur_ver = "3.5.0"
     if VERSION_FILE.exists():
         try:
             import json

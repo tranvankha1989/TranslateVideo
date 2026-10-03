@@ -89,7 +89,7 @@ def cleanup_caption_sessions(exclude_session_id: str | None = None) -> tuple[int
 async def transcribe_video(
     video: UploadFile = File(...),
     language: str = Form("vi"),
-    model_size: str = Form("large-v3-turbo"),
+    model_size: str = Form("large-v3"),
     reference_script: str | None = Form(None),
     vad_threshold: float = Form(0.35),
     speech_pad_ms: int = Form(400),

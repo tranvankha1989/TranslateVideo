@@ -3,14 +3,20 @@ app.py — Hugging Face ZeroGPU OmniVoice Worker
 ─────────────────────────────────────────────
 Chạy trên Hugging Face Spaces với cơ chế ZeroGPU (NVIDIA A100/A10G).
 Tự động cấp phát nhân GPU tính toán khi có request từ máy local và giải phóng sau khi xong.
+Hỗ trợ bóc tách nhạc nền Demucs AI, nhận diện phụ đề Faster-Whisper và nhân bản giọng OmniVoice.
 """
 
 import os
 import sys
 import io
 import re
+import glob
+import uuid
+import shutil
+import ctypes
 import tempfile
 import logging
+import subprocess
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
@@ -36,7 +42,7 @@ if not hasattr(huggingface_hub, "HfFolder"):
 
 import gradio as gr
 from fastapi import HTTPException, UploadFile, File, Form
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from omnivoice import OmniVoice, VoiceClonePrompt
@@ -62,7 +68,25 @@ logger = logging.getLogger("hf_worker")
 SAMPLE_RATE = 24_000
 MODEL_ID = "k2-fsa/OmniVoice"
 
+# Thư mục lưu trữ BGM tách bằng Demucs
+BGM_STORAGE_DIR = Path(tempfile.gettempdir()) / "hf_bgm"
+BGM_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
 _model: OmniVoice | None = None
+_whisper_model = None
+_whisper_model_size: str | None = None
+
+
+def preload_cuda_libraries():
+    """Tự động tìm nạp các file libcublas.so, libcudnn.so từ site-packages vào bộ nhớ tiến trình."""
+    for p in sys.path:
+        for lib in glob.glob(os.path.join(p, "nvidia", "*", "lib", "*.so*")):
+            try:
+                ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+preload_cuda_libraries()
 
 
 def get_gpu_info() -> dict:
@@ -81,6 +105,14 @@ def get_gpu_info() -> dict:
     }
 
 
+def clean_vram():
+    """Giải phóng cache VRAM của PyTorch."""
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def load_model_if_needed():
     global _model
     if _model is None:
@@ -96,6 +128,44 @@ def load_model_if_needed():
     return _model
 
 
+def get_whisper(model_size: str = "large-v3", force_cpu: bool = False):
+    global _whisper_model, _whisper_model_size
+    from faster_whisper import WhisperModel
+    target_key = f"{model_size}_cpu" if force_cpu else model_size
+    if _whisper_model is None or _whisper_model_size != target_key:
+        clean_vram()
+        if force_cpu or not torch.cuda.is_available():
+            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CPU mode)...")
+            _whisper_model = WhisperModel(
+                model_size,
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=4,
+                num_workers=2,
+            )
+        else:
+            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CUDA mode)...")
+            try:
+                _whisper_model = WhisperModel(
+                    model_size,
+                    device="cuda",
+                    compute_type="float16",
+                    cpu_threads=4,
+                    num_workers=1,
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Không thể tải Faster-Whisper trên CUDA ({e}), chuyển sang CPU...")
+                _whisper_model = WhisperModel(
+                    model_size,
+                    device="cpu",
+                    compute_type="int8",
+                    cpu_threads=4,
+                    num_workers=2,
+                )
+        _whisper_model_size = target_key
+    return _whisper_model
+
+
 def health_check():
     """Kiểm tra tình trạng worker."""
     gpu = get_gpu_info()
@@ -103,6 +173,7 @@ def health_check():
         "status": "ok",
         "provider": "Hugging Face Spaces (ZeroGPU A100)",
         "sample_rate": SAMPLE_RATE,
+        "bgm_storage": str(BGM_STORAGE_DIR),
         **gpu,
     }
 
@@ -254,14 +325,175 @@ def _gpu_generate_audio(
     return wav_buf.getvalue()
 
 
+# ZeroGPU: Tự động cấp card NVIDIA A100 cho Demucs tách vocal và BGM
+@spaces.GPU(duration=180)
+def separate_vocals_with_demucs(audio_path: str | Path) -> tuple[Path, Path | None, Path | None]:
+    """
+    Sử dụng Demucs (htdemucs --two-stems=vocals) trên ZeroGPU để tách Vocals và BGM.
+    Trả về (vocals_path, bgm_path, out_dir). Nếu lỗi, trả về (audio_path, None, None).
+    """
+    audio_path = Path(audio_path)
+    stem = audio_path.stem
+    out_dir = Path(tempfile.gettempdir()) / f"demucs_hf_{uuid.uuid4().hex[:8]}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    logger.info(f"🎙️ [ZeroGPU Demucs] Bắt đầu tách Vocals & BGM bằng htdemucs trên {device.upper()}...")
+    cmd = [
+        sys.executable,
+        "-m", "demucs.separate",
+        "-n", "htdemucs",
+        "--two-stems=vocals",
+        "-d", device,
+        "-o", str(out_dir),
+        str(audio_path),
+    ]
+    try:
+        clean_vram()
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
+        clean_vram()
+
+        if res.returncode == 0:
+            demucs_vocals = out_dir / "htdemucs" / stem / "vocals.wav"
+            demucs_bgm = out_dir / "htdemucs" / stem / "no_vocals.wav"
+            if demucs_vocals.exists() and demucs_bgm.exists():
+                logger.info("✨ [ZeroGPU Demucs] Tách thành công Vocals và BGM!")
+                return demucs_vocals, demucs_bgm, out_dir
+            else:
+                logger.warning(f"⚠️ Không tìm thấy file đầu ra của Demucs trong {out_dir}")
+        else:
+            logger.warning(f"⚠️ Demucs CLI lỗi ({res.returncode}): {res.stderr[:200]}")
+    except Exception as e:
+        logger.warning(f"⚠️ Ngoại lệ khi chạy Demucs trên ZeroGPU: {e}")
+    finally:
+        clean_vram()
+
+    return audio_path, None, out_dir
+
+
+# ZeroGPU: Tự động cấp card NVIDIA A100 cho Faster-Whisper
+@spaces.GPU(duration=180)
+def _gpu_transcribe(
+    audio_path: str,
+    language: str | None,
+    model_size: str,
+    initial_prompt: str | None,
+    vad_filter: bool,
+    vad_threshold: float,
+    min_speech_duration_ms: int,
+    min_silence_duration_ms: int,
+    speech_pad_ms: int,
+    beam_size: int,
+):
+    def _do_transcribe(whisper_inst):
+        # Nạp audio đầu vào an toàn: soundfile/numpy float32 16kHz
+        try:
+            audio_data, sr = sf.read(audio_path, dtype="float32")
+            if audio_data.ndim > 1:
+                audio_data = np.mean(audio_data, axis=1)
+            if sr != 16000:
+                import librosa
+                audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
+            audio_input = audio_data
+        except Exception as load_err:
+            logger.warning(f"⚠️ Tiền xử lý audio bằng soundfile gặp lỗi ({load_err}), dùng file trực tiếp: {audio_path}")
+            audio_input = audio_path
+
+        segments_gen, info = whisper_inst.transcribe(
+            audio_input,
+            language=language,
+            initial_prompt=initial_prompt,
+            beam_size=beam_size,
+            best_of=beam_size,
+            condition_on_previous_text=False,
+            repetition_penalty=1.2,
+            no_speech_threshold=0.85,
+            log_prob_threshold=-1.5,
+            compression_ratio_threshold=2.8,
+            vad_filter=vad_filter,
+            vad_parameters=dict(
+                threshold=vad_threshold,
+                min_speech_duration_ms=min_speech_duration_ms,
+                min_silence_duration_ms=min_silence_duration_ms,
+                speech_pad_ms=speech_pad_ms,
+            ) if vad_filter else None,
+            word_timestamps=True,
+        )
+        res_segs = []
+        for i, s in enumerate(segments_gen):
+            words_data = []
+            if getattr(s, "words", None):
+                for w in s.words:
+                    w_text = getattr(w, "word", "").strip()
+                    if not w_text:
+                        continue
+                    words_data.append({
+                        "word": w_text,
+                        "start": round(float(getattr(w, "start", 0.0)), 3),
+                        "end": round(float(getattr(w, "end", 0.0)), 3),
+                        "probability": round(float(getattr(w, "probability", 1.0)), 2),
+                    })
+            
+            txt = getattr(s, "text", "").strip()
+            if not txt and not words_data:
+                continue
+
+            # Mốc thời gian chính xác theo từ (tránh trễ đầu và cắt đuôi)
+            if words_data:
+                for wi in range(len(words_data)):
+                    w_item = words_data[wi]
+                    wt = w_item.get("word", "").strip()
+                    ws = float(w_item.get("start", 0.0))
+                    we = float(w_item.get("end", ws + 0.3))
+                    wdur = max(0.1, we - ws)
+                    is_c = any('\u4e00' <= ch <= '\u9fff' or '\u3040' <= ch <= '\u30ff' for ch in wt)
+                    wmax = max(0.65, len(wt) * 0.45 + 0.3) if is_c else max(0.85, len(wt) * 0.25 + 0.4)
+                    if wdur > wmax:
+                        w_item["end"] = round(ws + wmax, 3)
+
+                valid_w = [w for w in words_data if w.get("word", "").strip()]
+                if valid_w:
+                    seg_start = valid_w[0]["start"]
+                    seg_end = valid_w[-1]["end"]
+                else:
+                    seg_start = round(float(getattr(s, "start", 0.0)), 3)
+                    seg_end = round(float(getattr(s, "end", 0.0)), 3)
+            else:
+                seg_start = round(float(getattr(s, "start", 0.0)), 3)
+                seg_end = round(float(getattr(s, "end", 0.0)), 3)
+
+            if seg_end <= seg_start:
+                seg_end = round(seg_start + 0.3, 3)
+
+            res_segs.append({
+                "id": i + 1,
+                "seek": getattr(s, "seek", 0),
+                "start": round(seg_start, 3),
+                "end": round(seg_end, 3),
+                "text": txt,
+                "words": words_data,
+            })
+        det_lang = getattr(info, "language", language or "en")
+        return res_segs, det_lang
+
+    try:
+        whisper = get_whisper(model_size, force_cpu=False)
+        return _do_transcribe(whisper)
+    except Exception as e:
+        logger.warning(f"⚠️ Transcribe bằng CUDA thất bại ({e}), tự động chuyển sang chế độ dự phòng CPU...")
+        whisper = get_whisper(model_size, force_cpu=True)
+        return _do_transcribe(whisper)
+
+
 # ─── Giao diện Gradio Dashboard khi mở trên trình duyệt ────────────────────────
 with gr.Blocks(title="OmniVoice ZeroGPU Worker") as demo:
     gr.Markdown("# 🚀 OmniVoice ZeroGPU Worker (NVIDIA A100)")
-    gr.Markdown("Worker này đang chạy ở chế độ nền phục vụ dự án **self-tts**.")
+    gr.Markdown("Worker này đang chạy ở chế độ nền phục vụ dự án **self-tts** (Tích hợp Demucs AI & Faster-Whisper).")
     with gr.Row():
         status_btn = gr.Button("🔍 Kiểm tra trạng thái Worker")
         status_output = gr.JSON(label="Trạng thái GPU & Hệ thống")
     status_btn.click(fn=health_check, outputs=status_output)
+
 
 def health_endpoint():
     return health_check()
@@ -286,6 +518,7 @@ async def create_prompt_endpoint(
             os.remove(tmp_path)
         except OSError:
             pass
+        clean_vram()
 
 
 async def generate_endpoint(
@@ -345,137 +578,13 @@ async def generate_endpoint(
                 os.remove(tmp_ref_path)
             except OSError:
                 pass
-
-
-_whisper_model = None
-_whisper_model_size: str | None = None
-
-
-import sys
-import glob
-import ctypes
-
-def preload_cuda_libraries():
-    """Tự động tìm nạp các file libcublas.so, libcudnn.so từ site-packages vào bộ nhớ tiến trình."""
-    for p in sys.path:
-        for lib in glob.glob(os.path.join(p, "nvidia", "*", "lib", "*.so*")):
-            try:
-                ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
-            except Exception:
-                pass
-
-preload_cuda_libraries()
-
-
-def get_whisper(model_size: str = "large-v3-turbo", force_cpu: bool = False):
-    global _whisper_model, _whisper_model_size
-    from faster_whisper import WhisperModel
-    target_key = f"{model_size}_cpu" if force_cpu else model_size
-    if _whisper_model is None or _whisper_model_size != target_key:
-        if force_cpu or not torch.cuda.is_available():
-            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CPU mode)...")
-            _whisper_model = WhisperModel(
-                model_size,
-                device="cpu",
-                compute_type="int8",
-                cpu_threads=4,
-                num_workers=2,
-            )
-        else:
-            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CUDA mode)...")
-            try:
-                _whisper_model = WhisperModel(
-                    model_size,
-                    device="cuda",
-                    compute_type="float16",
-                    cpu_threads=4,
-                    num_workers=1,
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ Không thể tải Faster-Whisper trên CUDA ({e}), chuyển sang CPU...")
-                _whisper_model = WhisperModel(
-                    model_size,
-                    device="cpu",
-                    compute_type="int8",
-                    cpu_threads=4,
-                    num_workers=2,
-                )
-        _whisper_model_size = target_key
-    return _whisper_model
-
-
-@spaces.GPU(duration=180)
-def _gpu_transcribe(
-    audio_path: str,
-    language: str | None,
-    model_size: str,
-    initial_prompt: str | None,
-    vad_filter: bool,
-    vad_threshold: float,
-    min_speech_duration_ms: int,
-    min_silence_duration_ms: int,
-    speech_pad_ms: int,
-    beam_size: int,
-):
-    def _do_transcribe(whisper_inst):
-        segments_gen, info = whisper_inst.transcribe(
-            audio_path,
-            language=language,
-            initial_prompt=initial_prompt,
-            beam_size=beam_size,
-            best_of=beam_size,
-            condition_on_previous_text=False,
-            repetition_penalty=1.2,
-            no_speech_threshold=0.85,
-            log_prob_threshold=-1.5,
-            compression_ratio_threshold=2.8,
-            vad_filter=vad_filter,
-            vad_parameters=dict(
-                threshold=vad_threshold,
-                min_speech_duration_ms=min_speech_duration_ms,
-                min_silence_duration_ms=min_silence_duration_ms,
-                speech_pad_ms=speech_pad_ms,
-            ) if vad_filter else None,
-            word_timestamps=True,
-        )
-        res_segs = []
-        for i, s in enumerate(segments_gen):
-            words_data = []
-            if getattr(s, "words", None):
-                for w in s.words:
-                    w_text = getattr(w, "word", "").strip()
-                    if not w_text:
-                        continue
-                    words_data.append({
-                        "word": w_text,
-                        "start": round(float(getattr(w, "start", 0.0)), 3),
-                        "end": round(float(getattr(w, "end", 0.0)), 3),
-                        "probability": round(float(getattr(w, "probability", 0.0)), 3),
-                    })
-            res_segs.append({
-                "id": i,
-                "seek": getattr(s, "seek", 0),
-                "start": round(float(getattr(s, "start", 0.0)), 3),
-                "end": round(float(getattr(s, "end", 0.0)), 3),
-                "text": getattr(s, "text", "").strip(),
-                "words": words_data,
-            })
-        det_lang = getattr(info, "language", language or "en")
-        return res_segs, det_lang
-
-    try:
-        whisper = get_whisper(model_size, force_cpu=False)
-        return _do_transcribe(whisper)
-    except Exception as e:
-        logger.warning(f"⚠️ Transcribe bằng CUDA thất bại ({e}), tự động chuyển sang chế độ dự phòng CPU...")
-        whisper = get_whisper(model_size, force_cpu=True)
-        return _do_transcribe(whisper)
+        clean_vram()
 
 
 async def transcribe_endpoint(
     audio_file: UploadFile = File(...),
     language: str | None = Form(default=None),
-    model_size: str | None = Form(default="large-v3-turbo"),
+    model_size: str | None = Form(default="large-v3"),
     initial_prompt: str | None = Form(default=None),
     vad_filter: bool = Form(default=True),
     vad_threshold: float = Form(default=0.50),
@@ -496,11 +605,11 @@ async def transcribe_endpoint(
         if lang_arg == "zh" and not p_prompt:
             p_prompt = "以下是普通话的句子，请用简体中文输出。"
 
-        logger.info(f"🎙️ [ZeroGPU Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size or 'large-v3-turbo'})...")
+        logger.info(f"🎙️ [ZeroGPU Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size or 'large-v3'})...")
         segments, detected_lang = _gpu_transcribe(
             audio_path=tmp_path,
             language=lang_arg,
-            model_size=model_size or "large-v3-turbo",
+            model_size=model_size or "large-v3",
             initial_prompt=p_prompt,
             vad_filter=vad_filter,
             vad_threshold=vad_threshold,
@@ -523,6 +632,104 @@ async def transcribe_endpoint(
             os.remove(tmp_path)
         except OSError:
             pass
+        clean_vram()
+
+
+async def transcribe_with_demucs_endpoint(
+    audio_file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+    model_size: str | None = Form(default="large-v3"),
+    initial_prompt: str | None = Form(default=None),
+    vad_filter: bool = Form(default=True),
+    vad_threshold: float = Form(default=0.50),
+    min_speech_duration_ms: int = Form(default=150),
+    min_silence_duration_ms: int = Form(default=350),
+    speech_pad_ms: int = Form(default=150),
+    beam_size: int = Form(default=3),
+):
+    """
+    Tách Vocals sạch bằng Demucs AI trên ZeroGPU, đưa Vocals vào Faster-Whisper để nhận diện phụ đề,
+    và lưu BGM (no_vocals) vào kho tạm để ứng dụng tải về qua /api/remote/download_bgm/{filename}.
+    """
+    suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await audio_file.read()
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+
+    bgm_filename = None
+    bgm_url = None
+    temp_demucs_dir = None
+
+    try:
+        # 1. Bóc tách vocals & BGM bằng Demucs trên ZeroGPU
+        vocals_path, bgm_path, temp_demucs_dir = separate_vocals_with_demucs(tmp_path)
+        if bgm_path and bgm_path.exists():
+            bgm_filename = f"bgm_{uuid.uuid4().hex[:10]}.wav"
+            saved_bgm = BGM_STORAGE_DIR / bgm_filename
+            shutil.copyfile(str(bgm_path), str(saved_bgm))
+            bgm_url = f"/api/remote/download_bgm/{bgm_filename}"
+            logger.info(f"🎵 [BGM Saved] Đã lưu nhạc nền: {bgm_filename} ({saved_bgm.stat().st_size / (1024 * 1024):.1f} MB)")
+
+        # 2. Đưa vocals sạch vào Faster-Whisper
+        target_audio = vocals_path if vocals_path.exists() else tmp_path
+        lang_arg = None if (not language or language == "auto") else language.split("-")[0]
+        p_prompt = initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None
+        if lang_arg == "zh" and not p_prompt:
+            p_prompt = "以下是普通话的句子，请用简体中文输出。"
+
+        logger.info(f"🎙️ [ZeroGPU Demucs+Whisper] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size or 'large-v3'})...")
+        segments, detected_lang = _gpu_transcribe(
+            audio_path=str(target_audio),
+            language=lang_arg,
+            model_size=model_size or "large-v3",
+            initial_prompt=p_prompt,
+            vad_filter=vad_filter,
+            vad_threshold=vad_threshold,
+            min_speech_duration_ms=min_speech_duration_ms,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms,
+            beam_size=beam_size,
+        )
+
+        return JSONResponse(content={
+            "status": "ok",
+            "language": detected_lang,
+            "segments": segments,
+            "bgm_filename": bgm_filename,
+            "bgm_download_url": bgm_url,
+            "vocals_separated": bool(bgm_path is not None),
+        })
+
+    except Exception as exc:
+        import traceback
+        err_detail = traceback.format_exc()
+        logger.error(f"❌ [ZeroGPU Demucs Transcribe Error]: {err_detail}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(exc), "traceback": err_detail},
+        )
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        if temp_demucs_dir and Path(temp_demucs_dir).exists():
+            shutil.rmtree(temp_demucs_dir, ignore_errors=True)
+        clean_vram()
+
+
+async def download_bgm_endpoint(filename: str):
+    """Tải file nhạc nền (BGM / no_vocals) đã tách bằng Demucs từ ZeroGPU."""
+    file_path = BGM_STORAGE_DIR / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy file nhạc nền: {filename}")
+    return FileResponse(
+        path=str(file_path),
+        media_type="audio/wav",
+        filename=filename,
+    )
 
 
 def register_api_routes(target_app):
@@ -548,6 +755,8 @@ def register_api_routes(target_app):
         target_app.add_api_route(f"{prefix}/prompt", create_prompt_endpoint, methods=["POST"])
         target_app.add_api_route(f"{prefix}/generate", generate_endpoint, methods=["POST"])
         target_app.add_api_route(f"{prefix}/transcribe", transcribe_endpoint, methods=["POST"])
+        target_app.add_api_route(f"{prefix}/transcribe_with_demucs", transcribe_with_demucs_endpoint, methods=["POST"])
+        target_app.add_api_route(f"{prefix}/download_bgm/{filename}", download_bgm_endpoint, methods=["GET"])
 
 
 # Đăng ký routes vào demo.app ban đầu

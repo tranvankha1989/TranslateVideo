@@ -92,7 +92,7 @@ async def start_video_translation(
     translation_style: str = Form("auto"),
     translation_model: str = Form("gemini-3.5-flash-lite"),
     translation_temperature: float = Form(0.2),
-    whisper_model: str = Form("large-v3-turbo"),
+    whisper_model: str = Form("large-v3"),
     output_resolution: str = Form("720p"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
@@ -124,7 +124,7 @@ async def start_video_translation(
     trans_style = str(_form_val(translation_style, "auto"))
     trans_model = str(_form_val(translation_model, "gemini-3.5-flash-lite"))
     trans_temp = float(_form_val(translation_temperature, 0.2))
-    w_model = str(_form_val(whisper_model, "large-v3-turbo"))
+    w_model = str(_form_val(whisper_model, "large-v3"))
     out_res = str(_form_val(output_resolution, "720p"))
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
@@ -230,7 +230,7 @@ async def start_manual_transcription(
     video: UploadFile = File(..., description="File video cần tạo phụ đề gốc"),
     source_lang: str = Form("auto"),
     target_lang: str = Form("vi"),
-    whisper_model: str = Form("large-v3-turbo"),
+    whisper_model: str = Form("large-v3"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
     vad_threshold: float = Form(0.35),
@@ -246,7 +246,7 @@ async def start_manual_transcription(
     """
     s_lang = str(_form_val(source_lang, "auto"))
     t_lang = str(_form_val(target_lang, "vi"))
-    w_model = str(_form_val(whisper_model, "large-v3-turbo"))
+    w_model = str(_form_val(whisper_model, "large-v3"))
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
     c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None

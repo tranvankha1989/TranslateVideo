@@ -3,6 +3,8 @@ accelerate>=0.34.0
 webdataset>=0.2.86
 safetensors>=0.4.0
 transformers>=4.40.0
+demucs
+torchaudio
 soundfile>=0.12.1
 librosa>=0.10.2
 pydub>=0.25.1

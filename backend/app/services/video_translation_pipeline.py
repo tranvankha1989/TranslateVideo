@@ -17,6 +17,7 @@ import json
 import uuid
 import asyncio
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -111,6 +112,13 @@ def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.8
     """
     Thuật toán tự động phát hiện và nối các câu bị ngắt quãng / chém đôi do AI ASR nhận diện nhầm,
     đảm bảo ngữ nghĩa câu văn trọn vẹn trước khi chuyển sang bước dịch.
+    
+    Quy tắc chống lệch timestamp tuyệt đối:
+    1. start: Giữ nguyên 100% mốc bắt đầu của phân đoạn đầu tiên, tuyệt đối không tính lại.
+    2. end: Cập nhật bằng đúng mốc kết thúc của phân đoạn hiện tại (seg["end"]).
+    3. words: Gộp mảng word-level timestamps của phân đoạn mới vào câu gộp.
+    4. Điều kiện an toàn: Nếu khoảng lặng gap > max_gap hoặc câu trước đã có dấu ngắt câu (. ! ? 。 ！ ？ …),
+       tuyệt đối không gộp mà tách thành segment độc lập.
     """
     if not segments or len(segments) <= 1:
         return segments
@@ -128,7 +136,7 @@ def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.8
         "和", "但是", "因为", "所以", "如果", "虽然", "而且", "或者", "关于", "然后", "就是", "还有"
     }
 
-    merged = [dict(segments[0])]
+    merged: list[dict[str, Any]] = [dict(segments[0])]
 
     for seg in segments[1:]:
         prev = merged[-1]
@@ -143,29 +151,45 @@ def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.8
 
         prev_end = float(prev.get("end", 0.0))
         curr_start = float(seg.get("start", 0.0))
+        curr_end = float(seg.get("end", curr_start))
         gap = curr_start - prev_end
 
-        # Kiểm tra xem câu trước có kết thúc bằng dấu chấm/chấm than/chấm hỏi không
-        is_prev_incomplete = not prev_txt.endswith(SENTENCE_ENDS)
+        # Kiểm tra dấu câu kết thúc của câu trước
+        has_sentence_end = any(prev_txt.endswith(punct) for punct in SENTENCE_ENDS)
 
-        # Kiểm tra xem câu sau có phải là vế tiếp nối không
+        # 1. Điều kiện chặn: Khoảng lặng quá lớn hoặc câu trước đã kết thúc trọn vẹn
+        if gap > max_gap or has_sentence_end or gap < 0:
+            merged.append(dict(seg))
+            continue
+
+        # 2. Kiểm tra câu sau có phải là vế tiếp nối tự nhiên (chữ thường hoặc từ nối)
         first_word = curr_txt.split()[0].lower() if curr_txt.split() else ""
         first_char = curr_txt[0]
 
-        is_curr_continuation = (
+        is_continuation = (
             first_char.islower()
             or first_word in CONNECTORS_VI
             or first_word in CONNECTORS_EN
             or any(curr_txt.startswith(zh_c) for zh_c in CONNECTORS_ZH)
+            or (not has_sentence_end and gap <= 0.40)  # Câu trước bị ngắt cụt và nối tiếp ngay lập tức
         )
 
-        # Điều kiện ghép: khoảng lặng nhỏ hơn ngưỡng và (câu trước chưa đóng HOẶC câu sau là vế tiếp nối)
-        if gap <= max_gap and (is_prev_incomplete or is_curr_continuation):
+        if is_continuation:
             is_cjk = any('\u4e00' <= char <= '\u9fff' for char in prev_txt[-2:] + curr_txt[:2])
             separator = "" if is_cjk else " "
 
+            # Ghép văn bản
             prev["text"] = f"{prev_txt}{separator}{curr_txt}".strip()
-            prev["end"] = max(prev_end, float(seg.get("end", prev_end)))
+            
+            # Cập nhật end của câu trước thành end của câu hiện tại (giữ nguyên start của prev)
+            prev["end"] = curr_end
+
+            # Bảo tồn danh sách word-level timestamps gốc từ Whisper
+            if "words" in seg and isinstance(seg["words"], list):
+                if "words" not in prev or not isinstance(prev["words"], list):
+                    prev["words"] = []
+                prev["words"].extend(seg["words"])
+
             if "original_text" in prev and "original_text" in seg:
                 prev_orig = str(prev.get("original_text", "")).strip()
                 curr_orig = str(seg.get("original_text", "")).strip()
@@ -178,6 +202,102 @@ def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.8
         s["id"] = i
 
     return merged
+
+
+def cleanup_task_temp_files(task_dir: Path | str) -> None:
+    """
+    Chỉ xóa các file nháp dung lượng lớn, giữ nguyên tài nguyên để người dùng sửa từng câu.
+
+    - XÓA các file trung gian nặng:
+      + `raw_audio.wav`, `vocals.wav`, `no_vocals.wav` (file tách âm gốc rất nặng)
+      + `voice_timeline_raw.wav`, `input_trimmed.mp4`
+      + Các file nén upload tạm: `compressed_*.opus`, `compressed_*.mp3`, `vocals_compressed.*`
+      + Thư mục tạm `alignment/chunks` và `task_dir/chunks`
+    - TUYỆT ĐỐI GIỮ LẠI:
+      + Thư mục `dubbing/` (chứa các file seg_xxxx.mp3 phục vụ nghe thử và chỉnh sửa từng câu lẻ)
+      + File âm thanh tổng hợp: `final_audio.wav` (để ráp lại nhanh khi sửa câu)
+      + File video hoàn thiện: `final_translated.mp4`
+      + Toàn bộ file phụ đề: `subtitles.srt`, `subtitles_original.srt`, `subtitles_ai_initial.srt`
+      + Metadata: `task_meta.json`
+      + Video gốc tải lên: `input_*.mp4`
+    """
+    if not task_dir:
+        return
+
+    task_path = Path(task_dir)
+    if not task_path.exists():
+        return
+
+    task_id = task_path.name
+    logger.info(f"🧹 [Cleanup] Bắt đầu dọn dẹp file nháp tạm thời cho task: {task_id}")
+
+    # 1. Danh sách các file nháp trung gian cần xóa trực tiếp trong thư mục task
+    files_to_remove = [
+        "raw_audio.wav",
+        "vocals.wav",
+        "no_vocals.wav",
+        "input_trimmed.mp4",
+        "voice_timeline_raw.wav",
+        "chunks_list.txt",
+    ]
+
+    total_freed_bytes = 0
+
+    for fname in files_to_remove:
+        fpath = task_path / fname
+        if fpath.exists() and fpath.is_file():
+            try:
+                sz = fpath.stat().st_size
+                fpath.unlink()
+                total_freed_bytes += sz
+                logger.debug(f"  - Đã xóa file nháp: {fpath.name} ({sz / (1024 * 1024):.1f} MB)")
+            except Exception as e:
+                logger.warning(f"  ! Không thể xóa {fpath.name}: {e}")
+
+    # 2. Xóa các file nén tạm (compressed_*.opus, compressed_*.mp3, vocals_compressed.*)
+    for pattern in ["compressed_*.opus", "compressed_*.mp3", "compressed_*.*", "vocals_compressed.*", "*_compressed.*"]:
+        for fpath in task_path.glob(pattern):
+            if fpath.exists() and fpath.is_file() and not fpath.name.startswith("final_"):
+                try:
+                    sz = fpath.stat().st_size
+                    fpath.unlink()
+                    total_freed_bytes += sz
+                    logger.debug(f"  - Đã xóa file nén tạm: {fpath.name} ({sz / (1024 * 1024):.1f} MB)")
+                except Exception as e:
+                    logger.warning(f"  ! Không thể xóa {fpath.name}: {e}")
+
+    # 3. Dọn dẹp trong thư mục alignment tương ứng (OUTPUTS_DIR / 'alignment' / task_id)
+    alignment_dir = OUTPUTS_DIR / "alignment" / task_id
+    if alignment_dir.exists():
+        for afname in ["voice_timeline_raw.wav", "chunks_list.txt"]:
+            afpath = alignment_dir / afname
+            if afpath.exists() and afpath.is_file():
+                try:
+                    sz = afpath.stat().st_size
+                    afpath.unlink()
+                    total_freed_bytes += sz
+                except Exception as e:
+                    logger.warning(f"  ! Không thể xóa {afpath.name}: {e}")
+
+        # Xóa thư mục tạm alignment/chunks
+        chunks_dir = alignment_dir / "chunks"
+        if chunks_dir.exists() and chunks_dir.is_dir():
+            try:
+                shutil.rmtree(chunks_dir, ignore_errors=True)
+                logger.debug(f"  - Đã xóa thư mục chunks trong: {alignment_dir.name}")
+            except Exception as e:
+                logger.warning(f"  ! Không thể xóa thư mục chunks: {e}")
+
+    # 4. Dọn dẹp thư mục chunks trong task_path nếu có
+    task_chunks = task_path / "chunks"
+    if task_chunks.exists() and task_chunks.is_dir():
+        try:
+            shutil.rmtree(task_chunks, ignore_errors=True)
+        except Exception:
+            pass
+
+    freed_mb = total_freed_bytes / (1024 * 1024)
+    logger.info(f"✨ [Cleanup] Hoàn tất dọn dẹp task {task_id}, giải phóng {freed_mb:.1f} MB đĩa cứng.")
 
 
 class VideoTranslationPipeline:
@@ -303,7 +423,7 @@ class VideoTranslationPipeline:
         translation_style: str = "auto",
         translation_model: str = "gemini-3.5-flash-lite",
         translation_temperature: float = 0.2,
-        whisper_model: str = "large-v3-turbo",
+        whisper_model: str = "large-v3",
         output_resolution: str = "720p",
         clip_start: float = 0.0,
         clip_end: float | None = None,
@@ -427,12 +547,15 @@ class VideoTranslationPipeline:
             if (source_lang and source_lang.startswith("zh")) or lang_arg == "zh":
                 prompt_to_use = "以下是普通话的句子，请用简体中文输出。"
 
+            # Nếu dùng Cloud GPU, truyền raw_audio_path để Demucs trên worker bóc tách cả Vocals và BGM
+            audio_for_stt = raw_audio_path if (is_cloud_gpu_active() or is_remote_gpu_enabled()) else whisper_audio_path
+
             def run_whisper():
                 logger.info(
-                    f"🎙️ [Whisper STT] Bắt đầu bóc băng video gốc '{video_path.name}' bằng mô hình '{whisper_model.upper()}' (Audio: {whisper_audio_path.name}, Lang: {lang_arg or 'auto'}, VAD Thresh: {vad_threshold})"
+                    f"🎙️ [Whisper STT] Bắt đầu bóc băng video gốc '{video_path.name}' bằng mô hình '{whisper_model.upper()}' (Audio: {audio_for_stt.name}, Lang: {lang_arg or 'auto'}, VAD Thresh: {vad_threshold})"
                 )
                 return transcribe_with_remote_or_local(
-                    audio_path=whisper_audio_path,
+                    audio_path=audio_for_stt,
                     language=source_lang,
                     model_size=whisper_model,
                     initial_prompt=prompt_to_use,
@@ -443,6 +566,7 @@ class VideoTranslationPipeline:
                     beam_size=beam_size,
                     word_timestamps=True,
                     filter_hallucinations=filter_hallucinations,
+                    task_dir=task_dir,
                 )
 
             cls.update_task(
@@ -452,8 +576,33 @@ class VideoTranslationPipeline:
                 message="Faster-Whisper AI đang lắng nghe và bóc tách từng mốc thời gian câu thoại...",
             )
 
-            segments_raw, detected_lang = await asyncio.to_thread(run_whisper)
+            whisper_res = await asyncio.to_thread(run_whisper)
+            if isinstance(whisper_res, (list, tuple)) and len(whisper_res) == 3:
+                segments_raw, detected_lang, remote_bgm_path = whisper_res
+            elif isinstance(whisper_res, (list, tuple)) and len(whisper_res) == 2:
+                segments_raw, detected_lang = whisper_res
+                remote_bgm_path = None
+            else:
+                segments_raw, detected_lang = whisper_res, (source_lang if source_lang != "auto" else "vi")
+                remote_bgm_path = None
+
             detected_source_lang = source_lang if source_lang != "auto" else detected_lang
+
+            # Lưu bgm_path vào biến của task: nếu có file no_vocals.wav thì gán làm nhạc nền chính
+            if remote_bgm_path and Path(remote_bgm_path).exists():
+                bgm_path = Path(remote_bgm_path)
+                cls.update_task(task_id, bgm_path=str(bgm_path))
+                logger.info(f"🎶 [BGM Sync] Đã nhận file nhạc nền từ Demucs: {bgm_path.name}")
+            elif bgm_path and Path(bgm_path).exists():
+                cls.update_task(task_id, bgm_path=str(bgm_path))
+                logger.info(f"🎶 [BGM Sync] Sử dụng file nhạc nền cục bộ: {Path(bgm_path).name}")
+            else:
+                # Nếu không có (bgm_path is None), fallback dùng audio gốc đã hạ âm lượng hoặc để None
+                fallback_bgm = str(raw_audio_path) if (preserve_bgm and raw_audio_path and Path(raw_audio_path).exists()) else None
+                bgm_path = Path(fallback_bgm) if fallback_bgm else None
+                cls.update_task(task_id, bgm_path=fallback_bgm)
+                if fallback_bgm:
+                    logger.info("🎶 [BGM Sync] Fallback dùng audio gốc đã hạ âm lượng làm nhạc nền.")
 
             original_segments = []
             for s in segments_raw:
@@ -565,9 +714,11 @@ class VideoTranslationPipeline:
                 progress_callback=on_trans_progress,
             )
 
-            for i, ts in enumerate(translated_segments):
-                if i < len(original_segments):
-                    ts["original_text"] = original_segments[i].get("text", "")
+            orig_text_map = {s["id"]: s.get("text", "") for s in original_segments}
+            for ts in translated_segments:
+                seg_id = ts.get("id")
+                if seg_id in orig_text_map and not ts.get("original_text"):
+                    ts["original_text"] = orig_text_map[seg_id]
 
             # ── BƯỚC 4: LỒNG TIẾNG TỰ ĐỘNG (55% -> 75%) ───────────────────
             cls.update_task(
@@ -578,6 +729,27 @@ class VideoTranslationPipeline:
                 elapsed_time=round(time.time() - start_time, 1),
                 elapsed_str=format_duration_vietnamese(time.time() - start_time),
             )
+
+            # Xác định ref_audio nếu sử dụng clone giọng với OmniVoice
+            clean_vocal_ref = None
+            is_clone_mode = (
+                engine.lower() == "omnivoice"
+                or "clone" in voice_id.lower()
+                or voice_id.startswith("omnivoice:")
+            )
+            if is_clone_mode:
+                # Ưu tiên lấy file vocal sạch (nếu có lưu) hoặc đoạn audio tương ứng làm ref_audio để giọng đọc clone không bị dính tạp âm/nhạc nền gốc
+                candidates = [
+                    task_dir / "vocals.wav",
+                    task_dir / "vocals_clean.wav",
+                    whisper_audio_path if (whisper_audio_path and Path(whisper_audio_path).exists() and Path(whisper_audio_path).name != "raw_audio.wav") else None,
+                    raw_audio_path if (raw_audio_path and Path(raw_audio_path).exists()) else None,
+                ]
+                for cand in candidates:
+                    if cand and Path(cand).exists() and Path(cand).stat().st_size > 1000:
+                        clean_vocal_ref = str(cand)
+                        logger.info(f"🎙️ [OmniVoice Clone] Ưu tiên sử dụng vocal sạch làm ref_audio: {Path(cand).name}")
+                        break
 
             async def on_dub_progress(cur, total, cur_text):
                 pct = 55 + int((cur / max(1, total)) * 20)
@@ -598,6 +770,7 @@ class VideoTranslationPipeline:
                 pitch=voice_pitch,
                 session_id=task_id,
                 progress_callback=on_dub_progress,
+                ref_audio=clean_vocal_ref,
             )
 
             # Lưu checkpoint dữ liệu câu thoại & cấu hình để phục vụ Studio chỉnh sửa theo thời gian thực
@@ -644,24 +817,41 @@ class VideoTranslationPipeline:
                     selected_bgm_path = str(raw_audio_path)
                 elif bgm_type != "none" and bgm_path and Path(bgm_path).exists():
                     selected_bgm_path = str(bgm_path)
+                elif bgm_path and Path(bgm_path).exists():
+                    selected_bgm_path = str(bgm_path)
 
             timeline_res = AlignmentService.build_full_timeline(
                 segments=dub_res["dubbed_segments"],
                 total_video_duration=video_duration,
                 max_speed_rate=max_speed_rate,
                 bgm_path=selected_bgm_path,
-                bgm_volume=bgm_volume,
-                voice_volume=voice_volume,
+                bgm_volume=task_meta.get("bgm_volume", 0.25),
+                voice_volume=task_meta.get("voice_volume", 1.0),
                 session_id=task_id,
             )
             final_audio_path = Path(timeline_res["final_audio_path"])
 
             # ── BƯỚC 6: XUẤT PHỤ ĐỀ VÀ RENDER VIDEO MP4 (85% -> 100%) ───────
+            # Đọc cấu hình phụ đề & kiểu dáng tùy chỉnh động
+            task_data = cls.get_task(task_id) or {}
+            sub_mode = str(
+                task_data.get("subtitle_mode")
+                or subtitle_mode
+                or "hard_target"
+            ).lower().strip()
+
+            is_stream_copy = sub_mode in ["soft", "soft_target", "soft_dual", "none", "off", "no_sub"]
+            step_msg = (
+                "Đang xuất video siêu tốc (Stream Copy 0% CPU, bảo toàn 100% chất lượng gốc)..."
+                if is_stream_copy
+                else f"Đang nén chuẩn H.264 và render video MP4 ({output_resolution.upper()}) hoàn chỉnh (FFmpeg)..."
+            )
+
             cls.update_task(
                 task_id,
                 progress=85,
                 current_step="rendering",
-                message=f"Đang nén chuẩn H.264 và render video MP4 ({output_resolution.upper()}) hoàn chỉnh (FFmpeg)...",
+                message=step_msg,
                 elapsed_time=round(time.time() - start_time, 1),
                 elapsed_str=format_duration_vietnamese(time.time() - start_time),
             )
@@ -670,33 +860,103 @@ class VideoTranslationPipeline:
             srt_orig_file = task_dir / "subtitles_original.srt"
             generate_srt_file(original_segments, srt_orig_file, mode="hard_target")
 
+            # Xác định mode xuất file SRT (nếu soft_dual thì xuất song ngữ, ngược lại xuất bản dịch)
+            effective_srt_mode = "hard_dual" if sub_mode in ["hard_dual", "soft_dual"] else "hard_target"
             srt_file = task_dir / "subtitles.srt"
-            generate_srt_file(translated_segments, srt_file, mode=subtitle_mode)
+            generate_srt_file(translated_segments, srt_file, mode=effective_srt_mode)
 
             # Lưu bản chụp phụ đề AI dịch ban đầu để làm căn cứ học tập khi người dùng chỉnh sửa
             srt_initial_file = task_dir / "subtitles_ai_initial.srt"
-            generate_srt_file(translated_segments, srt_initial_file, mode=subtitle_mode)
+            generate_srt_file(translated_segments, srt_initial_file, mode=effective_srt_mode)
 
             output_video_path = task_dir / "final_translated.mp4"
 
-            # Xây dựng lệnh FFmpeg ghép video + âm thanh mới + phụ đề (nếu bật) + scale theo độ phân giải
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", str(video_path),
-                "-i", str(final_audio_path),
-            ]
+            # ── Xây dựng lệnh FFmpeg theo kiểu phụ đề ──
+            if is_stream_copy:
+                # 1. Chế độ Siêu Tốc (Stream Copy 3-5 giây, không tốn CPU/RAM)
+                if sub_mode in ["soft", "soft_target", "soft_dual"] and srt_file.exists():
+                    logger.info(f"⚡ [FFmpeg Stream Copy] Nhúng phụ đề mềm (mov_text) vào MP4: {srt_file.name}")
+                    ffmpeg_cmd = [
+                        "ffmpeg", "-y",
+                        "-i", str(video_path),
+                        "-i", str(final_audio_path),
+                        "-i", str(srt_file),
+                        "-map", "0:v:0",
+                        "-map", "1:a:0",
+                        "-map", "2:s:0?",
+                        "-c:v", "copy",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-c:s", "mov_text",
+                        "-shortest",
+                        "-movflags", "+faststart",
+                        str(output_video_path),
+                    ]
+                else:
+                    logger.info("⚡ [FFmpeg Stream Copy] Xuất video không kèm phụ đề (-c:v copy)")
+                    ffmpeg_cmd = [
+                        "ffmpeg", "-y",
+                        "-i", str(video_path),
+                        "-i", str(final_audio_path),
+                        "-map", "0:v:0",
+                        "-map", "1:a:0",
+                        "-c:v", "copy",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-shortest",
+                        "-movflags", "+faststart",
+                        str(output_video_path),
+                    ]
+            else:
+                # 2. Chế độ Khắc Phụ Đề Cứng (Hardsub Burn-in với force_style động)
+                def _to_ass_color(color_val: Any, default_val: str) -> str:
+                    if not color_val or not isinstance(color_val, str):
+                        return default_val
+                    val = color_val.strip()
+                    if val.startswith("&H") or val.startswith("&h"):
+                        return val
+                    if val.startswith("#"):
+                        h = val.lstrip("#")
+                        if len(h) == 6:
+                            return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+                        elif len(h) == 8:
+                            return f"&H{h[0:2]}{h[6:8]}{h[4:6]}{h[2:4]}".upper()
+                    return default_val
 
-            scale_filter = get_ffmpeg_scale_filter(output_resolution)
+                font_name = str(task_data.get("font_name") or task_data.get("FontName") or "Arial")
+                font_size = int(task_data.get("font_size") or task_data.get("FontSize") or 20)
+                primary_col = _to_ass_color(task_data.get("primary_color") or task_data.get("PrimaryColour") or task_data.get("font_color"), "&H00FFFFFF")
+                outline_col = _to_ass_color(task_data.get("outline_color") or task_data.get("OutlineColour"), "&H00000000")
+                back_col = _to_ass_color(task_data.get("back_color") or task_data.get("BackColour"), "&H00000000")
+                bold = int(task_data.get("bold") or task_data.get("Bold") or 0)
+                outline_w = int(task_data.get("outline") or task_data.get("Outline") or task_data.get("outline_width") or 2)
+                shadow_w = int(task_data.get("shadow") or task_data.get("Shadow") or 0)
+                alignment = int(task_data.get("alignment") or task_data.get("Alignment") or 2)
+                margin_v = int(task_data.get("margin_v") or task_data.get("MarginV") or 30)
 
-            if subtitle_mode in ["hard_target", "hard_dual"]:
-                # Chuẩn hóa đường dẫn cho bộ lọc subtitles của FFmpeg trên Windows
+                style_str = (
+                    f"FontName={font_name},"
+                    f"FontSize={font_size},"
+                    f"PrimaryColour={primary_col},"
+                    f"OutlineColour={outline_col},"
+                    f"BackColour={back_col},"
+                    f"Bold={bold},"
+                    f"Outline={outline_w},"
+                    f"Shadow={shadow_w},"
+                    f"Alignment={alignment},"
+                    f"MarginV={margin_v}"
+                )
+
                 srt_escaped = str(srt_file.resolve()).replace("\\", "/").replace(":", "\\:")
-                style_str = "FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=30"
                 sub_filter = f"subtitles='{srt_escaped}':force_style='{style_str}'"
+                scale_filter = get_ffmpeg_scale_filter(output_resolution)
                 vf_filter = f"{scale_filter},{sub_filter}" if scale_filter else sub_filter
 
-                ffmpeg_cmd.extend(["-vf", vf_filter])
-                ffmpeg_cmd.extend([
+                ffmpeg_cmd = [
+                    "ffmpeg", "-y",
+                    "-i", str(video_path),
+                    "-i", str(final_audio_path),
+                    "-vf", vf_filter,
                     "-threads", "0",
                     "-map", "0:v:0",
                     "-map", "1:a:0",
@@ -709,36 +969,7 @@ class VideoTranslationPipeline:
                     "-shortest",
                     "-movflags", "+faststart",
                     str(output_video_path),
-                ])
-            else:
-                if scale_filter:
-                    ffmpeg_cmd.extend([
-                        "-vf", scale_filter,
-                        "-threads", "0",
-                        "-map", "0:v:0",
-                        "-map", "1:a:0",
-                        "-c:v", "libx264",
-                        "-pix_fmt", "yuv420p",
-                        "-preset", "veryfast",
-                        "-crf", "19",
-                        "-c:a", "aac",
-                        "-b:a", "192k",
-                        "-shortest",
-                        "-movflags", "+faststart",
-                        str(output_video_path),
-                    ])
-                else:
-                    # Siêu tốc (Stream Copy): Khi không khắc phụ đề và giữ nguyên độ phân giải
-                    ffmpeg_cmd.extend([
-                        "-map", "0:v:0",
-                        "-map", "1:a:0",
-                        "-c:v", "copy",
-                        "-c:a", "aac",
-                        "-b:a", "192k",
-                        "-shortest",
-                        "-movflags", "+faststart",
-                        str(output_video_path),
-                    ])
+                ]
 
             logger.info(f"[VideoTranslationPipeline] Chạy FFmpeg render: {' '.join(ffmpeg_cmd)}")
             res = await asyncio.to_thread(subprocess.run, ffmpeg_cmd, capture_output=True, text=True)
@@ -768,6 +999,9 @@ class VideoTranslationPipeline:
             )
             logger.info(f"✅ [Task {task_id}] Hoàn tất video translation ({total_elapsed_str}): {output_video_path}")
 
+            # ── DỌN DẸP FILE TẠM NGAY SAU KHI BƯỚC 6 XUẤT VIDEO THÀNH CÔNG ──
+            cleanup_task_temp_files(task_dir)
+
         except Exception as e:
             logger.error(f"❌ [Task {task_id}] Thất bại: {e}", exc_info=True)
             cls.update_task(
@@ -777,6 +1011,10 @@ class VideoTranslationPipeline:
                 message=f"Lỗi: {str(e)}",
                 error=str(e),
             )
+        finally:
+            # ── ĐẢM BẢO DỌN DẸP TRONG MỌI TRƯỜNG HỢP (THÀNH CÔNG HOẶC THẤT BẠI) ──
+            if "task_dir" in locals() and task_dir:
+                cleanup_task_temp_files(task_dir)
 
     @classmethod
     async def run_manual_transcribe(
@@ -785,7 +1023,7 @@ class VideoTranslationPipeline:
         video_path: Path,
         source_lang: str = "auto",
         target_lang: str = "vi",
-        whisper_model: str = "large-v3-turbo",
+        whisper_model: str = "large-v3",
         clip_start: float = 0.0,
         clip_end: float | None = None,
         vad_threshold: float = 0.35,
@@ -883,10 +1121,13 @@ class VideoTranslationPipeline:
             if (source_lang and source_lang.startswith("zh")) or lang_arg == "zh":
                 prompt_to_use = "以下是普通话的句子，请用简体中文输出。"
 
+            # Nếu dùng Cloud GPU, truyền raw_audio_path để Demucs trên worker bóc tách cả Vocals và BGM
+            audio_for_stt = raw_audio_path if (is_cloud_gpu_active() or is_remote_gpu_enabled()) else whisper_audio_path
+
             def run_whisper():
                 logger.info(f"🎙️ [Manual Whisper STT] Bắt đầu tạo phụ đề gốc video '{video_path.name}' bằng '{whisper_model}' (VAD Thresh={vad_threshold})")
                 return transcribe_with_remote_or_local(
-                    audio_path=whisper_audio_path,
+                    audio_path=audio_for_stt,
                     language=source_lang,
                     model_size=whisper_model,
                     initial_prompt=prompt_to_use,
@@ -897,9 +1138,19 @@ class VideoTranslationPipeline:
                     beam_size=beam_size,
                     word_timestamps=True,
                     filter_hallucinations=filter_hallucinations,
+                    task_dir=task_dir,
                 )
 
-            segments_raw, detected_lang = await asyncio.to_thread(run_whisper)
+            whisper_res = await asyncio.to_thread(run_whisper)
+            if isinstance(whisper_res, (list, tuple)) and len(whisper_res) == 3:
+                segments_raw, detected_lang, remote_bgm_path = whisper_res
+                if remote_bgm_path and Path(remote_bgm_path).exists():
+                    bgm_path = Path(remote_bgm_path)
+                    cls.update_task(task_id, bgm_path=str(bgm_path))
+            elif isinstance(whisper_res, (list, tuple)) and len(whisper_res) == 2:
+                segments_raw, detected_lang = whisper_res
+            else:
+                segments_raw, detected_lang = whisper_res, (source_lang if source_lang != "auto" else "vi")
             detected_source_lang = source_lang if source_lang != "auto" else detected_lang
 
             original_segments = []
@@ -1435,6 +1686,7 @@ class VideoTranslationPipeline:
                 output_resolution=out_res,
             )
             logger.info(f"✅ [Task {task_id}] Re-dub hoàn tất ({total_elapsed_str}): {output_video_path}")
+            cleanup_task_temp_files(task_dir)
         except Exception as e:
             logger.error(f"❌ [Task {task_id}] Lồng tiếng / Render thất bại: {e}", exc_info=True)
             cls.update_task(
@@ -1444,6 +1696,9 @@ class VideoTranslationPipeline:
                 message=f"Lỗi: {str(e)}",
                 error=str(e),
             )
+        finally:
+            if "task_dir" in locals() and task_dir:
+                cleanup_task_temp_files(task_dir)
 
     @classmethod
     def get_studio_segments(cls, task_id: str) -> dict[str, Any]:

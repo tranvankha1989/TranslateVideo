@@ -674,7 +674,7 @@ export default function VideoTranslate() {
     setMinSpeechDurationMs(150);
     setBeamSize(3);
     setFilterHallucinations(false);
-    setWhisperModel("large-v3-turbo");
+    setWhisperModel("large-v3");
     toast.success("✅ Đã khôi phục các thông số bóc tách về chuẩn tối ưu!");
   };
 
@@ -1953,14 +1953,14 @@ export default function VideoTranslate() {
                   onChange={(e) => setWhisperModel(e.target.value)}
                   className="w-full bg-surface-variant/80 border border-cyan-500/40 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-cyan-400 font-medium text-cyan-300 cursor-pointer shadow-sm"
                 >
-                  <option value="large-v3-turbo">🚀 large-v3-turbo (Khuyên dùng - Nhanh 8x, Nhẹ & Chuẩn 98% • Colab/Local)</option>
-                  <option value="large-v3">🌟 large-v3 (Chuẩn cao cấp - 1.55 Tỷ tham số • Tối ưu GPU lớn)</option>
+                  <option value="large-v3">🌟 large-v3 (Mặc định - Bản lớn đầy đủ 1.55 Tỷ tham số • Chuẩn xác cao nhất)</option>
+                  <option value="large-v3-turbo">🚀 large-v3-turbo (Siêu tốc 8x, Nhẹ & Chuẩn 98% • Colab/Local)</option>
                   <option value="medium">⚡ medium (Cân bằng & Tốc độ cao - 769 Triệu tham số)</option>
                   <option value="small">🚀 small (Nhẹ & Nhanh - 244 Triệu tham số)</option>
                   <option value="base">⏱️ base (Bản tối giản - 74 Triệu tham số)</option>
                 </select>
                 <p className="text-[10px] text-on-surface-variant/70">
-                  ⚡ <strong>large-v3-turbo</strong> giải quyết triệt để lỗi từ đồng âm tiếng Trung, nhận diện chuẩn tên riêng và tự động ngắt câu với dấu phẩy/chấm đầy đủ với tốc độ siêu tốc trên GPU Colab hoặc máy tính.
+                  ⚡ <strong>large-v3</strong> là mô hình lớn nhất với 1.55 tỷ tham số, giải quyết triệt để lỗi từ đồng âm, nhận diện chuẩn tên riêng và tự động ngắt câu với dấu phẩy/chấm đầy đủ với độ chính xác cao nhất.
                 </p>
               </div>
             </div>
@@ -2285,8 +2285,8 @@ export default function VideoTranslate() {
                       onChange={(e) => setWhisperModel(e.target.value)}
                       className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors font-medium text-primary"
                     >
-                      <option value="large-v3-turbo">🚀 large-v3-turbo (Khuyên dùng - Siêu tốc 8x & Chuẩn xác)</option>
-                      <option value="large-v3">🌟 large-v3 (Chính xác cao nhất • Model lớn)</option>
+                      <option value="large-v3">🌟 large-v3 (Mặc định - 1.55 Tỷ tham số • Chuẩn xác cao nhất)</option>
+                      <option value="large-v3-turbo">🚀 large-v3-turbo (Siêu tốc 8x & Chuẩn xác)</option>
                       <option value="medium">⚡ medium (Cân bằng & Tốc độ cao)</option>
                       <option value="small">🚀 small (Nhẹ & Nhanh)</option>
                       <option value="base">⏱️ base (Bản tối giản)</option>
@@ -2433,7 +2433,7 @@ export default function VideoTranslate() {
                       {/* 🔄 Nút Phục Hồi Mặc Định */}
                       <div className="pt-3 border-t border-white/10 flex items-center justify-between flex-wrap gap-2">
                         <span className="text-[11px] text-on-surface-variant/70">
-                          💡 Chuẩn khuyến nghị: <code>large-v3-turbo</code>, <code>VAD 0.35</code>, <code>Pad 400ms</code>, <code>Min 150ms</code>.
+                          💡 Chuẩn khuyến nghị: <code>large-v3</code>, <code>VAD 0.35</code>, <code>Pad 400ms</code>, <code>Min 150ms</code>.
                         </span>
                         <button
                           type="button"

@@ -196,11 +196,12 @@ class DubbingService:
         text: str,
         voice_id: str = "vi-VN-HoaiMyNeural",
         engine: str = "edge-tts",
-        rate: str = "+0%",
+        rate: str | float = "+0%",
         pitch: str = "+0Hz",
-        volume: str = "+0%",
+        volume: str | float = "+0%",
         output_path: Path | None = None,
         target_duration: float | None = None,
+        ref_audio: str | Path | None = None,
     ) -> dict[str, Any]:
         """Sinh âm thanh cho một câu thoại đơn lẻ (hỗ trợ Edge-TTS và OmniVoice Studio)."""
         if not text or not text.strip():
@@ -212,100 +213,34 @@ class DubbingService:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        synthesized = False
-        is_omnivoice = (engine.lower() == "omnivoice" or voice_id.startswith("omnivoice"))
+        # ── 1. Chuẩn hóa tốc độ đọc (speech_rate / voice_rate / speed) ──────────────
+        speed_float = 1.0
+        clean_rate = "+0%"
 
-        if is_omnivoice:
-            raw_id = voice_id.replace("omnivoice:", "").strip()
-            prompt_obj = None
-            ref_audio = None
-            ref_text = None
-
-            # 1. Tìm trong thư mục Custom Voices
-            custom_pt = CUSTOM_VOICES_DIR / f"{raw_id}.pt"
-            custom_wav = CUSTOM_VOICES_DIR / f"{raw_id}.wav"
-            if custom_pt.exists():
+        if isinstance(rate, (int, float)):
+            speed_float = max(0.5, min(2.5, float(rate)))
+            percent = int(round((speed_float - 1.0) * 100))
+            clean_rate = f"+{percent}%" if percent >= 0 else f"{percent}%"
+        elif isinstance(rate, str):
+            rate_str = rate.strip()
+            if rate_str.endswith("%"):
                 try:
-                    prompt_obj = VoiceClonePrompt.load(str(custom_pt))
-                except Exception as e:
-                    logger.warning(f"Không thể đọc prompt cache {custom_pt}: {e}")
-            elif custom_wav.exists():
-                ref_audio = str(custom_wav)
-
-            # 2. Tìm trong thư mục Presets
-            if prompt_obj is None and ref_audio is None:
-                preset_pt = PRESETS_DIR / f"{raw_id}.pt"
-                preset_wav = PRESETS_DIR / f"{raw_id}.wav"
-                if preset_pt.exists():
-                    try:
-                        prompt_obj = VoiceClonePrompt.load(str(preset_pt))
-                    except Exception as e:
-                        logger.warning(f"Không thể đọc prompt cache {preset_pt}: {e}")
-                elif preset_wav.exists():
-                    ref_audio = str(preset_wav)
-
-            # 3. Tra cứu theo url/filename trong voices.json và custom_voices.json
-            if prompt_obj is None and ref_audio is None:
+                    p_val = int(rate_str.rstrip("%").lstrip("+"))
+                    speed_float = max(0.5, min(2.5, 1.0 + (p_val / 100.0)))
+                    clean_rate = f"+{p_val}%" if p_val >= 0 else f"{p_val}%"
+                except Exception:
+                    speed_float = 1.0
+                    clean_rate = "+0%"
+            else:
                 try:
-                    voices_json = PRESETS_DIR / "voices.json"
-                    if voices_json.exists():
-                        with open(voices_json, "r", encoding="utf-8") as f:
-                            presets = json.load(f)
-                            for p in presets:
-                                if p.get("id") == raw_id:
-                                    ref_text = p.get("prompt_text")
-                                    v_url = p.get("url", "")
-                                    v_fname = Path(v_url).name if v_url else ""
-                                    if v_fname:
-                                        p_candidate = PRESETS_DIR / v_fname
-                                        if p_candidate.exists():
-                                            ref_audio = str(p_candidate)
-                                    break
-                except Exception as e:
-                    logger.warning(f"Lỗi tra cứu voices.json: {e}")
+                    s_val = float(rate_str)
+                    speed_float = max(0.5, min(2.5, s_val))
+                    percent = int(round((speed_float - 1.0) * 100))
+                    clean_rate = f"+{percent}%" if percent >= 0 else f"{percent}%"
+                except Exception:
+                    speed_float = 1.0
+                    clean_rate = "+0%"
 
-            if prompt_obj is None and ref_audio is None:
-                try:
-                    if CUSTOM_VOICES_JSON.exists():
-                        with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
-                            customs = json.load(f)
-                            for c in customs:
-                                if c.get("id") == raw_id:
-                                    ref_text = c.get("prompt_text")
-                                    c_pt = CUSTOM_VOICES_DIR / f"{c['id']}.pt"
-                                    c_wav = CUSTOM_VOICES_DIR / f"{c['id']}.wav"
-                                    if c_pt.exists():
-                                        prompt_obj = VoiceClonePrompt.load(str(c_pt))
-                                    elif c_wav.exists():
-                                        ref_audio = str(c_wav)
-                                    break
-                except Exception as e:
-                    logger.warning(f"Lỗi tra cứu custom_voices.json: {e}")
-
-            if prompt_obj is not None or ref_audio is not None:
-                try:
-                    logger.info(f"🎙️ [OmniVoice TTS] Sinh câu '{text[:35]}...' bằng giọng {raw_id} (Ref: {Path(ref_audio).name if ref_audio else 'Prompt tensor'})")
-                    await asyncio.to_thread(
-                        generate_audio,
-                        text=text.strip(),
-                        output_path=output_path,
-                        mode="clone",
-                        voice_clone_prompt=prompt_obj,
-                        ref_audio=ref_audio,
-                        ref_text=ref_text,
-                        audio_format="mp3",
-                    )
-                    if output_path.exists() and output_path.stat().st_size > 500:
-                        synthesized = True
-                except Exception as oe:
-                    logger.error(f"❌ [OmniVoice] Lỗi sinh giọng '{raw_id}': {oe}")
-                    if not is_remote_gpu_enabled():
-                        logger.warning("Tự động fallback sang Edge-TTS tương ứng...")
-                    else:
-                        raise RuntimeError(f"Lỗi sinh giọng trên GPU: {oe}")
-
-        # Chuẩn hóa các tham số SSML cho Edge-TTS
-        clean_rate = rate if isinstance(rate, str) and rate.endswith("%") else "+0%"
         clean_pitch = pitch if isinstance(pitch, str) and pitch.endswith("Hz") else "+0Hz"
         if isinstance(volume, (int, float)):
             clean_volume = f"{int(round((float(volume) - 1.0) * 100)):+d}%" if volume != 1.0 else "+0%"
@@ -320,6 +255,100 @@ class DubbingService:
                     clean_volume = "+0%"
         else:
             clean_volume = "+0%"
+
+        synthesized = False
+        is_omnivoice = (engine.lower() == "omnivoice" or voice_id.startswith("omnivoice"))
+
+        if is_omnivoice:
+            raw_id = voice_id.replace("omnivoice:", "").strip()
+            prompt_obj = None
+            resolved_ref_audio = str(ref_audio) if (ref_audio and Path(ref_audio).exists()) else None
+            ref_text = None
+
+            # 1. Tìm trong thư mục Custom Voices nếu chưa có ref_audio chỉ định sẵn
+            if not resolved_ref_audio:
+                custom_pt = CUSTOM_VOICES_DIR / f"{raw_id}.pt"
+                custom_wav = CUSTOM_VOICES_DIR / f"{raw_id}.wav"
+            if custom_pt.exists():
+                try:
+                    prompt_obj = VoiceClonePrompt.load(str(custom_pt))
+                except Exception as e:
+                    logger.warning(f"Không thể đọc prompt cache {custom_pt}: {e}")
+            elif custom_wav.exists():
+                resolved_ref_audio = str(custom_wav)
+
+            # 2. Tìm trong thư mục Presets
+            if prompt_obj is None and resolved_ref_audio is None:
+                preset_pt = PRESETS_DIR / f"{raw_id}.pt"
+                preset_wav = PRESETS_DIR / f"{raw_id}.wav"
+                if preset_pt.exists():
+                    try:
+                        prompt_obj = VoiceClonePrompt.load(str(preset_pt))
+                    except Exception as e:
+                        logger.warning(f"Không thể đọc prompt cache {preset_pt}: {e}")
+                elif preset_wav.exists():
+                    resolved_ref_audio = str(preset_wav)
+
+            # 3. Tra cứu theo url/filename trong voices.json và custom_voices.json
+            if prompt_obj is None and resolved_ref_audio is None:
+                try:
+                    voices_json = PRESETS_DIR / "voices.json"
+                    if voices_json.exists():
+                        with open(voices_json, "r", encoding="utf-8") as f:
+                            presets = json.load(f)
+                            for p in presets:
+                                if p.get("id") == raw_id:
+                                    ref_text = p.get("prompt_text")
+                                    v_url = p.get("url", "")
+                                    v_fname = Path(v_url).name if v_url else ""
+                                    if v_fname:
+                                        p_candidate = PRESETS_DIR / v_fname
+                                        if p_candidate.exists():
+                                            resolved_ref_audio = str(p_candidate)
+                                    break
+                except Exception as e:
+                    logger.warning(f"Lỗi tra cứu voices.json: {e}")
+
+            if prompt_obj is None and resolved_ref_audio is None:
+                try:
+                    if CUSTOM_VOICES_JSON.exists():
+                        with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
+                            customs = json.load(f)
+                            for c in customs:
+                                if c.get("id") == raw_id:
+                                    ref_text = c.get("prompt_text")
+                                    c_pt = CUSTOM_VOICES_DIR / f"{c['id']}.pt"
+                                    c_wav = CUSTOM_VOICES_DIR / f"{c['id']}.wav"
+                                    if c_pt.exists():
+                                        prompt_obj = VoiceClonePrompt.load(str(c_pt))
+                                    elif c_wav.exists():
+                                        resolved_ref_audio = str(c_wav)
+                                    break
+                except Exception as e:
+                    logger.warning(f"Lỗi tra cứu custom_voices.json: {e}")
+
+            if prompt_obj is not None or resolved_ref_audio is not None:
+                try:
+                    logger.info(f"🎙️ [OmniVoice TTS] Sinh câu '{text[:35]}...' bằng giọng {raw_id} (Ref: {Path(resolved_ref_audio).name if resolved_ref_audio else 'Prompt tensor'}) [Speed: {speed_float}x]")
+                    await asyncio.to_thread(
+                        generate_audio,
+                        text=text.strip(),
+                        output_path=output_path,
+                        mode="clone",
+                        voice_clone_prompt=prompt_obj,
+                        ref_audio=resolved_ref_audio,
+                        ref_text=ref_text,
+                        speed=speed_float,
+                        audio_format="mp3",
+                    )
+                    if output_path.exists() and output_path.stat().st_size > 500:
+                        synthesized = True
+                except Exception as oe:
+                    logger.error(f"❌ [OmniVoice] Lỗi sinh giọng '{raw_id}': {oe}")
+                    if not is_remote_gpu_enabled():
+                        logger.warning("Tự động fallback sang Edge-TTS tương ứng...")
+                    else:
+                        raise RuntimeError(f"Lỗi sinh giọng trên GPU: {oe}")
 
         if not synthesized:
             # Xác định giọng đọc Edge-TTS chính xác
@@ -393,6 +422,8 @@ class DubbingService:
             "duration": round(actual_duration, 3),
             "target_duration": target_duration,
             "rate_ratio": round(rate_ratio, 3),
+            "speed": round(speed_float, 2),
+            "rate": clean_rate,
         }
 
     @classmethod
@@ -401,63 +432,128 @@ class DubbingService:
         segments: list[dict[str, Any]],
         voice_id: str = "vi-VN-HoaiMyNeural",
         engine: str = "edge-tts",
-        rate: str = "+0%",
+        rate: str | float = "+0%",
         pitch: str = "+0Hz",
-        volume: str = "+0%",
+        volume: str | float = "+0%",
         session_id: str | None = None,
         progress_callback: Any | None = None,
+        ref_audio: str | Path | None = None,
     ) -> dict[str, Any]:
-        """Lồng tiếng hàng loạt cho toàn bộ danh sách các câu phụ đề đã dịch."""
+        """
+        Lồng tiếng hàng loạt cho toàn bộ danh sách các câu phụ đề đã dịch.
+        Chống triệt để việc tráo đổi file âm thanh giữa các câu:
+        1. File audio đặt tên gắn chặt với seg_id: seg_{seg_id:04d}.mp3
+        2. Gán kết quả chính xác theo ID (Dict Mapping), không phụ thuộc vào thứ tự hoàn thành.
+        3. Bảo toàn 100% số lượng, thứ tự ban đầu và mỗi phần tử đều có audio_path chính xác.
+        """
+        if not segments:
+            return {
+                "session_id": session_id or uuid.uuid4().hex[:12],
+                "dubbed_segments": [],
+                "segments": [],
+                "total_segments": 0,
+                "total_duration": 0.0,
+                "engine": engine,
+                "voice_id": voice_id,
+            }
+
         if not session_id:
             session_id = uuid.uuid4().hex[:12]
 
         session_dir = DUBBING_OUTPUT_DIR / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        dubbed_segments = []
-        total_duration = 0.0
+        # 1. Chuẩn hóa ID để đảm bảo mọi câu đều có định danh ID duy nhất
+        for i, seg in enumerate(segments):
+            if "id" not in seg or seg["id"] is None:
+                seg["id"] = i + 1
+
+        result_map: dict[Any, dict[str, Any]] = {}
         total_segs = len(segments)
 
         for i, seg in enumerate(segments):
-            seg_id = seg.get("id", i + 1)
+            try:
+                seg_id = int(seg.get("id", i + 1))
+            except (ValueError, TypeError):
+                seg_id = i + 1
+
             text = seg.get("text", "").strip()
             start = float(seg.get("start", 0.0))
             end = float(seg.get("end", 0.0))
             target_duration = max(0.1, end - start)
 
-            if not text:
-                continue
-
+            # Yêu cầu 1: Đặt tên file audio gắn chặt với ID câu thoại: seg_{seg_id:04d}.mp3
             seg_file = session_dir / f"seg_{seg_id:04d}.mp3"
 
-            # Giữ nguyên 100% giọng đọc người dùng đã lựa chọn một cách nhất quán
-            cur_voice = voice_id
-
-            try:
-                res = await cls.synthesize_single(
-                    text=text,
-                    voice_id=cur_voice,
-                    engine=engine,
-                    rate=rate,
-                    pitch=pitch,
-                    volume=volume,
-                    output_path=seg_file,
-                    target_duration=target_duration,
+            cur_voice = seg.get("voice_id") or voice_id
+            seg_rate = seg.get("rate") if seg.get("rate") is not None else (
+                seg.get("speed") if seg.get("speed") is not None else (
+                    seg.get("speech_rate") if seg.get("speech_rate") is not None else (
+                        seg.get("voice_rate") if seg.get("voice_rate") is not None else rate
+                    )
                 )
+            )
+            seg_pitch = seg.get("pitch") if seg.get("pitch") is not None else (
+                seg.get("voice_pitch") if seg.get("voice_pitch") is not None else pitch
+            )
+            seg_ref_audio = seg.get("ref_audio") or ref_audio
 
-                dubbed_item = dict(seg)
-                dubbed_item.update({
-                    "audio_path": res["audio_path"],
+            if not text:
+                # Nếu text rỗng, tạo file khoảng lặng ngắn để giữ nguyên 100% số lượng segments
+                from pydub import AudioSegment
+                dur_ms = int(max(0.2, target_duration) * 1000)
+                silent_seg = AudioSegment.silent(duration=dur_ms, frame_rate=24000)
+                silent_seg.export(str(seg_file), format="mp3")
+                actual_dur = round(dur_ms / 1000.0, 3)
+
+                result_map[seg_id] = {
+                    "audio_path": str(seg_file),
                     "audio_url": f"/outputs/dubbing/{session_id}/{seg_file.name}",
-                    "duration": res["duration"],
+                    "duration": actual_dur,
                     "target_duration": round(target_duration, 3),
-                    "rate_ratio": res["rate_ratio"],
-                })
-                dubbed_segments.append(dubbed_item)
-                total_duration += res["duration"]
-
-            except Exception as e:
-                logger.error(f"[Dubbing Batch] Lỗi khi sinh câu {seg_id}: {e}")
+                    "rate_ratio": 1.0,
+                    "speed": 1.0,
+                    "rate": "+0%",
+                }
+            else:
+                try:
+                    res = await cls.synthesize_single(
+                        text=text,
+                        voice_id=cur_voice,
+                        engine=engine,
+                        rate=seg_rate,
+                        pitch=seg_pitch,
+                        volume=volume,
+                        output_path=seg_file,
+                        target_duration=target_duration,
+                        ref_audio=seg_ref_audio,
+                    )
+                    # Yêu cầu 2: Gán kết quả chính xác theo ID vào dictionary map
+                    result_map[seg_id] = {
+                        "audio_path": str(res["audio_path"]),
+                        "audio_url": f"/outputs/dubbing/{session_id}/{seg_file.name}",
+                        "duration": res["duration"],
+                        "target_duration": round(target_duration, 3),
+                        "rate_ratio": res["rate_ratio"],
+                        "speed": res.get("speed", 1.0),
+                        "rate": res.get("rate", "+0%"),
+                    }
+                except Exception as e:
+                    logger.error(f"[Dubbing Batch] Lỗi khi sinh câu ID {seg_id}: {e}")
+                    # Fallback an toàn: tạo file khoảng lặng để không đứt gãy timeline và mảng câu thoại
+                    from pydub import AudioSegment
+                    dur_ms = int(max(0.5, target_duration) * 1000)
+                    silent_seg = AudioSegment.silent(duration=dur_ms, frame_rate=24000)
+                    silent_seg.export(str(seg_file), format="mp3")
+                    result_map[seg_id] = {
+                        "audio_path": str(seg_file),
+                        "audio_url": f"/outputs/dubbing/{session_id}/{seg_file.name}",
+                        "duration": round(dur_ms / 1000.0, 3),
+                        "target_duration": round(target_duration, 3),
+                        "rate_ratio": 1.0,
+                        "speed": 1.0,
+                        "rate": "+0%",
+                    }
 
             if progress_callback:
                 try:
@@ -468,12 +564,34 @@ class DubbingService:
                 except Exception as p_err:
                     logger.debug(f"Lỗi progress callback: {p_err}")
 
-            # Khoảng nghỉ nhẹ tránh nghẽn
             await asyncio.sleep(0.04)
+
+        # Yêu cầu 2 & 3: Ráp kết quả chính xác ngược lại danh sách segments gốc theo ID
+        dubbed_segments = []
+        total_duration = 0.0
+
+        for seg in segments:
+            try:
+                seg_id = int(seg.get("id"))
+            except (ValueError, TypeError):
+                seg_id = seg.get("id")
+
+            dubbed_item = dict(seg)
+            if seg_id in result_map:
+                dubbed_item.update(result_map[seg_id])
+            else:
+                fallback_file = session_dir / f"seg_{seg_id:04d}.mp3"
+                dubbed_item["audio_path"] = str(fallback_file)
+
+            # Đảm bảo trường audio_path luôn chuẩn xác
+            dubbed_item["audio_path"] = str(dubbed_item.get("audio_path", ""))
+            total_duration += float(dubbed_item.get("duration", 0.0))
+            dubbed_segments.append(dubbed_item)
 
         return {
             "session_id": session_id,
             "dubbed_segments": dubbed_segments,
+            "segments": dubbed_segments,
             "total_segments": len(dubbed_segments),
             "total_duration": round(total_duration, 3),
             "engine": engine,

@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 _whisper_model: WhisperModel | None = None
 _current_model_size: str | None = None
 
-# Đọc cấu hình Whisper từ .env (Kích hoạt large-v3 làm mô hình chuẩn cao cấp)
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3-turbo").strip().lower()
+# Đọc cấu hình Whisper từ .env (Kích hoạt large-v3 làm mô hình chuẩn cao cấp 1.55 tỷ tham số)
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3").strip().lower()
 
 
 def get_whisper_model(model_size: str | None = None) -> WhisperModel:
@@ -60,26 +60,19 @@ def get_whisper_model(model_size: str | None = None) -> WhisperModel:
 def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
     """
     Trích xuất âm thanh từ video sang định dạng WAV 16kHz Mono (chuẩn tối ưu cho Whisper).
-    Không dùng filter aresample async để bảo toàn 100% độ đồng bộ mốc thời gian chuẩn xác với video.
+    Bắt buộc sử dụng bộ lọc aresample=async=1:first_pts=0 để neo chuẩn xác mốc thời gian bắt đầu
+    tại PTS=0 và triệt tiêu hoàn toàn hiện tượng trôi mẫu âm thanh (sample drift), chống lệch timestamp.
     Nếu video không có luồng âm thanh nào (video câm), tự động tạo âm thanh im lặng (silent audio) để không crash.
     """
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "ffmpeg",
-        "-y",
-        "-threads",
-        "0",
-        "-i",
-        str(video_path),
+        "ffmpeg", "-y",
+        "-i", str(video_path),
         "-vn",
-        "-sn",
-        "-dn",
-        "-acodec",
-        "pcm_s16le",
-        "-ar",
-        "16000",
-        "-ac",
-        "1",
+        "-af", "aresample=async=1:first_pts=0",
+        "-ar", "16000",
+        "-ac", "1",
+        "-c:a", "pcm_s16le",
         str(output_audio_path),
     ]
     logger.info(f"Trích xuất âm thanh chuẩn mốc thời gian: {video_path.name} -> {output_audio_path.name}")
@@ -98,7 +91,7 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
                 "anullsrc=r=16000:cl=mono",
                 "-t",
                 "1",
-                "-acodec",
+                "-c:a",
                 "pcm_s16le",
                 str(output_audio_path),
             ]
@@ -194,6 +187,102 @@ def separate_vocals_demucs(audio_path: Path, output_dir: Path, enable_demucs: bo
 
 SENTENCE_ENDINGS = re.compile(r"[.!?。！？…]+['\"”’]?$")
 CLAUSE_ENDINGS = re.compile(r"[,;:\-–—，、；：]+['\"”’]?$")
+
+
+def heal_and_merge_segments(segments: list[dict[str, Any]], max_gap: float = 0.85) -> list[dict[str, Any]]:
+    """
+    Thuật toán tự động phát hiện và nối các câu bị ngắt quãng / chém đôi do AI ASR nhận diện nhầm,
+    đảm bảo ngữ nghĩa câu văn trọn vẹn trước khi chuyển sang bước dịch.
+    
+    Quy tắc chống lệch timestamp tuyệt đối:
+    1. start: Giữ nguyên 100% mốc bắt đầu của phân đoạn đầu tiên, tuyệt đối không tính lại.
+    2. end: Cập nhật bằng đúng mốc kết thúc của phân đoạn hiện tại (seg["end"]).
+    3. words: Gộp mảng word-level timestamps của phân đoạn mới vào câu gộp.
+    4. Điều kiện an toàn: Nếu khoảng lặng gap > max_gap hoặc câu trước đã có dấu ngắt câu (. ! ? 。 ！ ？ …),
+       tuyệt đối không gộp mà tách thành segment độc lập.
+    """
+    if not segments or len(segments) <= 1:
+        return segments
+
+    SENTENCE_ENDS = ('.', '!', '?', '。', '！', '？', '…')
+    CONNECTORS_VI = {
+        "và", "nhưng", "hoặc", "vì", "mà", "để", "với", "rằng", "của", "tại", "thì", "là", "do",
+        "nếu", "khi", "như", "thế", "nên", "cho", "về", "trong", "bởi", "tuy", "dù", "rồi", "lại"
+    }
+    CONNECTORS_EN = {
+        "and", "but", "or", "because", "which", "that", "to", "with", "for", "about", "so",
+        "then", "if", "when", "as", "although", "while", "where", "after", "before", "by"
+    }
+    CONNECTORS_ZH = {
+        "和", "但是", "因为", "所以", "如果", "虽然", "而且", "或者", "关于", "然后", "就是", "还有"
+    }
+
+    merged: list[dict[str, Any]] = [dict(segments[0])]
+
+    for seg in segments[1:]:
+        prev = merged[-1]
+        prev_txt = str(prev.get("text", "")).strip()
+        curr_txt = str(seg.get("text", "")).strip()
+
+        if not curr_txt:
+            continue
+        if not prev_txt:
+            merged[-1] = dict(seg)
+            continue
+
+        prev_end = float(prev.get("end", 0.0))
+        curr_start = float(seg.get("start", 0.0))
+        curr_end = float(seg.get("end", curr_start))
+        gap = curr_start - prev_end
+
+        # Kiểm tra dấu câu kết thúc của câu trước
+        has_sentence_end = any(prev_txt.endswith(punct) for punct in SENTENCE_ENDS)
+
+        # 1. Điều kiện chặn: Khoảng lặng quá lớn hoặc câu trước đã kết thúc trọn vẹn
+        if gap > max_gap or has_sentence_end or gap < 0:
+            merged.append(dict(seg))
+            continue
+
+        # 2. Kiểm tra câu sau có phải là vế tiếp nối tự nhiên (chữ thường hoặc từ nối)
+        first_word = curr_txt.split()[0].lower() if curr_txt.split() else ""
+        first_char = curr_txt[0]
+
+        is_continuation = (
+            first_char.islower()
+            or first_word in CONNECTORS_VI
+            or first_word in CONNECTORS_EN
+            or any(curr_txt.startswith(zh_c) for zh_c in CONNECTORS_ZH)
+            or (not has_sentence_end and gap <= 0.40)  # Câu trước bị ngắt cụt và nối tiếp ngay lập tức
+        )
+
+        if is_continuation:
+            is_cjk = any('\u4e00' <= char <= '\u9fff' for char in prev_txt[-2:] + curr_txt[:2])
+            separator = "" if is_cjk else " "
+
+            # Ghép văn bản
+            prev["text"] = f"{prev_txt}{separator}{curr_txt}".strip()
+            
+            # Cập nhật end của câu trước thành end của câu hiện tại (giữ nguyên start của prev)
+            prev["end"] = curr_end
+
+            # Bảo tồn danh sách word-level timestamps gốc từ Whisper
+            if "words" in seg and isinstance(seg["words"], list):
+                if "words" not in prev or not isinstance(prev["words"], list):
+                    prev["words"] = []
+                prev["words"].extend(seg["words"])
+
+            if "original_text" in prev and "original_text" in seg:
+                prev_orig = str(prev.get("original_text", "")).strip()
+                curr_orig = str(seg.get("original_text", "")).strip()
+                prev["original_text"] = f"{prev_orig}{separator}{curr_orig}".strip()
+        else:
+            merged.append(dict(seg))
+
+    # Đánh lại ID cho các phân đoạn
+    for i, s in enumerate(merged, start=1):
+        s["id"] = i
+
+    return merged
 
 
 def sanitize_word_timestamps(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -493,13 +582,16 @@ def transcribe_with_remote_or_local(
     beam_size: int = 3,
     word_timestamps: bool = True,
     filter_hallucinations: bool = False,
-) -> tuple[list[dict[str, Any]], str]:
+    task_dir: Path | None = None,
+) -> tuple[list[dict[str, Any]], str, Path | None]:
     """
-    Nhận diện giọng nói STT thông minh:
-    - Nếu USE_REMOTE_GPU=True: Gửi audio WAV lên Cloud GPU Colab (Tesla T4) để nhận diện,
-      giải phóng 100% VRAM card đồ họa máy local.
+    Nhận diện giọng nói STT thông minh kết hợp tách Demucs AI:
+    - Nếu USE_REMOTE_GPU=True: Gửi audio lên Cloud GPU (Tesla T4 / NVIDIA A100) qua endpoint
+      /api/remote/transcribe_with_demucs để vừa bóc tách thoại sạch (Vocals), vừa tách nhạc nền (BGM),
+      vừa chạy Faster-Whisper, giải phóng 100% tài nguyên CPU/VRAM máy local.
+      Tự động tải file nhạc nền no_vocals.wav về lưu vào thư mục task.
     - Nếu mất kết nối hoặc USE_REMOTE_GPU=False: Tự động dùng Faster-Whisper local.
-    Trả về: (segments_list, detected_language)
+    Trả về: (segments_list, detected_language, bgm_path)
     """
     from model_handler import (
         is_remote_gpu_enabled,
@@ -513,19 +605,67 @@ def transcribe_with_remote_or_local(
     if lang_arg == "zh" and (not initial_prompt or not initial_prompt.strip()):
         initial_prompt = "以下是普通话的句子，请用简体中文输出。"
 
+    effective_task_dir = task_dir or audio_path.parent
+
     # 1. Gửi lên Remote GPU Worker (Hugging Face ZeroGPU A100 hoặc Google Colab T4)
     if is_remote_gpu_enabled():
         remote_url = get_remote_gpu_url()
-        endpoint = _remote_url("transcribe")
+        endpoint = _remote_url("transcribe_with_demucs")
         headers = _remote_headers()
+
+        # Nén audio trước khi tải lên Cloud GPU để giảm 90-95% dung lượng upload, chống timeout và đứt kết nối mạng
+        compressed_audio_path = None
+        upload_path = audio_path
+        upload_mime = "audio/wav"
+
+        try:
+            compressed_candidate = effective_task_dir / f"compressed_{audio_path.stem}.opus"
+            cmd_opus = [
+                "ffmpeg", "-y", "-i", str(audio_path),
+                "-c:a", "libopus", "-b:a", "32k",
+                "-ar", "16000", "-ac", "1",
+                str(compressed_candidate),
+            ]
+            comp_res = subprocess.run(cmd_opus, capture_output=True, text=True)
+            if comp_res.returncode == 0 and compressed_candidate.exists() and compressed_candidate.stat().st_size > 500:
+                compressed_audio_path = compressed_candidate
+                upload_path = compressed_candidate
+                upload_mime = "audio/opus"
+                orig_kb = round(audio_path.stat().st_size / 1024, 1)
+                comp_kb = round(compressed_candidate.stat().st_size / 1024, 1)
+                reduction = round((1.0 - (comp_kb / max(1.0, orig_kb))) * 100, 1)
+                logger.info(f"🗜️ [Audio Compression] Nén audio thành công: {orig_kb}KB -> {comp_kb}KB (-{reduction}%) [Opus 32kbps mono]")
+            else:
+                # Fallback qua MP3 48kbps nếu hệ thống thiếu libopus
+                compressed_mp3 = effective_task_dir / f"compressed_{audio_path.stem}.mp3"
+                cmd_mp3 = [
+                    "ffmpeg", "-y", "-i", str(audio_path),
+                    "-c:a", "libmp3lame", "-b:a", "48k",
+                    "-ar", "16000", "-ac", "1",
+                    str(compressed_mp3),
+                ]
+                comp_res2 = subprocess.run(cmd_mp3, capture_output=True, text=True)
+                if comp_res2.returncode == 0 and compressed_mp3.exists() and compressed_mp3.stat().st_size > 500:
+                    compressed_audio_path = compressed_mp3
+                    upload_path = compressed_mp3
+                    upload_mime = "audio/mpeg"
+                    orig_kb = round(audio_path.stat().st_size / 1024, 1)
+                    comp_kb = round(compressed_mp3.stat().st_size / 1024, 1)
+                    reduction = round((1.0 - (comp_kb / max(1.0, orig_kb))) * 100, 1)
+                    logger.info(f"🗜️ [Audio Compression] Nén audio thành công: {orig_kb}KB -> {comp_kb}KB (-{reduction}%) [MP3 48kbps mono]")
+        except Exception as comp_err:
+            logger.warning(f"⚠️ Nén audio gặp lỗi ({comp_err}), giữ nguyên file gốc để gửi: {audio_path.name}")
+            upload_path = audio_path
+            upload_mime = "audio/wav"
+
         logger.info(
-            f"🌐 [Remote STT] Gửi audio '{audio_path.name}' lên Cloud GPU: {endpoint} (Lang={lang_arg or 'auto'}, Model={target_size})..."
+            f"🌐 [Remote STT + Demucs] Gửi audio '{upload_path.name}' lên Cloud GPU: {endpoint} (Lang={lang_arg or 'auto'}, Model={target_size})..."
         )
         remote_error = None
         try:
             import httpx
-            with open(audio_path, "rb") as af:
-                files = {"audio_file": (audio_path.name, af, "audio/wav")}
+            with open(upload_path, "rb") as af:
+                files = {"audio_file": (upload_path.name, af, upload_mime)}
                 data = {
                     "language": lang_arg or "",
                     "model_size": target_size,
@@ -539,21 +679,61 @@ def transcribe_with_remote_or_local(
                 }
                 with httpx.Client(timeout=600.0) as client:
                     resp = client.post(endpoint, files=files, data=data, headers=headers)
+                    # Nếu endpoint transcribe_with_demucs trả về 404 (worker cũ chưa cập nhật), fallback về /transcribe
+                    if resp.status_code == 404:
+                        logger.warning(f"⚠️ Endpoint '{endpoint}' trả về 404. Tự động fallback sang endpoint tiêu chuẩn 'transcribe'...")
+                        af.seek(0)
+                        fallback_endpoint = _remote_url("transcribe")
+                        resp = client.post(fallback_endpoint, files={"audio_file": (upload_path.name, af, upload_mime)}, data=data, headers=headers)
 
             if resp.status_code == 200:
                 res_data = resp.json()
                 detected_lang = res_data.get("language") or lang_arg or "vi"
                 segments = res_data.get("segments", [])
+                bgm_filename = res_data.get("bgm_filename")
+                bgm_download_url = res_data.get("bgm_download_url")
+
+                bgm_path: Path | None = None
+                # Tải file nhạc nền (BGM) về nếu worker đã bóc tách thành công bằng Demucs AI
+                if bgm_filename or bgm_download_url:
+                    effective_task_dir.mkdir(parents=True, exist_ok=True)
+                    bgm_local_path = effective_task_dir / "no_vocals.wav"
+
+                    download_endpoint = _remote_url(f"download_bgm/{bgm_filename}") if bgm_filename else (
+                        f"{remote_url.rstrip('/')}{bgm_download_url}"
+                    )
+                    logger.info(f"📥 [Remote BGM] Đang tải nhạc nền tách bởi Demucs từ worker: {download_endpoint}...")
+                    try:
+                        with httpx.Client(timeout=180.0) as dl_client:
+                            bgm_resp = dl_client.get(download_endpoint, headers=headers)
+                            if bgm_resp.status_code == 200 and len(bgm_resp.content) > 1000:
+                                with open(bgm_local_path, "wb") as bf:
+                                    bf.write(bgm_resp.content)
+                                bgm_path = bgm_local_path
+                                size_mb = round(bgm_local_path.stat().st_size / (1024 * 1024), 2)
+                                logger.info(f"✨ [Remote BGM] Tải thành công nhạc nền về máy: {bgm_local_path.name} ({size_mb} MB)")
+                            else:
+                                logger.warning(f"⚠️ Không thể tải BGM từ worker (HTTP Status: {bgm_resp.status_code})")
+                    except Exception as dl_err:
+                        logger.warning(f"⚠️ Lỗi khi tải file BGM từ worker ({dl_err}), fallback sang audio gốc")
+
                 logger.info(
-                    f"🎉 [Remote STT] Nhận diện thành công {len(segments)} câu trên Cloud GPU (Ngôn ngữ: {detected_lang})!"
+                    f"🎉 [Remote STT + Demucs] Nhận diện thành công {len(segments)} câu trên Cloud GPU (Ngôn ngữ: {detected_lang}, BGM: {bool(bgm_path)})!"
                 )
-                return segments, detected_lang
+                return segments, detected_lang, bgm_path
             else:
                 remote_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
                 logger.error(f"❌ [Remote STT] Cloud GPU Worker ({endpoint}) trả về lỗi: {remote_error}")
         except Exception as e:
             remote_error = str(e)
             logger.error(f"❌ [Remote STT] Lỗi kết nối Cloud GPU ({endpoint}): {remote_error}")
+        finally:
+            if compressed_audio_path and compressed_audio_path.exists():
+                try:
+                    os.remove(compressed_audio_path)
+                    logger.debug(f"🧹 Đã xóa file nén tạm thời: {compressed_audio_path.name}")
+                except OSError:
+                    pass
 
         # Khi người dùng đã BẬT Cloud GPU: Tuyệt đối KHÔNG tự ý tải mô hình nặng lên máy local vì máy có thể không có GPU
         raise RuntimeError(
@@ -638,7 +818,11 @@ def transcribe_with_remote_or_local(
             "words": words_data,
         })
 
-    return result_segments, info.language
+    return result_segments, info.language, None
+
+
+# Alias hỗ trợ gọi đồng bộ/tương thích
+transcribe_with_remote_gpu = transcribe_with_remote_or_local
 
 
 def transcribe_video_audio(
@@ -664,7 +848,7 @@ def transcribe_video_audio(
     vocal_res = separate_vocals_demucs(audio_path, audio_path.parent, enable_demucs=True)
     whisper_audio = vocal_res.get("vocals", audio_path)
 
-    result_segments, _ = transcribe_with_remote_or_local(
+    stt_res = transcribe_with_remote_or_local(
         audio_path=whisper_audio,
         language=language,
         model_size=model_size,
@@ -677,6 +861,7 @@ def transcribe_video_audio(
         word_timestamps=True,
         filter_hallucinations=filter_hallucinations,
     )
+    result_segments = stt_res[0] if isinstance(stt_res, (list, tuple)) else stt_res
 
     # Nếu có kịch bản đối chiếu, tự động so khớp và chia nhỏ câu
     if reference_script and reference_script.strip():

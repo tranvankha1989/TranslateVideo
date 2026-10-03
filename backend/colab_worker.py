@@ -19,9 +19,12 @@ import gc
 import re
 import sys
 import glob
+import uuid
+import shutil
 import ctypes
 import tempfile
 import logging
+import subprocess
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
@@ -31,7 +34,7 @@ import soundfile as sf
 # pyrefly: ignore [missing-import]
 import numpy as np
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from omnivoice import OmniVoice, VoiceClonePrompt
@@ -45,6 +48,8 @@ logger = logging.getLogger("colab_worker")
 
 SAMPLE_RATE = 24_000
 MODEL_ID = os.getenv("OMNIVOICE_MODEL_ID", "k2-fsa/OmniVoice")
+BGM_STORAGE_DIR = Path(tempfile.gettempdir()) / "colab_bgm"
+BGM_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 def preload_cuda_libraries():
     """Tự động tìm nạp các file libcublas.so, libcudnn.so từ site-packages vào bộ nhớ tiến trình trên Linux/Colab."""
@@ -106,7 +111,7 @@ def clean_vram():
         torch.cuda.ipc_collect()
 
 
-def get_whisper(model_size: str = "large-v3-turbo", force_cpu: bool = False):
+def get_whisper(model_size: str = "large-v3", force_cpu: bool = False):
     """Nạp Faster-Whisper trên GPU với cơ chế lazy load và dự phòng CPU tự động."""
     global _whisper_model, _whisper_model_size
     target = model_size.strip().lower()
@@ -292,35 +297,28 @@ async def create_prompt_endpoint(
         clean_vram()
 
 
-@app.post("/api/remote/transcribe")
-@app.post("/gradio_api/remote/transcribe")
-async def transcribe_endpoint(
-    audio_file: UploadFile = File(...),
-    language: str | None = Form(default=None),
-    model_size: str | None = Form(default="large-v3-turbo"),
-    initial_prompt: str | None = Form(default=None),
-    vad_filter: bool = Form(default=True),
-    vad_threshold: float = Form(default=0.50),
-    min_speech_duration_ms: int = Form(default=150),
-    min_silence_duration_ms: int = Form(default=350),
-    speech_pad_ms: int = Form(default=150),
-    beam_size: int = Form(default=3),
-):
-    """
-    Bóc tách phụ đề và nhận diện giọng nói sử dụng Faster-Whisper trên Colab GPU.
-    Áp dụng Smart VRAM: Nạp mô hình theo nhu cầu, tự động fallback sang CPU nếu CUDA gặp lỗi,
-    và dọn sạch VRAM sau khi hoàn thành.
-    """
-    suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_audio:
-        content = await audio_file.read()
-        tmp_audio.write(content)
-        tmp_audio_path = tmp_audio.name
+def _execute_whisper_transcription(
+    audio_path: str | Path,
+    language: str | None = None,
+    model_size: str | None = "large-v3",
+    initial_prompt: str | None = None,
+    vad_filter: bool = True,
+    vad_threshold: float = 0.50,
+    min_speech_duration_ms: int = 150,
+    min_silence_duration_ms: int = 350,
+    speech_pad_ms: int = 150,
+    beam_size: int = 3,
+) -> dict:
+    """Hàm lõi thực hiện bóc tách phụ đề bằng Faster-Whisper."""
+    audio_path_str = str(audio_path)
+    lang_arg = None if (not language or language == "auto") else language.split("-")[0]
+    chinese_prompt = initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None
+    if lang_arg == "zh" and not chinese_prompt:
+        chinese_prompt = "以下是普通话的句子，请用简体中文输出。"
 
     def _do_transcribe(whisper_inst):
-        # Nạp audio đầu vào an toàn: nạp bằng soundfile/numpy float32 16kHz để bỏ qua hoàn toàn lỗi PyAV metadata_errors
         try:
-            audio_data, sr = sf.read(tmp_audio_path, dtype="float32")
+            audio_data, sr = sf.read(audio_path_str, dtype="float32")
             if audio_data.ndim > 1:
                 audio_data = np.mean(audio_data, axis=1)
             if sr != 16000:
@@ -328,8 +326,8 @@ async def transcribe_endpoint(
                 audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
             audio_input = audio_data
         except Exception as load_err:
-            logger.warning(f"⚠️ Tiền xử lý audio bằng soundfile gặp lỗi ({load_err}), sử dụng đường dẫn file trực tiếp: {tmp_audio_path}")
-            audio_input = tmp_audio_path
+            logger.warning(f"⚠️ Tiền xử lý audio bằng soundfile lỗi ({load_err}), dùng file trực tiếp: {audio_path_str}")
+            audio_input = audio_path_str
 
         segments_gen, info = whisper_inst.transcribe(
             audio_input,
@@ -371,7 +369,6 @@ async def transcribe_endpoint(
             if not txt and not words_data:
                 continue
 
-            # Mốc thời gian chính xác theo từ (không bị trễ đầu và cắt cụt đuôi)
             if words_data:
                 for wi in range(len(words_data)):
                     w_item = words_data[wi]
@@ -416,31 +413,102 @@ async def transcribe_endpoint(
         return result_segments, det_lang, info
 
     try:
-        lang_arg = None if (not language or language == "auto") else language.split("-")[0]
-        chinese_prompt = initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None
-        if lang_arg == "zh" and not chinese_prompt:
-            chinese_prompt = "以下是普通话的句子，请用简体中文输出。"
-        
-        logger.info(
-            f"🎙️ [Colab Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size or 'large-v3-turbo'}, VAD Threshold: {vad_threshold})..."
+        whisper = get_whisper(model_size or "large-v3", force_cpu=False)
+        result_segments, det_lang, info = _do_transcribe(whisper)
+    except Exception as e:
+        logger.warning(f"⚠️ Nhận diện bằng CUDA lỗi ({e}), chuyển sang CPU...")
+        whisper_cpu = get_whisper(model_size or "large-v3", force_cpu=True)
+        result_segments, det_lang, info = _do_transcribe(whisper_cpu)
+
+    return {
+        "status": "ok",
+        "language": det_lang,
+        "language_probability": round(float(getattr(info, "language_probability", 1.0)), 3),
+        "duration": round(float(getattr(info, "duration", 0.0)), 2),
+        "segments": result_segments,
+    }
+
+
+def separate_vocals_with_demucs(audio_path: str | Path) -> tuple[Path, Path | None, Path | None]:
+    """
+    Sử dụng Demucs (htdemucs --two-stems=vocals) trên CUDA để tách Vocals và BGM.
+    Trả về (vocals_path, bgm_path, out_dir). Nếu lỗi, trả về (audio_path, None, None).
+    """
+    audio_path = Path(audio_path)
+    stem = audio_path.stem
+    out_dir = Path(tempfile.gettempdir()) / f"demucs_{uuid.uuid4().hex[:8]}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    logger.info(f"🎙️ [Demucs AI] Bắt đầu tách Vocals & BGM bằng htdemucs trên {device.upper()}...")
+    cmd = [
+        sys.executable,
+        "-m", "demucs.separate",
+        "-n", "htdemucs",
+        "--two-stems=vocals",
+        "-d", device,
+        "-o", str(out_dir),
+        str(audio_path),
+    ]
+    try:
+        clean_vram()
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
+        clean_vram()
+        if res.returncode == 0:
+            demucs_vocals = out_dir / "htdemucs" / stem / "vocals.wav"
+            demucs_bgm = out_dir / "htdemucs" / stem / "no_vocals.wav"
+            if demucs_vocals.exists() and demucs_bgm.exists():
+                logger.info("✨ [Demucs AI] Tách thành công Vocals và BGM trên GPU!")
+                return demucs_vocals, demucs_bgm, out_dir
+            else:
+                logger.warning(f"⚠️ Không tìm thấy file đầu ra của Demucs trong {out_dir}")
+        else:
+            logger.warning(f"⚠️ Demucs CLI lỗi ({res.returncode}): {res.stderr[:200]}")
+    except Exception as e:
+        logger.warning(f"⚠️ Ngoại lệ khi chạy Demucs AI: {e}")
+    finally:
+        clean_vram()
+
+    return audio_path, None, out_dir
+
+
+@app.post("/api/remote/transcribe")
+@app.post("/gradio_api/remote/transcribe")
+async def transcribe_endpoint(
+    audio_file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+    model_size: str | None = Form(default="large-v3"),
+    initial_prompt: str | None = Form(default=None),
+    vad_filter: bool = Form(default=True),
+    vad_threshold: float = Form(default=0.50),
+    min_speech_duration_ms: int = Form(default=150),
+    min_silence_duration_ms: int = Form(default=350),
+    speech_pad_ms: int = Form(default=150),
+    beam_size: int = Form(default=3),
+):
+    """Bóc tách phụ đề và nhận diện giọng nói sử dụng Faster-Whisper trên Colab GPU."""
+    suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_audio:
+        content = await audio_file.read()
+        tmp_audio.write(content)
+        tmp_audio_path = tmp_audio.name
+
+    try:
+        logger.info(f"🎙️ [Colab Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {language or 'auto'}, Model: {model_size})...")
+        res_data = _execute_whisper_transcription(
+            audio_path=tmp_audio_path,
+            language=language,
+            model_size=model_size,
+            initial_prompt=initial_prompt,
+            vad_filter=vad_filter,
+            vad_threshold=vad_threshold,
+            min_speech_duration_ms=min_speech_duration_ms,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms,
+            beam_size=beam_size,
         )
-
-        try:
-            whisper = get_whisper(model_size or "large-v3-turbo", force_cpu=False)
-            result_segments, det_lang, info = _do_transcribe(whisper)
-        except Exception as e:
-            logger.warning(f"⚠️ Nhận diện bằng CUDA thất bại ({e}), tự động chuyển sang chế độ CPU dự phòng...")
-            whisper_cpu = get_whisper(model_size or "large-v3-turbo", force_cpu=True)
-            result_segments, det_lang, info = _do_transcribe(whisper_cpu)
-
-        logger.info(f"✅ [Colab Whisper STT] Đã nhận diện {len(result_segments)} câu (Ngôn ngữ: {det_lang})!")
-        return JSONResponse(content={
-            "status": "ok",
-            "language": det_lang,
-            "language_probability": round(float(getattr(info, "language_probability", 1.0)), 3),
-            "duration": round(float(getattr(info, "duration", 0.0)), 2),
-            "segments": result_segments,
-        })
+        logger.info(f"✅ [Colab Whisper STT] Đã nhận diện {len(res_data.get('segments', []))} câu!")
+        return JSONResponse(content=res_data)
     except Exception as exc:
         import traceback
         err_detail = traceback.format_exc()
@@ -455,6 +523,101 @@ async def transcribe_endpoint(
         except OSError:
             pass
         clean_vram()
+
+
+@app.post("/api/remote/transcribe_with_demucs")
+@app.post("/gradio_api/remote/transcribe_with_demucs")
+async def transcribe_with_demucs_endpoint(
+    audio_file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+    model_size: str | None = Form(default="large-v3"),
+    initial_prompt: str | None = Form(default=None),
+    vad_filter: bool = Form(default=True),
+    vad_threshold: float = Form(default=0.50),
+    min_speech_duration_ms: int = Form(default=150),
+    min_silence_duration_ms: int = Form(default=350),
+    speech_pad_ms: int = Form(default=150),
+    beam_size: int = Form(default=3),
+):
+    """
+    Tách Vocals sạch bằng Demucs AI trên GPU, đưa Vocals vào Faster-Whisper để nhận diện phụ đề,
+    và lưu BGM (no_vocals) vào kho tạm để ứng dụng tải về qua /api/remote/download_bgm/{filename}.
+    """
+    suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_audio:
+        content = await audio_file.read()
+        tmp_audio.write(content)
+        tmp_audio_path = Path(tmp_audio.name)
+
+    bgm_filename = None
+    bgm_url = None
+    temp_demucs_dir = None
+
+    try:
+        # 1. Tách Vocals và BGM bằng Demucs AI
+        vocals_path, bgm_path, temp_demucs_dir = separate_vocals_with_demucs(tmp_audio_path)
+        if bgm_path and bgm_path.exists():
+            bgm_filename = f"bgm_{uuid.uuid4().hex[:10]}.wav"
+            saved_bgm = BGM_STORAGE_DIR / bgm_filename
+            shutil.copyfile(str(bgm_path), str(saved_bgm))
+            bgm_url = f"/api/remote/download_bgm/{bgm_filename}"
+            logger.info(f"🎶 [BGM Saved] Đã lưu nhạc nền: {bgm_filename} ({saved_bgm.stat().st_size / (1024 * 1024):.1f} MB)")
+
+        # 2. Đưa vocals sạch vào Faster-Whisper
+        target_audio = vocals_path if vocals_path.exists() else tmp_audio_path
+        clean_vram()
+
+        res_data = _execute_whisper_transcription(
+            audio_path=target_audio,
+            language=language,
+            model_size=model_size,
+            initial_prompt=initial_prompt,
+            vad_filter=vad_filter,
+            vad_threshold=vad_threshold,
+            min_speech_duration_ms=min_speech_duration_ms,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms,
+            beam_size=beam_size,
+        )
+
+        res_data["bgm_filename"] = bgm_filename
+        res_data["bgm_download_url"] = bgm_url
+        res_data["vocals_separated"] = bool(bgm_path is not None)
+
+        logger.info(f"✅ [Demucs + Whisper] Nhận diện xong {len(res_data.get('segments', []))} câu kèm nhạc nền BGM!")
+        return JSONResponse(content=res_data)
+
+    except Exception as exc:
+        import traceback
+        err_detail = traceback.format_exc()
+        logger.error(f"❌ [Colab Demucs Transcribe Error]: {err_detail}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(exc), "traceback": err_detail},
+        )
+    finally:
+        try:
+            if tmp_audio_path.exists():
+                tmp_audio_path.unlink()
+        except OSError:
+            pass
+        if temp_demucs_dir and Path(temp_demucs_dir).exists():
+            shutil.rmtree(temp_demucs_dir, ignore_errors=True)
+        clean_vram()
+
+
+@app.get("/api/remote/download_bgm/{filename}")
+@app.get("/gradio_api/remote/download_bgm/{filename}")
+async def download_bgm_endpoint(filename: str):
+    """Tải file nhạc nền (BGM / no_vocals) đã tách bằng Demucs từ GPU."""
+    file_path = BGM_STORAGE_DIR / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy file nhạc nền: {filename}")
+    return FileResponse(
+        path=str(file_path),
+        media_type="audio/wav",
+        filename=filename,
+    )
 
 
 @app.post("/api/remote/generate")

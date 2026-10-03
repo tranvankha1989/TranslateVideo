@@ -1,6 +1,6 @@
 {
-  "version": "3.4.9",
+  "version": "3.5.0",
   "name": "VideoTranslate AI",
-  "release_date": "2026-10-02",
-  "description": "Nâng cấp V3.4.9: Tối ưu hoá Google Colab Worker — nạp âm thanh trực tiếp qua soundfile tránh lỗi PyAV metadata_errors của Faster-Whisper, chuyển mã nhúng trong Notebook sang Base64 chuẩn và bổ sung av>=11.0.0."
+  "release_date": "2026-10-03",
+  "description": "Nâng cấp V3.5.0: Tích hợp Demucs AI tách nhạc nền BGM & Vocals trên Cloud GPU/Colab, chuẩn hóa đồng bộ timestamp âm thanh (aresample PTS=0), chống lệch câu thoại bằng ID mapping trong dịch thuật và lồng tiếng, thiết lập mặc định Faster-Whisper large-v3."
 }
