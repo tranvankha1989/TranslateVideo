@@ -102,30 +102,11 @@
     100% { background-position: 0 0; }
   }
 
-  /* Step & Tab Transition Animation (Liquid Smooth with micro-blur) */
-  @keyframes stepFadeSlide {
+  /* Step & Tab Transition Animation (Soft Dissolve Fade In - Mờ dần rồi hiện êm ái) */
+  @keyframes softDissolveFade {
     0% {
       opacity: 0;
-      transform: translateY(10px) scale(0.992);
-      filter: blur(2px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-      filter: blur(0);
-    }
-  }
-
-  .step-transition {
-    animation: stepFadeSlide 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    will-change: transform, opacity, filter;
-  }
-
-  /* Smooth Fade In Animation */
-  @keyframes smoothFadeIn {
-    0% {
-      opacity: 0;
-      transform: translateY(6px);
+      transform: translateY(2px);
     }
     100% {
       opacity: 1;
@@ -133,9 +114,24 @@
     }
   }
 
+  .step-transition {
+    animation: softDissolveFade 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    will-change: opacity, transform;
+  }
+
+  /* Smooth Fade In Animation */
+  @keyframes smoothFadeIn {
+    0% {
+      opacity: 0;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+
   .animate-fadeIn {
-    animation: smoothFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    will-change: transform, opacity;
+    animation: smoothFadeIn 0.3s ease-out forwards;
+    will-change: opacity;
   }
 
   /* Hide scrollbar utility */
