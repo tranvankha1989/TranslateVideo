@@ -264,36 +264,7 @@ $timer.add_Tick({
                 catch {}
             }
 
-            # KHI TRÌNH DUYỆT ĐÃ MỞ: Kiểm tra nếu người dùng đã đóng tất cả tab localhost
-            if ($script:browserOpened) {
-                try {
-                    $sys = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/system/status' -TimeoutSec 2 -ErrorAction Stop
-                    $script:backendDeadSeconds = 0 # Đã kết nối thành công, reset counter
-                    if ($sys -and $sys.should_shutdown -eq $true) {
-                        Write-Host "Phat hien tat ca tab trinh duyet da dong. Dang tu dong tat Terminal..." -ForegroundColor Yellow
-                        & $script:ExitApplication
-                        return
-                    }
-                }
-                catch {
-                    # Chỉ coi là backend đã tắt nếu tiến trình Python backend thực sự không còn tồn tại
-                    $beProc = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-                        $_.CommandLine -like "*uvicorn*main:app*" -or ($_.Name -eq "python.exe" -and $_.CommandLine -like "*self-tts*backend*")
-                    }
-                    if (-not $beProc) {
-                        $script:backendDeadSeconds += 3
-                        if ($script:backendDeadSeconds -ge 60) {
-                            Write-Host "Tien trinh Backend da tat. Dang tu dong dong Terminal..." -ForegroundColor Gray
-                            & $script:ExitApplication
-                            return
-                        }
-                    }
-                    else {
-                        $script:backendDeadSeconds = 0
-                    }
-                }
-            }
-
+            # KHI TRÌNH DUYỆT ĐÃ MỞ: Duy trì icon System Tray và hỗ trợ ẩn/hiện Terminal
             if ($script:targetHWnd -eq [IntPtr]::Zero) {
                 $script:targetHWnd = Get-TerminalHWnd
             }

@@ -20,10 +20,7 @@ _should_shutdown: bool = False
 @router.post("/api/system/heartbeat", summary="Heartbeat từ tab trình duyệt")
 @router.post("/api/system/tab-closed", summary="Thông báo tab trình duyệt vừa đóng")
 async def receive_heartbeat(request: Request):
-    """
-    Ghi nhận tín hiệu heartbeat hoặc đóng tab từ giao diện frontend.
-    Nếu toàn bộ tab localhost bị đóng quá 5 giây, hệ thống sẽ kích hoạt tự đóng.
-    """
+    """Ghi nhận tín hiệu hoạt động từ giao diện frontend để theo dõi trạng thái."""
     global _has_received_heartbeat, _no_tab_since
     tab_id = "default"
     action = "heartbeat"
@@ -38,8 +35,6 @@ async def receive_heartbeat(request: Request):
     now = time.time()
     if action == "close" or "tab-closed" in request.url.path:
         _active_tabs.pop(tab_id, None)
-        if len(_active_tabs) == 0 and _no_tab_since == 0.0:
-            _no_tab_since = now
     else:
         _has_received_heartbeat = True
         _active_tabs[tab_id] = now
@@ -54,68 +49,34 @@ async def receive_heartbeat(request: Request):
 
 @router.get("/api/system/status", summary="Kiểm tra trạng thái hệ thống và tab trình duyệt")
 async def get_system_status():
-    """Endpoint cho Tray Manager hoặc script giám sát hỏi xem có nên tắt hệ thống không."""
+    """Endpoint kiểm tra trạng thái hoạt động của hệ thống."""
     global _has_received_heartbeat, _no_tab_since, _should_shutdown
     now = time.time()
 
-    # Dọn dẹp tab đã quá hạn 10 giây không gửi heartbeat
-    expired = [tid for tid, t in _active_tabs.items() if now - t > 10.0]
+    # Dọn dẹp tab đã quá hạn 60 giây không gửi heartbeat
+    expired = [tid for tid, t in _active_tabs.items() if now - t > 60.0]
     for tid in expired:
         _active_tabs.pop(tid, None)
-
-    if _has_received_heartbeat:
-        if len(_active_tabs) == 0:
-            if _no_tab_since == 0.0:
-                _no_tab_since = now
-            elif now - _no_tab_since >= 6.0:
-                _should_shutdown = True
-        else:
-            _no_tab_since = 0.0
 
     return {
         "status": "ok",
         "has_received_heartbeat": _has_received_heartbeat,
         "active_tabs_count": len(_active_tabs),
-        "should_shutdown": _should_shutdown,
-        "no_tab_seconds": (now - _no_tab_since) if _no_tab_since > 0.0 else 0.0,
+        "should_shutdown": False,
+        "no_tab_seconds": 0.0,
     }
 
 
 async def monitor_browser_lifetime():
-    """
-    Vòng lặp chạy ngầm trong server:
-    Khi người dùng đã mở trình duyệt và sau đó đóng toàn bộ các tab localhost quá 6 giây,
-    tiến trình backend sẽ tự động giải phóng tài nguyên và thoát sạch tiến trình.
-    """
-    global _has_received_heartbeat, _no_tab_since, _should_shutdown
-    logger.info("🛡️ Giám sát tab trình duyệt đã kích hoạt (Tự đóng terminal sau 6s khi tắt hết tab).")
+    """Vòng lặp giám sát nhẹ nhàng duy trì trạng thái máy chủ."""
+    logger.info("🛡️ Giám sát máy chủ hoạt động liên tục (Chế độ ổn định không ngắt kết nối).")
     while True:
-        await asyncio.sleep(3.0)
+        await asyncio.sleep(10.0)
         now = time.time()
-
-        # Dọn dẹp các tab mất kết nối quá 10 giây
-        expired = [tid for tid, t in _active_tabs.items() if now - t > 10.0]
+        expired = [tid for tid, t in _active_tabs.items() if now - t > 60.0]
         for tid in expired:
             _active_tabs.pop(tid, None)
 
-        if _has_received_heartbeat:
-            if len(_active_tabs) == 0:
-                if _no_tab_since == 0.0:
-                    _no_tab_since = now
-                elif now - _no_tab_since >= 6.0:
-                    _should_shutdown = True
-                    logger.info("🛑 Phát hiện người dùng đã đóng toàn bộ tab trình duyệt.")
-                    logger.info("👋 Đang tự động đóng hệ thống và tắt terminal...")
-                    await asyncio.sleep(0.5)
-                    import signal
-                    try:
-                        os.kill(os.getpid(), signal.SIGINT)
-                    except Exception:
-                        pass
-                    await asyncio.sleep(0.5)
-                    os._exit(0)
-            else:
-                _no_tab_since = 0.0
 
 
 

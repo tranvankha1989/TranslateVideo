@@ -1,22 +1,19 @@
-# 🪟 HƯỚNG DẪN CÀI ĐẶT & KÉO CODE TRÊN MÁY TÍNH WINDOWS (A - Z)
+# 🪟 HƯỚNG DẪN CÀI ĐẶT MÔI TRƯỜNG & CHẠY ỨNG DỤNG BẰNG TERMINAL (A - Z)
 
-Tài liệu này hướng dẫn chi tiết từng bước để kéo mã nguồn dự án **VideoTranslate AI** từ GitHub về một máy tính Windows mới và thiết lập để chạy ứng dụng từ đầu.
-
----
-
-## 📋 Mục Lục
-1. [Chuẩn bị môi trường phần mềm & tài khoản AI](#1-chuẩn-bị-môi-trường-phần-mềm--tài-khoản-ai-bắt-buộc)
-2. [Kéo code từ GitHub về máy mới](#2-kéo-code-từ-github-về-máy-mới)
-3. [Cài đặt Backend (Python)](#3-cài-đặt-backend-python)
-4. [Cài đặt Frontend (React + Vite)](#4-cài-đặt-frontend-react--vite)
-5. [Khởi chạy ứng dụng (1-Click)](#5-khởi-chạy-ứng-dụng-1-click)
-6. [Cách cập nhật code khi có bản mới (Git Pull)](#6-cách-cập-nhật-code-khi-có-bản-mới-git-pull)
-7. [Xử lý các lỗi thường gặp (Troubleshooting)](#7-xử-lý-các-lỗi-thường-gặp-troubleshooting)
+> **Dự án:** VideoTranslate AI (Dịch Video & Lồng Tiếng AI Đa Ngôn Ngữ)  
+> **Repository:** [https://github.com/tranvankha1989/TranslateVideo](https://github.com/tranvankha1989/TranslateVideo)  
+> **Áp dụng cho:** Máy tính Windows 10, Windows 11 mới hoàn toàn.
 
 ---
 
-## 1. Chuẩn Bị Môi Trường Phần Mềm & Tài Khoản AI Bắt Buộc
+## ⚡ PHẦN 1: CÀI ĐẶT SIÊU TỐC BẰNG TERMINAL (CHỈ CẦN COPY-PASTE)
 
+Chỉ cần làm đúng **5 bước** dưới đây bằng **PowerShell** là ứng dụng sẽ hoạt động 100%:
+
+### Bước 1: Cài đặt toàn bộ phần mềm nền tảng (Chỉ làm 1 lần trên máy mới)
+Mở **PowerShell với quyền Administrator** (Bấm nút `Windows` ➔ gõ `powershell` ➔ chọn *Run as Administrator*), copy toàn bộ khối lệnh dưới và dán vào:
+
+<<<<<<< HEAD
 Trước khi kéo code, bạn cần cài đặt 4 công cụ nền tảng trên máy tính và chuẩn bị 2 tài khoản dịch vụ AI trực tuyến:
 
 ### 1.1. Cài đặt Git (Quản lý mã nguồn)
@@ -92,141 +89,169 @@ Dự án sử dụng mô hình Gemini thế hệ mới để dịch phụ đề,
 Mở Terminal tại thư mục gốc của dự án (`TranslateVideo`), thực hiện tuần tự:
 
 ### 3.1. Tạo môi trường ảo (Virtualenv)
+=======
+>>>>>>> e05088e329deef7bc9a7c06af05ad8fd10931c97
 ```powershell
+# Cài đặt tự động Git, Python 3.11, Node.js LTS và FFmpeg
+winget install --id Git.Git -e --accept-source-agreements --accept-package-agreements
+winget install --id Python.Python.3.11 -e --accept-source-agreements --accept-package-agreements
+winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements
+winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+
+# Mở quyền chạy script cho PowerShell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+```
+> ⚠️ **QUAN TRỌNG:** Sau khi Bước 1 chạy xong, hãy **ĐÓNG CỬA SỔ POWERSHELL NÀY LẠI** và mở một cửa sổ PowerShell mới bình thường để máy nhận diện các công cụ vừa cài.
+
+---
+
+### Bước 2: Tải mã nguồn về máy
+Mở cửa sổ PowerShell mới và chạy lệnh sau (chọn ổ đĩa bạn muốn lưu, ví dụ ổ `D:\` hoặc `C:\`):
+
+```powershell
+# 1. Đi tới ổ đĩa muốn lưu (ví dụ ổ D):
+cd D:\
+
+# 2. Tải code từ GitHub về:
+git clone https://github.com/tranvankha1989/TranslateVideo.git
+
+# 3. Đi vào thư mục dự án:
+cd TranslateVideo
+```
+
+---
+
+### Bước 3: Cài đặt môi trường Backend (Python)
+Tại thư mục `TranslateVideo`, dán khối lệnh sau:
+
+```powershell
+# 1. Đi vào thư mục backend
 cd backend
+
+# 2. Tạo môi trường ảo venv
 python -m venv venv
-```
 
-### 3.2. Kích hoạt môi trường ảo
-```powershell
+# 3. Kích hoạt môi trường ảo
 .\venv\Scripts\activate
-```
-*(Khi kích hoạt thành công, đầu dòng lệnh sẽ xuất hiện chữ `(venv)`).*
 
-> 💡 **Mẹo:** Nếu gặp lỗi `cannot be loaded because running scripts is disabled on this system`, hãy mở PowerShell với quyền Admin và chạy:
-> ```powershell
-> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-> ```
-
-### 3.3. Cài đặt PyTorch
-* **Trường hợp A: Máy có card đồ họa rời NVIDIA (GTX 1650, RTX 20xx, 30xx, 40xx...)**
-  Chạy lệnh cài PyTorch có hỗ trợ CUDA 12.1:
-  ```powershell
-  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-  ```
-* **Trường hợp B: Máy KHÔNG có card rời NVIDIA (Chạy CPU hoặc dùng GPU Cloud Colab/HuggingFace)**
-  Chạy lệnh cài PyTorch bản tiêu chuẩn (CPU):
-  ```powershell
-  pip install torch torchvision torchaudio
-  ```
-
-### 3.4. Cài đặt toàn bộ thư viện Backend
-```powershell
+# 4. Nâng cấp pip và cài đặt toàn bộ thư viện backend
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-```
 
-### 3.5. Thiết lập file cấu hình `.env`
-1. Tại thư mục `backend`, sao chép file `.env.example` thành file `.env`:
-   ```powershell
-   copy .env.example .env
-   ```
-2. Mở file `.env` bằng Notepad hoặc VS Code để cấu hình:
-   * **Nếu chạy trên card rời máy tính của bạn (Local GPU):**
-     ```env
-     USE_REMOTE_GPU=false
-     OMNIVOICE_DEVICE=cuda
-     OMNIVOICE_DTYPE=float16
-     ```
-   * **Nếu máy yếu, muốn chạy nhờ GPU Google Colab / Ngrok miễn phí:**
-     ```env
-     USE_REMOTE_GPU=true
-     REMOTE_GPU_URL=https://tên-domain-ngrok-của-bạn.ngrok-free.dev
-     ```
-     *(Xem thêm hướng dẫn lấy domain Ngrok nếu dùng Cloud GPU)*.
+# 5. Tạo file cấu hình .env mặc định
+if (-not (Test-Path .env)) { copy .env.example .env }
+
+# 6. Quay trở lại thư mục gốc
+cd ..
+```
 
 ---
 
-## 4. Cài Đặt Frontend (React + Vite)
-
-Mở một tab Terminal mới hoặc quay trở lại thư mục gốc dự án:
+### Bước 4: Cài đặt môi trường Frontend (React + Vite)
+Tiếp tục dán khối lệnh sau vào PowerShell:
 
 ```powershell
-cd ..\frontend
+# 1. Cài đặt công cụ pnpm toàn cục
+npm install -g pnpm
+
+# 2. Đi vào thư mục frontend và cài đặt toàn bộ gói giao diện
+cd frontend
 pnpm install
-```
-*(Quá trình cài đặt gói frontend chỉ mất khoảng 30 giây đến 1 phút).*
 
-Kiểm tra bản build frontend xem có lỗi không:
-```powershell
-pnpm build
+# 3. Quay trở lại thư mục gốc dự án
+cd ..
 ```
-*(Nếu hiện `built in ...s` là toàn bộ giao diện đã sẵn sàng 100%).*
 
 ---
 
-## 5. Khởi Chạy Ứng Dụng (1-Click)
+### Bước 5: Khởi chạy ứng dụng
+Để mở ứng dụng, bạn có thể chọn 1 trong 2 cách:
 
-Tại thư mục gốc dự án (`TranslateVideo`):
-
-1. **Cách 1: Khởi chạy 1 chạm với `start.bat` (Khuyên dùng)**
-   * Nhấp đúp chuột vào file:
-     ```text
-     start.bat
-     ```
-   * Hệ thống sẽ tự động:
-     * Tạo sẵn biểu tượng **Shortcut OmniVoice TTS** ngoài màn hình Desktop.
-     * Khởi động Backend API (`http://localhost:8000`).
-     * Khởi động Frontend Web (`http://localhost:5173`).
-     * Tự động bật trình duyệt ngay khi hệ thống nạp xong.
-     * Khi thu nhỏ Terminal (`_`), ứng dụng sẽ tự động ẩn gọn gàng vào khay đồng hồ hệ thống (System Tray).
-
-2. **Cách 2: Khởi chạy thủ công (Dành cho nhà phát triển muốn xem log riêng)**
-   * **Terminal 1 (Backend):**
-     ```powershell
-     cd backend
-     .\venv\Scripts\activate
-     uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-     ```
-   * **Terminal 2 (Frontend):**
-     ```powershell
-     cd frontend
-     pnpm dev
-     ```
-   * Mở trình duyệt tại: `http://localhost:5173`.
+* **Cách A (Gõ lệnh Terminal):**
+  ```powershell
+  cd frontend
+  pnpm run start:all
+  ```
+* **Cách B (Bấm chuột):**
+  * Nhấp đúp chuột vào file `start.bat` tại thư mục gốc.
 
 ---
 
-## 6. Cách Cập Nhật Code Khi Có Bản Mới (Git Pull)
+## 🌐 ĐỊA CHỈ TRUY CẬP ỨNG DỤNG
+* **Giao diện Web:** [http://localhost:5173](http://localhost:5173) *(Tự động mở trên trình duyệt)*
+* **Backend API & Swagger Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
 
-Mỗi khi dự án có tính năng mới hoặc bản sửa lỗi, bạn chỉ cần mở Terminal tại thư mục gốc và chạy:
+---
+
+## 🛠️ PHẦN 2: CẤU HÌNH NÂNG CAO (.ENV) & CÁC TÀI KHOẢN AI
+
+Mở file `backend/.env` bằng **Notepad** hoặc **VS Code** để chỉnh sửa:
+
+### 1. Dùng GPU Cloud Hugging Face ZeroGPU (Khuyên Dùng - Không tốn tài nguyên máy)
+```env
+USE_REMOTE_GPU=true
+REMOTE_GPU_URL=https://your-username-your-space.hf.space
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+HF_SPACE_REPO=your-username/your-space-name
+```
+
+### 2. Dùng GPU Cloud Google Colab T4 Miễn Phí (Qua Ngrok)
+```env
+USE_REMOTE_GPU=true
+REMOTE_GPU_URL=https://your-domain.ngrok-free.dev
+```
+
+### 3. Chạy trực tiếp bằng Card đồ họa rời của máy (NVIDIA GPU)
+```env
+USE_REMOTE_GPU=false
+OMNIVOICE_DEVICE=cuda
+OMNIVOICE_DTYPE=float16
+DEFAULT_NUM_STEP=32
+```
+
+### 4. Cấu hình Khóa Dịch Thuật Google Gemini API
+1. Truy cập: [Google AI Studio](https://aistudio.google.com/app/apikey) ➔ Bấm **Create API Key**.
+2. Dán API key trực tiếp vào mục **Cài Đặt** trên giao diện Web của ứng dụng.
+
+### 5. Cấu hình Telegram Bot Nhận Phản Hồi & File Log Khách Hàng
+Xem hướng dẫn chi tiết 1 phút tại: [HUONG_DAN_CAU_HINH_TELEGRAM.md](HUONG_DAN_CAU_HINH_TELEGRAM.md)
+```env
+TELEGRAM_BOT_TOKEN=7123456789:AAFlkB_xxxxxx_xxxxxxxxxxxxxxxxx
+TELEGRAM_CHAT_ID=1234567890
+```
+
+---
+
+## 🔄 PHẦN 3: CẬP NHẬT ỨNG DỤNG KHI CÓ BẢN MỚI (GIT PULL)
+
+Khi có bản cập nhật mới từ GitHub, mở Terminal tại thư mục gốc `TranslateVideo` và chạy:
 
 ```powershell
-# 1. Kéo mã nguồn mới nhất về
+# 1. Kéo mã nguồn mới nhất
 git pull origin main
 
-# 2. Cập nhật thư viện Backend (nếu có bổ sung thư viện mới)
+# 2. Cập nhật Backend
 cd backend
 .\venv\Scripts\activate
 pip install -r requirements.txt
 
-# 3. Cập nhật gói Frontend
+# 3. Cập nhật Frontend
 cd ..\frontend
 pnpm install
 
-# 4. Khởi chạy lại ứng dụng
-..\start.bat
+# 4. Chạy lại ứng dụng
+pnpm run start:all
 ```
+*(Hoặc chỉ cần nhấp đúp file `update.bat` tại thư mục gốc).*
 
 ---
 
-## 7. Xử Lý Các Lỗi Thường Gặp (Troubleshooting)
+## ❓ BẢNG XỬ LÝ LỖI THƯỜNG GẶP (TROUBLESHOOTING)
 
-| Lỗi | Nguyên nhân | Cách khắc phục |
+| Lỗi gặp phải | Nguyên nhân | Cách khắc phục siêu nhanh |
 | :--- | :--- | :--- |
-| `'pnpm' is not recognized` | Chưa cài pnpm toàn cục | Chạy lệnh `npm install -g pnpm`. |
-| `running scripts is disabled` | Chính sách bảo mật của PowerShell | Mở PowerShell Admin và chạy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`. |
-| `ffmpeg: command not found` | FFmpeg chưa thêm vào biến môi trường PATH | Chạy `winget install Gyan.FFmpeg`, sau đó khởi động lại máy hoặc tắt mở lại Terminal. |
-| `Port 8000 or 5173 already in use` | Phiên làm việc trước chưa tắt hẳn | Mở Task Manager tắt các tiến trình `python.exe` và `node.exe` đang chạy ngầm rồi mở lại `start.bat`. |
-| `CUDA out of memory` | Card rời bị tràn bộ nhớ VRAM | Đổi trong file `.env`: `OMNIVOICE_DTYPE=float16`, giảm `DEFAULT_NUM_STEP=16` hoặc chuyển sang dùng Colab GPU (`USE_REMOTE_GPU=true`). |
-| `Gặp lỗi lạ khác / Cần hỗ trợ` | Lỗi phát sinh trong quá trình chạy | Vào trang **Cài Đặt ➔ Tab "Nhật Ký & Báo Lỗi" ➔ Bấm nút "Tải File Log Báo Lỗi (.log)"** để gửi file `app.log` cho kỹ thuật viên chẩn đoán và sửa lỗi ngay. |
-
+| `'pnpm' is not recognized` | Chưa cài đặt pnpm toàn cục | Chạy lệnh: `npm install -g pnpm` |
+| `running scripts is disabled` | Chính sách bảo mật PowerShell | Mở PowerShell Admin và chạy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force` |
+| `ffmpeg: command not found` | Terminal chưa nhận biến môi trường | Đóng tất cả cửa sổ Terminal và mở lại cửa sổ mới |
+| `Port 8000 or 5173 already in use` | Cổng đang bị chiếm dụng bởi phiên cũ | Chạy file: `powershell -ExecutionPolicy Bypass -File scripts\kill_ports.ps1` |
+| `CUDA out of memory` | Card rời không đủ VRAM | Mở `.env` chuyển sang `USE_REMOTE_GPU=true` hoặc đổi `OMNIVOICE_DTYPE=float16` |

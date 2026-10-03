@@ -6,6 +6,7 @@ Tự động cấp phát nhân GPU tính toán khi có request từ máy local v
 """
 
 import os
+import sys
 import io
 import re
 import tempfile
@@ -254,7 +255,7 @@ def _gpu_generate_audio(
 
 
 # ─── Giao diện Gradio Dashboard khi mở trên trình duyệt ────────────────────────
-with gr.Blocks(title="OmniVoice ZeroGPU Worker", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="OmniVoice ZeroGPU Worker") as demo:
     gr.Markdown("# 🚀 OmniVoice ZeroGPU Worker (NVIDIA A100)")
     gr.Markdown("Worker này đang chạy ở chế độ nền phục vụ dự án **self-tts**.")
     with gr.Row():
@@ -346,6 +347,184 @@ async def generate_endpoint(
                 pass
 
 
+_whisper_model = None
+_whisper_model_size: str | None = None
+
+
+import sys
+import glob
+import ctypes
+
+def preload_cuda_libraries():
+    """Tự động tìm nạp các file libcublas.so, libcudnn.so từ site-packages vào bộ nhớ tiến trình."""
+    for p in sys.path:
+        for lib in glob.glob(os.path.join(p, "nvidia", "*", "lib", "*.so*")):
+            try:
+                ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+preload_cuda_libraries()
+
+
+def get_whisper(model_size: str = "large-v3-turbo", force_cpu: bool = False):
+    global _whisper_model, _whisper_model_size
+    from faster_whisper import WhisperModel
+    target_key = f"{model_size}_cpu" if force_cpu else model_size
+    if _whisper_model is None or _whisper_model_size != target_key:
+        if force_cpu or not torch.cuda.is_available():
+            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CPU mode)...")
+            _whisper_model = WhisperModel(
+                model_size,
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=4,
+                num_workers=2,
+            )
+        else:
+            logger.info(f"🎙️ [ZeroGPU] Đang tải Faster-Whisper '{model_size}' (CUDA mode)...")
+            try:
+                _whisper_model = WhisperModel(
+                    model_size,
+                    device="cuda",
+                    compute_type="float16",
+                    cpu_threads=4,
+                    num_workers=1,
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Không thể tải Faster-Whisper trên CUDA ({e}), chuyển sang CPU...")
+                _whisper_model = WhisperModel(
+                    model_size,
+                    device="cpu",
+                    compute_type="int8",
+                    cpu_threads=4,
+                    num_workers=2,
+                )
+        _whisper_model_size = target_key
+    return _whisper_model
+
+
+@spaces.GPU(duration=180)
+def _gpu_transcribe(
+    audio_path: str,
+    language: str | None,
+    model_size: str,
+    initial_prompt: str | None,
+    vad_filter: bool,
+    vad_threshold: float,
+    min_speech_duration_ms: int,
+    min_silence_duration_ms: int,
+    speech_pad_ms: int,
+    beam_size: int,
+):
+    def _do_transcribe(whisper_inst):
+        segments_gen, info = whisper_inst.transcribe(
+            audio_path,
+            language=language,
+            initial_prompt=initial_prompt,
+            beam_size=beam_size,
+            best_of=beam_size,
+            condition_on_previous_text=False,
+            repetition_penalty=1.2,
+            no_speech_threshold=0.85,
+            log_prob_threshold=-1.5,
+            compression_ratio_threshold=2.8,
+            vad_filter=vad_filter,
+            vad_parameters=dict(
+                threshold=vad_threshold,
+                min_speech_duration_ms=min_speech_duration_ms,
+                min_silence_duration_ms=min_silence_duration_ms,
+                speech_pad_ms=speech_pad_ms,
+            ) if vad_filter else None,
+            word_timestamps=True,
+        )
+        res_segs = []
+        for i, s in enumerate(segments_gen):
+            words_data = []
+            if getattr(s, "words", None):
+                for w in s.words:
+                    w_text = getattr(w, "word", "").strip()
+                    if not w_text:
+                        continue
+                    words_data.append({
+                        "word": w_text,
+                        "start": round(float(getattr(w, "start", 0.0)), 3),
+                        "end": round(float(getattr(w, "end", 0.0)), 3),
+                        "probability": round(float(getattr(w, "probability", 0.0)), 3),
+                    })
+            res_segs.append({
+                "id": i,
+                "seek": getattr(s, "seek", 0),
+                "start": round(float(getattr(s, "start", 0.0)), 3),
+                "end": round(float(getattr(s, "end", 0.0)), 3),
+                "text": getattr(s, "text", "").strip(),
+                "words": words_data,
+            })
+        det_lang = getattr(info, "language", language or "en")
+        return res_segs, det_lang
+
+    try:
+        whisper = get_whisper(model_size, force_cpu=False)
+        return _do_transcribe(whisper)
+    except Exception as e:
+        logger.warning(f"⚠️ Transcribe bằng CUDA thất bại ({e}), tự động chuyển sang chế độ dự phòng CPU...")
+        whisper = get_whisper(model_size, force_cpu=True)
+        return _do_transcribe(whisper)
+
+
+async def transcribe_endpoint(
+    audio_file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+    model_size: str | None = Form(default="large-v3-turbo"),
+    initial_prompt: str | None = Form(default=None),
+    vad_filter: bool = Form(default=True),
+    vad_threshold: float = Form(default=0.50),
+    min_speech_duration_ms: int = Form(default=150),
+    min_silence_duration_ms: int = Form(default=350),
+    speech_pad_ms: int = Form(default=150),
+    beam_size: int = Form(default=3),
+):
+    suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await audio_file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        lang_arg = None if (not language or language == "auto") else language.split("-")[0]
+        p_prompt = initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None
+        if lang_arg == "zh" and not p_prompt:
+            p_prompt = "以下是普通话的句子，请用简体中文输出。"
+
+        logger.info(f"🎙️ [ZeroGPU Whisper STT] Nhận diện file '{audio_file.filename}' (Lang: {lang_arg or 'auto'}, Model: {model_size or 'large-v3-turbo'})...")
+        segments, detected_lang = _gpu_transcribe(
+            audio_path=tmp_path,
+            language=lang_arg,
+            model_size=model_size or "large-v3-turbo",
+            initial_prompt=p_prompt,
+            vad_filter=vad_filter,
+            vad_threshold=vad_threshold,
+            min_speech_duration_ms=min_speech_duration_ms,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms,
+            beam_size=beam_size,
+        )
+        return JSONResponse(content={"status": "ok", "language": detected_lang, "segments": segments})
+    except Exception as exc:
+        import traceback
+        err_detail = traceback.format_exc()
+        logger.error(f"❌ [ZeroGPU Transcribe Error]: {err_detail}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(exc), "traceback": err_detail},
+        )
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 def register_api_routes(target_app):
     """
     Gắn API routes vào FastAPI app.
@@ -368,6 +547,7 @@ def register_api_routes(target_app):
         target_app.add_api_route(f"{prefix}/health", health_endpoint, methods=["GET", "POST"])
         target_app.add_api_route(f"{prefix}/prompt", create_prompt_endpoint, methods=["POST"])
         target_app.add_api_route(f"{prefix}/generate", generate_endpoint, methods=["POST"])
+        target_app.add_api_route(f"{prefix}/transcribe", transcribe_endpoint, methods=["POST"])
 
 
 # Đăng ký routes vào demo.app ban đầu

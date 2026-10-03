@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 
 import model_handler
 from app.core.config import BASE_DIR, LOGS_DIR, APP_LOG_FILE, logger
+from app.schemas.feedback import FeedbackRequest, FeedbackResponse
+from app.services.telegram_service import TelegramService
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 
@@ -403,105 +405,191 @@ async def get_app_version_endpoint():
 
 @router.post("/check-update", response_model=CheckUpdateResponse, summary="Kiểm tra xem có bản cập nhật mới từ GitHub không")
 async def check_update_endpoint():
-    """Kết nối tới GitHub remote để kiểm tra xem có commit mới chưa được cập nhật không."""
-    cur_ver = "2.9.0"
+    """
+    Kiểm tra phiên bản mới thông minh:
+    1. Kiểm tra trực tiếp qua GitHub HTTP API (Hoạt động 100% không cần cài Git).
+    2. Nếu có Git, kiểm tra thêm số lượng commit chưa kéo về.
+    """
+    cur_ver = "3.4.9"
     if VERSION_FILE.exists():
         try:
             import json
             with open(VERSION_FILE, "r", encoding="utf-8") as f:
-                cur_ver = json.load(f).get("version", "2.9.0")
+                cur_ver = json.load(f).get("version", cur_ver)
         except Exception:
             pass
 
-    # 1. Fetch remote origin
-    fetch_code, fetch_err = _get_git_output(["fetch", "origin", "main"], timeout=15.0)
-    if fetch_code != 0:
-        # Thử fetch chung nếu branch mặc định khác
-        fetch_code, fetch_err = _get_git_output(["fetch"], timeout=15.0)
+    remote_ver = None
+    remote_desc = None
 
-    if fetch_code != 0:
-        return CheckUpdateResponse(
-            ok=False,
-            has_update=False,
-            current_version=cur_ver,
-            message="Không thể kết nối tới Git Remote hoặc mạng Internet bị ngắt quãng.",
-            error=fetch_err,
-        )
-
-    # 2. Đếm số commit chưa kéo về
-    count_code, count_str = _get_git_output(["rev-list", "HEAD..origin/main", "--count"])
-    if count_code != 0:
-        # Thử với @{u} (upstream)
-        count_code, count_str = _get_git_output(["rev-list", "HEAD..@{u}", "--count"])
-
-    behind_count = 0
+    # 1. Kiểm tra qua GitHub HTTP (Không cần Git)
     try:
-        behind_count = int(count_str.strip()) if count_code == 0 else 0
-    except ValueError:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            raw_url = "https://raw.githubusercontent.com/tranvankha1989/TranslateVideo/main/version.json"
+            resp = await client.get(raw_url)
+            if resp.status_code == 200:
+                data = resp.json()
+                remote_ver = data.get("version")
+                remote_desc = data.get("description")
+    except Exception as e:
+        logger.warning(f"Không thể kiểm tra version qua HTTP: {e}")
+
+    # So sánh phiên bản nếu lấy được từ HTTP
+    if remote_ver and remote_ver != cur_ver:
+        # Tách chuỗi version để so sánh số (ví dụ: 3.4.2 > 3.4.1)
+        try:
+            def parse_v(v_str):
+                return [int(x) for x in re.findall(r"\d+", v_str)]
+
+            if parse_v(remote_ver) > parse_v(cur_ver):
+                return CheckUpdateResponse(
+                    ok=True,
+                    has_update=True,
+                    current_version=cur_ver,
+                    latest_remote_commit=f"v{remote_ver}",
+                    commits_behind=1,
+                    commit_messages=[remote_desc or f"Bản phát hành mới v{remote_ver} trên GitHub"],
+                    message=f"Đã có phiên bản mới v{remote_ver}! Sẵn sàng nâng cấp 1-Click.",
+                )
+        except Exception:
+            pass
+
+    # 2. Kiểm tra bổ sung qua Git (nếu máy có cài Git và có thư mục .git)
+    fetch_code, _ = _get_git_output(["fetch", "origin", "main"], timeout=10.0)
+    if fetch_code == 0:
+        count_code, count_str = _get_git_output(["rev-list", "HEAD..origin/main", "--count"])
         behind_count = 0
+        try:
+            behind_count = int(count_str.strip()) if count_code == 0 else 0
+        except ValueError:
+            behind_count = 0
 
-    # 3. Lấy log các commit mới
-    log_code, log_str = _get_git_output(["log", "HEAD..origin/main", "--oneline", "-n", "8"])
-    if log_code != 0:
-        log_code, log_str = _get_git_output(["log", "HEAD..@{u}", "--oneline", "-n", "8"])
+        if behind_count > 0:
+            log_code, log_str = _get_git_output(["log", "HEAD..origin/main", "--oneline", "-n", "8"])
+            commit_msgs = [line.strip() for line in log_str.splitlines() if line.strip()] if log_code == 0 else []
+            rem_code, rem_hash = _get_git_output(["rev-parse", "--short", "origin/main"])
+            return CheckUpdateResponse(
+                ok=True,
+                has_update=True,
+                current_version=cur_ver,
+                latest_remote_commit=rem_hash if rem_code == 0 else None,
+                commits_behind=behind_count,
+                commit_messages=commit_msgs,
+                message=f"Đã tìm thấy {behind_count} bản cập nhật mới trên GitHub!",
+            )
 
-    commit_msgs = [line.strip() for line in log_str.splitlines() if line.strip()] if log_code == 0 else []
-
-    # Lấy hash commit mới nhất từ remote
-    rem_code, rem_hash = _get_git_output(["rev-parse", "--short", "origin/main"])
-
-    if behind_count > 0:
-        return CheckUpdateResponse(
-            ok=True,
-            has_update=True,
-            current_version=cur_ver,
-            latest_remote_commit=rem_hash if rem_code == 0 else None,
-            commits_behind=behind_count,
-            commit_messages=commit_msgs,
-            message=f"Đã tìm thấy {behind_count} bản cập nhật mới trên GitHub! Sẵn sàng nâng cấp.",
-        )
-    else:
-        return CheckUpdateResponse(
-            ok=True,
-            has_update=False,
-            current_version=cur_ver,
-            latest_remote_commit=rem_hash if rem_code == 0 else None,
-            commits_behind=0,
-            commit_messages=[],
-            message="Ứng dụng của bạn đang ở phiên bản mới nhất!",
-        )
+    return CheckUpdateResponse(
+        ok=True,
+        has_update=False,
+        current_version=cur_ver,
+        commits_behind=0,
+        commit_messages=[],
+        message="Ứng dụng của bạn đang ở phiên bản mới nhất!",
+    )
 
 
 @router.post("/perform-update", response_model=PerformUpdateResponse, summary="Tiến hành kéo code cập nhật phần mềm")
 async def perform_update_endpoint():
     """
-    Thực hiện kéo code từ GitHub (git pull origin main) và cập nhật hệ thống:
-    - Kéo mã nguồn mới nhất
-    - Cài đặt thư viện bổ sung nếu có
-    - Đọc lại thông tin phiên bản mới
+    Tiến hành cập nhật phần mềm linh hoạt (Hybrid Updater):
+    - Nếu máy có Git & thư mục .git: Thực hiện 'git pull origin main'.
+    - Nếu máy KHÔNG có Git hoặc tải từ file ZIP: Tự động tải file main.zip từ GitHub về và giải nén đè,
+      đồng thời bảo vệ 100% file .env, thư mục outputs/ và presets/ của người dùng.
     """
     logs: list[str] = []
+    project_root = BASE_DIR.parent
 
-    # 1. Git pull
-    logs.append("🚀 [1/3] Đang kéo mã nguồn mới nhất từ GitHub (git pull)...")
-    pull_code, pull_out = _get_git_output(["pull", "origin", "main"], timeout=30.0)
-    if pull_code != 0:
-        pull_code, pull_out = _get_git_output(["pull"], timeout=30.0)
+    # Kiểm tra xem có thư mục .git không
+    has_git_repo = (project_root / ".git").exists()
+    pull_success = False
 
-    logs.append(pull_out)
+    if has_git_repo:
+        logs.append("🚀 [1/3] Đang kéo mã nguồn qua Git (git pull)...")
+        pull_code, pull_out = _get_git_output(["pull", "origin", "main"], timeout=30.0)
+        if pull_code == 0:
+            pull_success = True
+            logs.append(pull_out or "✅ Đã kéo code mới nhất từ Git thành công.")
+        else:
+            logs.append(f"⚠️ Git pull không khả dụng ({pull_out}), chuyển sang chế độ tải trực tiếp từ GitHub...")
 
-    if pull_code != 0:
-        return PerformUpdateResponse(
-            ok=False,
-            message="Không thể kéo mã nguồn từ GitHub. Hãy kiểm tra kết nối mạng hoặc xung đột Git.",
-            logs=logs,
-            error=pull_out,
-        )
+    # Chế độ tải trực tiếp ZIP từ GitHub (Dành cho máy không có Git hoặc lỗi Git)
+    if not pull_success:
+        logs.append("📥 [1/3] Đang tải bản cập nhật trực tiếp từ GitHub (Không cần cài Git)...")
+        zip_url = "https://github.com/tranvankha1989/TranslateVideo/archive/refs/heads/main.zip"
+        zip_tmp = project_root / "temp_update.zip"
+
+        try:
+            import zipfile
+            import io
+
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                r = await client.get(zip_url)
+                if r.status_code != 200:
+                    raise Exception(f"GitHub trả về mã lỗi HTTP {r.status_code}")
+                zip_bytes = r.content
+
+            logs.append(f"📦 Đã tải xong gói cập nhật ({len(zip_bytes) // 1024} KB). Đang giải nén...")
+
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+                # Danh sách file trong zip bắt đầu bằng TranslateVideo-main/
+                prefix = ""
+                namelist = z.namelist()
+                if namelist and "/" in namelist[0]:
+                    prefix = namelist[0].split("/")[0] + "/"
+
+                # Các thư mục/file TUYỆT ĐỐI KHÔNG GHI ĐÈ để bảo vệ dữ liệu người dùng
+                protected_paths = {
+                    ".env",
+                    "backend/.env",
+                    "backend/venv",
+                    "frontend/node_modules",
+                    "outputs",
+                    "presets/custom",
+                    "presets/custom_voices.json",
+                    "logs",
+                }
+
+                for member in z.infolist():
+                    rel_path = member.filename
+                    if prefix and rel_path.startswith(prefix):
+                        rel_path = rel_path[len(prefix):]
+
+                    if not rel_path:
+                        continue
+
+                    # Bỏ qua các file/thư mục được bảo vệ
+                    should_skip = False
+                    for p in protected_paths:
+                        if rel_path == p or rel_path.startswith(p + "/") or rel_path.startswith(p + "\\"):
+                            should_skip = True
+                            break
+
+                    if should_skip:
+                        continue
+
+                    dest_path = project_root / rel_path
+                    if member.is_dir():
+                        dest_path.mkdir(parents=True, exist_ok=True)
+                    else:
+                        dest_path.parent.mkdir(parents=True, exist_ok=True)
+                        with z.open(member) as source, open(dest_path, "wb") as target:
+                            target.write(source.read())
+
+            logs.append("✅ Giải nén và cập nhật mã nguồn thành công.")
+            pull_success = True
+        except Exception as ze:
+            logger.error(f"Lỗi khi cập nhật bằng file ZIP: {ze}")
+            return PerformUpdateResponse(
+                ok=False,
+                message="Không thể tải hoặc giải nén bản cập nhật từ GitHub.",
+                logs=logs,
+                error=str(ze),
+            )
 
     # 2. Cài đặt thư viện phụ thuộc nếu có file requirements.txt
     req_file = BASE_DIR / "requirements.txt"
     if req_file.exists():
-        logs.append("📦 [2/3] Kiểm tra và cập nhật thư viện Python phụ thuộc...")
+        logs.append("📦 [2/3] Kiểm tra và đồng bộ thư viện Python phụ thuộc...")
         try:
             pip_cmd = [sys.executable, "-m", "pip", "install", "-r", str(req_file), "--quiet"]
             res = subprocess.run(pip_cmd, cwd=str(BASE_DIR), capture_output=True, text=True, timeout=90.0)
@@ -513,7 +601,7 @@ async def perform_update_endpoint():
             logs.append(f"⚠️ Bỏ qua cập nhật pip: {pe}")
 
     # 3. Đọc lại version mới
-    new_ver = "2.9.0"
+    new_ver = "3.4.2"
     if VERSION_FILE.exists():
         try:
             import json
@@ -671,6 +759,21 @@ async def delete_ad_filter_rule(req: DeleteAdFilterRuleRequest):
         "message": f"Đã xóa quy tắc: '{p}'",
         "rules": AdFilterService.get_custom_rules(),
     }
+
+
+@router.post("/feedback", response_model=FeedbackResponse, summary="Gửi phản hồi và báo lỗi hệ thống kèm file log về Telegram Bot")
+async def send_feedback_endpoint(req: FeedbackRequest):
+    """Nhận phản hồi từ khách hàng và gửi thông báo + file app.log về Telegram Bot."""
+    res = await TelegramService.send_feedback(
+        message=req.message,
+        sender_name=req.sender_name,
+        sender_contact=req.sender_contact,
+        feedback_type=req.feedback_type,
+        include_logs=req.include_logs,
+        system_info=req.system_info,
+    )
+    return FeedbackResponse(**res)
+
 
 
 

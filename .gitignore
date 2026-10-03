@@ -30,4 +30,6 @@ frontend/.env.production
 *.bak
 /*.mp3
 /*.wav
+*.rar
+*.zip
 

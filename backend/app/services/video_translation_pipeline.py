@@ -25,6 +25,7 @@ from app.services.dubbing_service import DubbingService, get_audio_duration, DUB
 from app.services.translator_service import TranslationService, GoogleTranslator
 from app.services.alignment_service import AlignmentService
 from app.services.ad_filter_service import AdFilterService
+import model_handler
 from caption_handler import extract_audio, get_whisper_model, transcribe_with_remote_or_local, sanitize_word_timestamps, separate_vocals_demucs
 
 TRANSLATE_OUTPUT_DIR = OUTPUTS_DIR / "video_translate"
@@ -32,6 +33,16 @@ TRANSLATE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Bộ nhớ lưu trạng thái tiến trình các tác vụ dịch video
 _TASK_STORE: dict[str, dict[str, Any]] = {}
+
+
+def is_cloud_gpu_active() -> bool:
+    try:
+        import model_handler
+        return model_handler.is_remote_gpu_enabled()
+    except Exception:
+        pass
+    import os
+    return os.getenv("USE_REMOTE_GPU", "").lower() in ("true", "1", "yes")
 
 
 def format_duration_vietnamese(total_seconds: float) -> str:
@@ -403,11 +414,12 @@ class VideoTranslationPipeline:
             )
 
             # ── BƯỚC 2: BÓC BĂNG PHỤ ĐỀ GỐC BẰNG WHISPER (15% -> 40%) ──────
+            whisper_tag = "trên Cloud GPU" if is_cloud_gpu_active() else f"Faster-Whisper ({whisper_model.upper()})"
             cls.update_task(
                 task_id,
                 progress=18,
                 current_step="transcribing",
-                message=f"Đã trích xuất dải giọng nói sạch ({round(video_duration, 1)}s). Đang khởi chạy Faster-Whisper ({whisper_model.upper()}) bóc tách thoại gốc...",
+                message=f"Đã trích xuất dải âm thanh ({round(video_duration, 1)}s). Đang bóc tách thoại gốc {whisper_tag}...",
             )
 
             lang_arg = None if source_lang == "auto" else source_lang.split("-")[0]
@@ -859,11 +871,12 @@ class VideoTranslationPipeline:
             )
 
             # BƯỚC 2: Whisper tạo phụ đề gốc
+            whisper_tag = "trên Cloud GPU" if is_cloud_gpu_active() else f"Faster-Whisper ({whisper_model.upper()})"
             cls.update_task(
                 task_id,
                 progress=35,
                 current_step="transcribing",
-                message=f"Đang tạo phụ đề thoại gốc bằng Faster-Whisper ({whisper_model.upper()})...",
+                message=f"Đang tạo phụ đề thoại gốc {whisper_tag}...",
             )
             lang_arg = None if source_lang == "auto" else source_lang.split("-")[0]
             prompt_to_use = None
