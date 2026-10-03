@@ -41,6 +41,8 @@ import {
   ChevronDown,
   ChevronUp,
   Bug,
+  ArrowRight,
+  ArrowLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/constants/api";
@@ -95,6 +97,7 @@ export default function VideoTranslate() {
   const [manualSrtText, setManualSrtText] = React.useState<string>("");
   const [manualUploadedCount, setManualUploadedCount] = React.useState<number | null>(null);
   const [isUploadingManualSrt, setIsUploadingManualSrt] = React.useState(false);
+  const [manualActiveStep, setManualActiveStep] = React.useState<number>(1);
   const manualSrtFileInputRef = React.useRef<HTMLInputElement>(null);
 
   const formatSrtTime = (seconds: number) => {
@@ -444,7 +447,8 @@ export default function VideoTranslate() {
           setIsProcessing(false);
           setIsRedubbing(false);
           playNotificationSound();
-          toast.success("✅ Đã tạo phụ đề gốc thành công! Hãy tải file SRT về để chỉnh sửa hoặc dịch.");
+          toast.success("✅ Đã tạo phụ đề gốc thành công! Tự động chuyển sang Bước 2 để dịch kịch bản.");
+          setManualActiveStep(2);
         } else if (data.status === "failed") {
           setIsProcessing(false);
           setIsRedubbing(false);
@@ -879,7 +883,8 @@ export default function VideoTranslate() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Lỗi khi nạp file phụ đề");
       setManualUploadedCount(data.segments_count || null);
-      toast.success(`✅ ${data.message}`);
+      setManualActiveStep(4);
+      toast.success(`✅ ${data.message} • Đã chuyển sang Bước 4 để chọn giọng & render!`);
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi nạp file phụ đề");
     } finally {
@@ -927,7 +932,8 @@ export default function VideoTranslate() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Lỗi khi nạp nội dung phụ đề");
       setManualUploadedCount(data.segments_count || null);
-      toast.success(`✅ ${data.message}`);
+      setManualActiveStep(4);
+      toast.success(`✅ ${data.message} • Đã chuyển sang Bước 4 để chọn giọng & render!`);
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi nạp nội dung phụ đề");
     } finally {
@@ -1437,51 +1443,45 @@ export default function VideoTranslate() {
 
   return (
     <div className="flex flex-col gap-6 2k:gap-8 animate-in fade-in duration-500 max-w-[1600px] 2k:max-w-[2000px] mx-auto w-full">
-      {/* Top Banner Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-surface-variant/80 to-surface-variant/40 border border-white/10 rounded-3xl p-6 backdrop-blur-xl">
-        <div className="space-y-1.5">
+      {/* Header (Thiết kế phẳng, tinh tế chuẩn OmniVoice Studio) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-primary/20 text-primary flex items-center justify-center border border-primary/30 shadow-inner">
-              <Languages className="w-5 h-5 text-primary" />
-            </div>
-            <h1 className="text-2xl font-bold text-on-surface tracking-tight">
-              Dịch & Lồng Tiếng Video Tự Động
+            <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface">
+              Dịch & Lồng Tiếng Video
             </h1>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
-              VoiceSync AI Pro v3.6.0
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30 font-mono">
+              v3.6.0
             </span>
           </div>
-          <p className="text-sm text-on-surface-variant max-w-3xl">
-            Tự động chuyển ngữ video đa ngôn ngữ (V3.6.0): Tách giọng Demucs AI sạch 100% nhạc nền, Faster-Whisper Word Timestamps siêu chuẩn, Dịch thuật Gemini & Lồng tiếng Audio Ducking chuyên nghiệp.
+          <p className="text-on-surface-variant text-sm 2k:text-base mt-0.5">
+            Tự động bóc tách Faster-Whisper, Dịch thuật kịch bản AI & Hòa âm lồng tiếng chuẩn phòng thu
           </p>
         </div>
 
+        {/* Quick Tools Header */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleCleanCache}
             disabled={isCleaning || isProcessing}
-            className="inline-flex items-center gap-1.5 text-xs text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 px-3 py-1.5 rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            title={
-              isProcessing
-                ? "Đang có tiến trình dịch video, tạm thời khóa dọn rác để bảo vệ dữ liệu"
-                : "Dọn dẹp các tệp tạm, file audio phòng thu lịch sử và rác video để giải phóng dung lượng đĩa"
-            }
+            className="inline-flex items-center gap-1.5 text-xs text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 px-3 py-1.5 rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+            title="Dọn dẹp các tệp tạm và rác video để giải phóng dung lượng đĩa"
           >
             {isCleaning ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Trash2 className="w-3.5 h-3.5" />
             )}
-            <span>{isCleaning ? "Đang dọn..." : "Dọn dẹp bộ nhớ đệm"}</span>
+            <span>{isCleaning ? "Đang dọn..." : "Dọn rác đĩa"}</span>
           </button>
           <button
             type="button"
             onClick={handleToggleVerbose}
             className={cn(
-              "inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border transition-all cursor-pointer font-semibold",
+              "inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border transition-all cursor-pointer font-semibold shadow-xs",
               isVerbose
                 ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/10"
-                : "bg-white/5 text-on-surface-variant hover:text-on-surface border-white/10"
+                : "bg-surface-dim hover:bg-white/10 text-on-surface-variant hover:text-on-surface border-white/10"
             )}
             title={
               isVerbose
@@ -1490,15 +1490,15 @@ export default function VideoTranslate() {
             }
           >
             <Bug className="w-3.5 h-3.5" />
-            <span>{isVerbose ? "Debug Log: BẬT" : "Debug Log: TẮT"}</span>
+            <span>{isVerbose ? "Debug: BẬT" : "Debug: TẮT"}</span>
           </button>
-          <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant/80 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
+          <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant/80 bg-surface-dim border border-white/10 px-3 py-1.5 rounded-xl">
             <Sparkles className="w-3.5 h-3.5 text-primary" />
-            Chuẩn phòng thu 24kHz
+            Studio 24kHz
           </span>
-          <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant/80 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
+          <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant/80 bg-surface-dim border border-white/10 px-3 py-1.5 rounded-xl">
             <Music className="w-3.5 h-3.5 text-secondary" />
-            Giữ nhạc nền BGM
+            Giữ BGM
           </span>
         </div>
       </div>
@@ -2369,9 +2369,55 @@ export default function VideoTranslate() {
             </button>
           </div>
           ) : (
-            /* Chế độ Thủ Công (Manual Pipeline Cards) */
+            /* Chế độ Thủ Công (Manual Pipeline - 4-Step Stepper Wizard) */
             <div className="space-y-5 animate-fadeIn">
+              {/* Stepper Navigation Bar */}
+              <div className="bg-surface/90 border border-white/10 rounded-2xl p-2.5 backdrop-blur-xl shadow-lg">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {[
+                    { step: 1, title: "1. Phụ đề gốc", desc: "Faster-Whisper", icon: Mic, active: manualActiveStep === 1, done: isOriginalSrtReady },
+                    { step: 2, title: "2. Prompt & Dịch", desc: "Gemini AI / Copy", icon: Download, active: manualActiveStep === 2, done: manualUploadedCount !== null },
+                    { step: 3, title: "3. Nạp SRT Dịch", desc: "Upload / Paste", icon: FileEdit, active: manualActiveStep === 3, done: manualUploadedCount !== null },
+                    { step: 4, title: "4. Giọng & Render", desc: "OmniVoice / Edge", icon: Sliders, active: manualActiveStep === 4, done: taskStatus?.status === "completed" },
+                  ].map((item) => {
+                    const Icon = item.icon;
+                    const isCurrent = item.step === manualActiveStep;
+                    return (
+                      <button
+                        key={item.step}
+                        type="button"
+                        onClick={() => setManualActiveStep(item.step)}
+                        className={cn(
+                          "flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer border",
+                          isCurrent
+                            ? "bg-primary text-black font-semibold border-primary shadow-md shadow-primary/20 scale-[1.02]"
+                            : item.done
+                            ? "bg-surface-variant/70 text-green-400 hover:bg-surface-variant border-green-500/30"
+                            : "bg-surface-variant/40 text-on-surface-variant hover:bg-surface-variant/70 border-white/5 hover:text-on-surface"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold",
+                          isCurrent ? "bg-black/20 text-black" : item.done ? "bg-green-500/20 text-green-400" : "bg-white/10 text-on-surface-variant"
+                        )}>
+                          {item.done && !isCurrent ? <CheckCircle2 className="w-4 h-4" /> : <Icon className="w-3.5 h-3.5" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className={cn("text-xs leading-tight truncate", isCurrent ? "text-black font-bold" : "font-medium")}>
+                            {item.title}
+                          </p>
+                          <p className={cn("text-[10px] leading-tight truncate opacity-80", isCurrent ? "text-black/80" : "text-on-surface-variant")}>
+                            {item.desc}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
+              {manualActiveStep === 1 && (
               <div className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
@@ -2613,9 +2659,25 @@ export default function VideoTranslate() {
                     </>
                   )}
                 </button>
+
+                {/* Chuyển bước nhanh */}
+                {isOriginalSrtReady && (
+                  <div className="pt-2 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setManualActiveStep(2)}
+                      className="py-2.5 px-5 rounded-xl bg-primary text-black font-semibold text-xs flex items-center gap-1.5 hover:bg-primary-hover shadow-md transition-all cursor-pointer"
+                    >
+                      <span>Sang Bước 2: Prompt Dịch Kịch Bản</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
+              )}
 
               {/* Bước 2: Xuất file SRT gốc & Dịch thủ công bên ngoài */}
+              {manualActiveStep === 2 && (
               <div className={cn(
                 "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all",
                 isOriginalSrtReady ? "border-green-500/30" : "border-white/10"
@@ -2772,10 +2834,31 @@ export default function VideoTranslate() {
                     <span>Mở âm thanh tách Vocal</span>
                   </button>
                 )}
+
+                {/* Navigation Buttons for Step 2 */}
+                <div className="pt-2 flex items-center justify-between gap-3 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setManualActiveStep(1)}
+                    className="py-2 px-3.5 rounded-xl bg-surface-variant hover:bg-surface-variant/80 text-on-surface text-xs font-medium flex items-center gap-1.5 border border-white/10 transition-all cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Quay lại Bước 1</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualActiveStep(3)}
+                    className="py-2 px-4 rounded-xl bg-primary text-black text-xs font-semibold flex items-center gap-1.5 hover:bg-primary-hover shadow-md transition-all cursor-pointer"
+                  >
+                    <span>Sang Bước 3: Nạp SRT Đã Dịch</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
+              )}
 
               {/* Bước 3: Nạp file SRT đã dịch */}
-              {/* Bước 3: Nạp lại file phụ đề đã dịch (.srt) hoặc Dán trực tiếp văn bản */}
+              {manualActiveStep === 3 && (
               <div className={cn(
                 "bg-surface/80 border rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg transition-all",
                 manualUploadedCount ? "border-green-500/30" : "border-white/10"
@@ -2944,25 +3027,47 @@ export default function VideoTranslate() {
                   </div>
                 )}
 
-                {manualUploadedCount !== null && (
-                  <div className="pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const el = document.getElementById("manual-step-4-card");
-                        if (el) el.scrollIntoView({ behavior: "smooth" });
-                      }}
-                      className="w-full py-2.5 px-4 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <Wand2 className="w-3.5 h-3.5" />
-                      <span>Đã nạp {manualUploadedCount} câu thoại • Tiếp tục chọn giọng & Render ở Bước 4 ↓</span>
-                    </button>
-                  </div>
-                )}
+                {/* Navigation Buttons for Step 3 */}
+                <div className="pt-2 flex items-center justify-between gap-3 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setManualActiveStep(2)}
+                    className="py-2 px-3.5 rounded-xl bg-surface-variant hover:bg-surface-variant/80 text-on-surface text-xs font-medium flex items-center gap-1.5 border border-white/10 transition-all cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Quay lại Bước 2</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualActiveStep(4)}
+                    className="py-2 px-4 rounded-xl bg-primary text-black text-xs font-semibold flex items-center gap-1.5 hover:bg-primary-hover shadow-md transition-all cursor-pointer"
+                  >
+                    <span>Sang Bước 4: Chọn Giọng & Render</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
+              )}
 
               {/* Bước 4: Cấu hình Giọng đọc & Tiếp tục Lồng tiếng */}
+              {manualActiveStep === 4 && (
               <div id="manual-step-4-card" className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-lg">
+                <div className="flex items-center justify-between pb-1 border-b border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setManualActiveStep(3)}
+                    className="py-1.5 px-3 rounded-lg bg-surface-variant/60 hover:bg-surface-variant text-on-surface-variant hover:text-on-surface text-xs font-medium flex items-center gap-1.5 border border-white/10 transition-all cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Quay lại Bước 3 (Nạp SRT)</span>
+                  </button>
+                  {manualUploadedCount !== null && (
+                    <span className="text-[11px] text-green-400 font-medium">
+                      Đã nạp {manualUploadedCount} câu phụ đề
+                    </span>
+                  )}
+                </div>
+
                 <h2 className="text-base font-semibold text-on-surface flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-primary" />
                   Bước 4: Cấu Hình Giọng Lồng Tiếng & Hoàn Tất Video
@@ -3251,6 +3356,7 @@ export default function VideoTranslate() {
                   )}
                 </button>
               </div>
+              )}
             </div>
           )}
         </div>
