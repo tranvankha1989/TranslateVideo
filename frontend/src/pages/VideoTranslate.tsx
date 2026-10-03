@@ -5,7 +5,6 @@ import {
   Play,
   Download,
   Sparkles,
-  Languages,
   Music,
   Settings2,
   Film,
@@ -43,8 +42,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Bug,
-  ArrowRight,
-  ArrowLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/constants/api";
@@ -2468,32 +2465,8 @@ export default function VideoTranslate() {
                 </button>
               </div>
 
-              {/* Main Steps Container with Side Float Navigation Arrows */}
-              <div className="relative group/stepcontainer">
-                {/* Nút lùi bước < ở vị trí giữa cạnh trái */}
-                {manualActiveStep > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setManualActiveStep((prev) => Math.max(1, prev - 1))}
-                    title={`Quay lại Bước ${manualActiveStep - 1}`}
-                    className="hidden sm:flex absolute -left-3.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full items-center justify-center bg-black/60 border border-white/20 text-white/50 opacity-40 hover:opacity-100 hover:text-white hover:bg-white/20 hover:border-white/60 hover:scale-110 active:scale-95 transition-all duration-200 backdrop-blur-md shadow-xl cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                )}
-
-                {/* Nút tiến bước > ở vị trí giữa cạnh phải */}
-                {manualActiveStep < 4 && (
-                  <button
-                    type="button"
-                    onClick={() => setManualActiveStep((prev) => Math.min(4, prev + 1))}
-                    title={`Sang Bước ${manualActiveStep + 1}`}
-                    className="hidden sm:flex absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full items-center justify-center bg-black/60 border border-white/20 text-white/50 opacity-40 hover:opacity-100 hover:text-white hover:bg-white/20 hover:border-white/60 hover:scale-110 active:scale-95 transition-all duration-200 backdrop-blur-md shadow-xl cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                )}
-
+              {/* Main Step Content */}
+              <div>
                 {/* Bước 1: Cấu hình tạo phụ đề Whisper */}
                 {manualActiveStep === 1 && (
                 <div className="bg-surface/80 border border-white/10 rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-lg step-transition">
@@ -4169,9 +4142,8 @@ export default function VideoTranslate() {
                     )}
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
           {/* Card Trạng Thái Tạm Dừng: Chờ Nạp Phụ Đề Dịch (Manual Workflow Pause State) */}
           {taskStatus?.status === "waiting_manual_translation" && (
