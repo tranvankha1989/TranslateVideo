@@ -286,7 +286,9 @@ export function MainLayout() {
             : "md:ml-64 2k:ml-72 md:w-[calc(100%-256px)] 2k:w-[calc(100%-288px)]",
         )}
       >
-        <Outlet />
+        <div key={location.pathname} className="w-full flex justify-center items-start animate-fadeIn">
+          <Outlet />
+        </div>
       </main>
 
 

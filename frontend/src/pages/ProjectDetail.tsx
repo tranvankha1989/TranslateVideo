@@ -580,7 +580,7 @@ export default function ProjectDetail() {
 
       {/* Main Content Area */}
       {activeTab === "blocks" ? (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 animate-fadeIn">
           {/* Action Toolbar */}
           <div className="glass-card rounded-2xl p-4 md:p-5 border border-white/5 flex flex-wrap items-center justify-between gap-4 shadow-lg">
             {/* Left Tools */}
@@ -781,7 +781,7 @@ export default function ProjectDetail() {
         </div>
       ) : (
         /* Tab 2: Single Audio Records History */
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 animate-fadeIn">
           {projectAudios.length === 0 ? (
             <div className="p-12 text-center text-on-surface-variant font-mono-data text-mono-data border border-dashed border-white/10 rounded-2xl bg-surface-dim">
               Dự án này chưa có file audio đơn nào từ Phòng thu.

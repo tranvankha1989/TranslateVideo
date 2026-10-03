@@ -559,7 +559,7 @@ export default function Settings() {
 
       {/* Tab 1: Bộ Xử Lý & GPU */}
       {activeTab === "hardware" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fadeIn">
           {/* Card chọn Engine */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Option 1: GPU Cục Bộ */}
@@ -933,7 +933,7 @@ export default function Settings() {
 
       {/* Tab 2: Hướng Dẫn Google Colab & Cloud */}
       {activeTab === "guide" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fadeIn">
           {/* Card 1: Hướng dẫn Google Colab + Ngrok Static Domain */}
           <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-4">
             <div className="flex items-center justify-between">
@@ -1012,7 +1012,7 @@ export default function Settings() {
 
       {/* Tab 3: Đồng Bộ & Dữ Liệu */}
       {activeTab === "sync" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fadeIn">
           <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -1077,7 +1077,7 @@ export default function Settings() {
 
       {/* Tab 4: Mặc Định Phòng Thu */}
       {activeTab === "studio" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fadeIn">
           <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-4">
             <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
               <Sliders className="w-5 h-5 text-primary" />
@@ -1155,7 +1155,7 @@ export default function Settings() {
 
       {/* Tab 5: Bộ Lọc Quảng Cáo & Dạy AI (Ad Filter & Teach AI) */}
       {activeTab === "filter" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fadeIn">
           {/* Card Hero: Dạy AI & Cấu Hình Bộ Lọc */}
           <div className="p-6 md:p-8 rounded-3xl bg-surface-variant/40 border border-white/10 shadow-xl space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1310,7 +1310,7 @@ export default function Settings() {
 
       {/* Tab 5: Phiên Bản & Cập Nhật Phần Mềm */}
       {activeTab === "update" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fadeIn">
           {/* Hero Update Card */}
           <div className="p-6 md:p-8 rounded-3xl bg-gradient-to-br from-primary/15 via-surface-variant/40 to-surface-variant/20 border border-primary/30 shadow-xl space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1419,7 +1419,7 @@ export default function Settings() {
 
       {/* Tab 6: Nhật Ký & Báo Lỗi (System Logs & Diagnostic) */}
       {activeTab === "logs" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fadeIn">
           {/* Card Tiêu Đề & Thống Kê */}
           <div className="p-6 md:p-8 rounded-3xl bg-surface-variant/30 border border-white/5 space-y-4 relative overflow-hidden">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

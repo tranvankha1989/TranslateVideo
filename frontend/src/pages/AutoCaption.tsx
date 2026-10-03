@@ -1485,7 +1485,7 @@ export default function AutoCaption() {
 
               {/* Tab 1: Transcript Doc Editor (Gộp câu, Tách câu, Tìm/Thay thế) */}
               {activeTab === "transcript" && (
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 overflow-hidden animate-fadeIn">
                   <TranscriptDocEditor
                     segments={segments}
                     currentTime={currentTime}
@@ -1508,7 +1508,7 @@ export default function AutoCaption() {
 
               {/* Tab 2: Style Controls */}
               {activeTab === "style" && (
-                <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin scrollbar-thumb-white/10 text-sm">
+                <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin scrollbar-thumb-white/10 text-sm animate-fadeIn">
                   {/* Font Family Selection */}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">

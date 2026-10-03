@@ -24,13 +24,28 @@
 }
 
 @layer base {
+  html {
+    scrollbar-gutter: stable;
+    overflow-y: scroll;
+  }
+
   body {
     background-color: #09090b;
     background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
     background-size: 20px 20px;
+    min-height: 100vh;
   }
 
-  /* Custom Scrollbar */
+  #root, main {
+    scrollbar-gutter: stable;
+  }
+
+  /* Custom Scrollbar - Consistent across entire app without layout jump */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(245, 158, 11, 0.3) rgba(24, 24, 27, 0.6);
+  }
+
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
