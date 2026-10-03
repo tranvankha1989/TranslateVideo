@@ -232,57 +232,100 @@ class VideoTranslationPipeline:
 
     @classmethod
     def list_all_tasks(cls) -> list[dict[str, Any]]:
-        """Quét toàn bộ thư mục outputs/video_translate để trả về danh sách dự án dịch video."""
+        """Quét toàn bộ thư mục outputs/video_translate và _TASK_STORE để trả về danh sách dự án dịch video."""
         projects = []
-        if not TRANSLATE_OUTPUT_DIR.exists():
-            return []
+        seen_task_ids = set()
 
-        for folder in TRANSLATE_OUTPUT_DIR.iterdir():
-            if not folder.is_dir():
-                continue
-            task_id = folder.name
-            meta_file = folder / "task_meta.json"
-            meta = {}
-            if meta_file.exists():
-                try:
-                    with open(meta_file, "r", encoding="utf-8") as f:
-                        meta = json.load(f)
-                except Exception:
-                    pass
+        if TRANSLATE_OUTPUT_DIR.exists():
+            for folder in TRANSLATE_OUTPUT_DIR.iterdir():
+                if not folder.is_dir():
+                    continue
+                task_id = folder.name
+                seen_task_ids.add(task_id)
+                meta_file = folder / "task_meta.json"
+                meta = {}
+                if meta_file.exists():
+                    try:
+                        with open(meta_file, "r", encoding="utf-8") as f:
+                            meta = json.load(f)
+                    except Exception:
+                        pass
 
-            final_video = folder / "final_translated.mp4"
-            srt_target = folder / "subtitles.srt"
-            srt_orig = folder / "subtitles_original.srt"
+                # Merge with in-memory task store if available
+                mem_task = _TASK_STORE.get(task_id, {})
+                for k, v in mem_task.items():
+                    if k not in meta or meta[k] is None:
+                        meta[k] = v
 
-            created_at = meta.get("created_at") or meta.get("_start_time") or folder.stat().st_mtime
+                final_video = folder / "final_translated.mp4"
+                srt_target = folder / "subtitles.srt"
+                srt_orig = folder / "subtitles_original.srt"
 
-            file_size_mb = 0.0
-            if final_video.exists():
-                file_size_mb = round(final_video.stat().st_size / (1024 * 1024), 2)
+                created_at = meta.get("created_at") or meta.get("_start_time") or folder.stat().st_mtime
 
-            video_path_str = meta.get("video_path", "")
-            video_name = Path(video_path_str).name if video_path_str else f"Video_{task_id[:8]}"
+                file_size_mb = 0.0
+                if final_video.exists():
+                    file_size_mb = round(final_video.stat().st_size / (1024 * 1024), 2)
 
-            status = meta.get("status", "completed" if final_video.exists() else "processing")
+                video_path_str = meta.get("video_path", "")
+                video_name = Path(video_path_str).name if video_path_str else f"Video_{task_id[:8]}"
 
-            projects.append({
-                "task_id": task_id,
-                "video_name": video_name,
-                "source_lang": meta.get("source_lang", meta.get("detected_source_lang", "auto")),
-                "target_lang": meta.get("target_lang", "vi"),
-                "voice_id": meta.get("voice_id", "vi-VN-HoaiMyNeural"),
-                "engine": meta.get("engine", "edge-tts"),
-                "status": status,
-                "progress": meta.get("progress", 100 if final_video.exists() else 0),
-                "created_at": float(created_at),
-                "duration": float(meta.get("video_duration", 0.0)),
-                "elapsed_str": meta.get("elapsed_str"),
-                "output_resolution": meta.get("output_resolution", "720p"),
-                "video_url": f"/api/video-translate/stream/{task_id}" if final_video.exists() else None,
-                "subtitles_srt_url": f"/outputs/video_translate/{task_id}/{srt_target.name}" if srt_target.exists() else None,
-                "subtitles_original_srt_url": f"/outputs/video_translate/{task_id}/{srt_orig.name}" if srt_orig.exists() else None,
-                "file_size_mb": file_size_mb,
-            })
+                status = meta.get("status", "completed" if final_video.exists() else "processing")
+                has_video = final_video.exists()
+                has_srt = srt_target.exists()
+                has_srt_orig = srt_orig.exists()
+
+                projects.append({
+                    "task_id": task_id,
+                    "video_name": video_name,
+                    "video_filename": video_name,
+                    "source_lang": meta.get("source_lang", meta.get("detected_source_lang", "auto")),
+                    "target_lang": meta.get("target_lang", "vi"),
+                    "voice_id": meta.get("voice_id", "vi-VN-HoaiMyNeural"),
+                    "engine": meta.get("engine", "edge-tts"),
+                    "translation_engine": meta.get("engine", "edge-tts"),
+                    "status": status,
+                    "progress": meta.get("progress", 100 if has_video else 0),
+                    "created_at": float(created_at),
+                    "duration": float(meta.get("video_duration", 0.0)),
+                    "video_duration": float(meta.get("video_duration", 0.0)),
+                    "elapsed_str": meta.get("elapsed_str"),
+                    "output_resolution": meta.get("output_resolution", "720p"),
+                    "has_video": has_video,
+                    "has_srt": has_srt,
+                    "has_srt_original": has_srt_orig,
+                    "video_url": f"/api/video-translate/stream/{task_id}" if has_video else None,
+                    "srt_url": f"/outputs/video_translate/{task_id}/{srt_target.name}" if has_srt else None,
+                    "srt_original_url": f"/outputs/video_translate/{task_id}/{srt_orig.name}" if has_srt_orig else None,
+                    "subtitles_srt_url": f"/outputs/video_translate/{task_id}/{srt_target.name}" if has_srt else None,
+                    "subtitles_original_srt_url": f"/outputs/video_translate/{task_id}/{srt_orig.name}" if has_srt_orig else None,
+                    "file_size_mb": file_size_mb,
+                    "video_size_mb": file_size_mb,
+                })
+
+        # Thêm các tác vụ trong memory chưa tạo xong thư mục
+        for task_id, mem_task in _TASK_STORE.items():
+            if task_id not in seen_task_ids:
+                projects.append({
+                    "task_id": task_id,
+                    "video_name": mem_task.get("video_filename", f"Video_{task_id[:8]}"),
+                    "video_filename": mem_task.get("video_filename", f"Video_{task_id[:8]}"),
+                    "source_lang": mem_task.get("source_lang", "auto"),
+                    "target_lang": mem_task.get("target_lang", "vi"),
+                    "voice_id": mem_task.get("voice_id", "vi-VN-HoaiMyNeural"),
+                    "engine": mem_task.get("engine", "edge-tts"),
+                    "translation_engine": mem_task.get("engine", "edge-tts"),
+                    "status": mem_task.get("status", "processing"),
+                    "progress": mem_task.get("progress", 0),
+                    "created_at": float(mem_task.get("created_at", time.time())),
+                    "duration": 0.0,
+                    "video_duration": 0.0,
+                    "has_video": False,
+                    "has_srt": False,
+                    "has_srt_original": False,
+                    "file_size_mb": 0.0,
+                    "video_size_mb": 0.0,
+                })
 
         projects.sort(key=lambda x: x["created_at"], reverse=True)
         return projects

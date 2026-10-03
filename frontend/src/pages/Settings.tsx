@@ -192,8 +192,8 @@ export default function Settings() {
   // Thứ tự hiển thị log: mặc định 'desc' (dòng mới nhất ở trên cùng)
   const [logOrder, setLogOrder] = useState<"desc" | "asc">("desc");
 
-  const fetchLogContent = async (lines = logLinesCount, order = logOrder) => {
-    setIsLoadingLogs(true);
+  const fetchLogContent = async (lines = logLinesCount, order = logOrder, showSpinner = true) => {
+    if (showSpinner) setIsLoadingLogs(true);
     try {
       const res = await fetch(`http://localhost:8000/api/settings/logs/content?lines=${lines}&order=${order}`);
       if (res.ok) {
@@ -208,14 +208,28 @@ export default function Settings() {
     } catch (err) {
       console.warn("Lỗi khi tải nhật ký:", err);
     } finally {
-      setIsLoadingLogs(false);
+      if (showSpinner) setIsLoadingLogs(false);
     }
   };
+
+  // Tự động làm mới logs mỗi 1 giây khi tab logs đang mở
+  useEffect(() => {
+    if (activeTab !== "logs") return;
+
+    fetchVerboseStatus();
+    fetchLogContent(logLinesCount, logOrder, !logContent);
+
+    const interval = setInterval(() => {
+      fetchLogContent(logLinesCount, logOrder, false);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeTab, logLinesCount, logOrder]);
 
   const handleToggleLogOrder = () => {
     const nextOrder = logOrder === "desc" ? "asc" : "desc";
     setLogOrder(nextOrder);
-    fetchLogContent(logLinesCount, nextOrder);
+    fetchLogContent(logLinesCount, nextOrder, true);
     toast.info(nextOrder === "desc" ? "Đã chuyển sắp xếp: Mới nhất trên cùng ⬇" : "Đã chuyển sắp xếp: Cũ nhất trên cùng ⬆");
   };
 
@@ -1312,7 +1326,14 @@ export default function Settings() {
               </div>
 
               {logStats && (
-                <div className="flex items-center gap-2 text-xs font-mono">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="font-sans font-medium text-[11px]">Tự động làm mới (1s)</span>
+                  </span>
                   <span className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-on-surface">
                     📊 Dung lượng: <strong className="text-primary">{logStats.file_size_kb} KB</strong>
                   </span>

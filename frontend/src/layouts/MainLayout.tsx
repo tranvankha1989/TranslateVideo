@@ -89,10 +89,10 @@ export function MainLayout() {
                   </span>
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <h2 className="text-base font-bold text-on-surface leading-tight tracking-tight truncate">
+                  <h2 className="text-lg font-bold text-on-surface leading-tight tracking-tight truncate">
                     VideoTranslate AI
                   </h2>
-                  <p className="text-[10px] text-on-surface-variant/40 font-mono tracking-wider font-light mt-0.5 select-none">
+                  <p className="text-xs text-on-surface-variant font-mono font-medium tracking-wide mt-0.5 select-none">
                     Version: {APP_VERSION}-Demo
                   </p>
                 </div>

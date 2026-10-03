@@ -19,6 +19,8 @@ import {
   RefreshCw,
   Clapperboard,
   Languages,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 
 interface VideoProjectItem {
@@ -405,13 +407,16 @@ function VideoProjectCard({
 export default function Library() {
   const { history, removeHistory, cleanupJunkFiles } = useTTSStore();
 
-  // Tab State: "audio" | "video"
-  const [activeTab, setActiveTab] = useState<"audio" | "video">("audio");
+  // Tab State: "video" | "audio" (mặc định mở Lịch sử Dịch Video)
+  const [activeTab, setActiveTab] = useState<"video" | "audio">("video");
 
   // Video Projects state
   const [videoProjects, setVideoProjects] = useState<VideoProjectItem[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Modal xác nhận xóa riêng cho từng tab
+  const [isConfirmClearModalOpen, setIsConfirmClearModalOpen] = useState(false);
 
   // Phân trang Audio
   const [currentPage, setCurrentPage] = useState(1);
@@ -441,11 +446,10 @@ export default function Library() {
     }
   }, []);
 
+  // Tải danh sách dự án video ngay khi vào trang
   useEffect(() => {
-    if (activeTab === "video") {
-      fetchVideoProjects();
-    }
-  }, [activeTab, fetchVideoProjects]);
+    fetchVideoProjects();
+  }, [fetchVideoProjects]);
 
   const handleDeleteVideoProject = (taskId: string) => {
     toast("Bạn có chắc chắn muốn xóa toàn bộ file của dự án này?", {
@@ -467,20 +471,55 @@ export default function Library() {
     });
   };
 
-  const handleCleanJunk = async () => {
+  // Thực hiện Xóa bộ nhớ riêng theo từng tab đang mở
+  const handleExecuteClearActiveTab = async () => {
     setIsCleaning(true);
-    const toastId = toast.loading("Đang quét và dọn dẹp các file âm thanh rác...");
+    setIsConfirmClearModalOpen(false);
+    const toastId = toast.loading(
+      activeTab === "video"
+        ? "Đang xóa toàn bộ lịch sử video và giải phóng ổ đĩa..."
+        : "Đang xóa toàn bộ lịch sử phòng thu và file âm thanh..."
+    );
+
     try {
-      const res = await cleanupJunkFiles(true);
-      if (res.deleted_count > 0) {
-        toast.success(`Đã dọn dẹp ${res.deleted_count} file rác, giải phóng ${res.freed_mb} MB bộ nhớ!`, {
-          id: toastId,
-        });
+      let totalFreed = 0;
+
+      if (activeTab === "video") {
+        // 1. Xóa toàn bộ dự án video trên backend
+        const resVt = await fetch("http://localhost:8000/api/video-translate/tasks", { method: "DELETE" });
+        if (resVt.ok) {
+          const dataVt = await resVt.json();
+          totalFreed += Number(dataVt.freed_mb || 0);
+        }
+        // Dọn thêm cache alignment & captions tạm của video
+        const resCleanup = await fetch("http://localhost:8000/api/video-translate/cleanup-cache", { method: "POST" });
+        if (resCleanup.ok) {
+          const dataCleanup = await resCleanup.json();
+          totalFreed += Number(dataCleanup.freed_mb || 0);
+        }
+        setVideoProjects([]);
+        toast.success(
+          `Đã xóa toàn bộ lịch sử Dịch Video và giải phóng ${totalFreed.toFixed(1)} MB dung lượng!`,
+          { id: toastId }
+        );
       } else {
-        toast.success("Hệ thống sạch sẽ! Không có file rác mồ côi nào.", { id: toastId });
+        // 2. Xóa toàn bộ bản thu âm phòng thu
+        const junkRes = await cleanupJunkFiles(true);
+        totalFreed += Number(junkRes.freed_mb || 0);
+
+        // Xóa sạch các item history trong store
+        for (const item of history) {
+          await removeHistory(item.id);
+        }
+        toast.success(
+          `Đã xóa toàn bộ lịch sử Phòng Thu và giải phóng ${totalFreed.toFixed(1)} MB dung lượng!`,
+          { id: toastId }
+        );
       }
+
+      fetchVideoProjects();
     } catch (e: any) {
-      toast.error(`Lỗi dọn dẹp: ${e.message}`, { id: toastId });
+      toast.error(`Lỗi khi xóa bộ nhớ: ${e.message}`, { id: toastId });
     } finally {
       setIsCleaning(false);
     }
@@ -500,72 +539,150 @@ export default function Library() {
 
   return (
     <div className="glass-card rounded-3xl w-full max-w-[1600px] 2k:max-w-[2000px] mx-auto p-6 md:p-8 2k:p-10 flex flex-col gap-8 shadow-2xl backdrop-blur-2xl border border-white/10">
-      {/* Header & Tabs */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-6">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/10">
-            <FolderOpen className="w-6 h-6" />
+      {/* Header & Tabs Container */}
+      <div className="flex flex-col gap-6 border-b border-white/10 pb-6">
+        {/* Hàng 1: Tiêu đề Thư Viện & Nút Xóa Bộ Nhớ Riêng Cho Tab Đang Chọn */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/10 shrink-0">
+              <FolderOpen className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="font-display text-2xl md:text-3xl font-bold text-on-surface">
+                Thư Viện Đa Phương Tiện
+              </h1>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                Quản lý lịch sử dự án dịch thuật video và các bản thu âm giọng đọc phòng thu
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-display text-2xl md:text-3xl font-bold text-on-surface">
-              Thư Viện Đa Phương Tiện
-            </h1>
-            <p className="text-xs text-on-surface-variant mt-0.5">
-              Quản lý lịch sử giọng đọc TTS và các dự án dịch thuật lồng tiếng video
-            </p>
+
+          {/* Nút Xóa Bộ Nhớ theo Tab đang mở */}
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setIsConfirmClearModalOpen(true)}
+              disabled={isCleaning || (activeTab === "video" ? videoProjects.length === 0 : history.length === 0)}
+              className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              title={
+                activeTab === "video"
+                  ? "Xóa toàn bộ lịch sử video và giải phóng dung lượng"
+                  : "Xóa toàn bộ lịch sử phòng thu và giải phóng dung lượng"
+              }
+            >
+              <Trash2 className="w-4 h-4 text-rose-400" />
+              <span>
+                {activeTab === "video" ? "Xóa Bộ Nhớ Video" : "Xóa Bộ Nhớ Phòng Thu"}
+              </span>
+            </button>
           </div>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-1.5 p-1.5 bg-surface-dim/80 border border-white/10 rounded-2xl self-start md:self-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab("audio")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "audio"
-                ? "bg-primary text-black shadow-md shadow-primary/20"
-                : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-            }`}
-          >
-            <Volume2 className="w-4 h-4" />
-            <span>Lịch sử Giọng đọc ({history.length})</span>
-          </button>
-
+        {/* Hàng 2: Vị trí chuyển 2 tính năng (Tab Switcher) đặt ngay dưới tiêu đề Thư Viện */}
+        <div className="flex flex-wrap items-center gap-2 p-1.5 bg-surface-dim/80 border border-white/10 rounded-2xl w-full sm:w-auto self-start">
           <button
             type="button"
             onClick={() => setActiveTab("video")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               activeTab === "video"
                 ? "bg-primary text-black shadow-md shadow-primary/20"
                 : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
             }`}
           >
             <Film className="w-4 h-4" />
-            <span>Dự án Dịch Video ({videoProjects.length})</span>
+            <span>Lịch Sử Dịch Video ({videoProjects.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("audio")}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === "audio"
+                ? "bg-primary text-black shadow-md shadow-primary/20"
+                : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+            }`}
+          >
+            <Volume2 className="w-4 h-4" />
+            <span>Lịch Sử Phòng Thu ({history.length})</span>
           </button>
         </div>
       </div>
 
-      {/* Tab Content 1: Audio Records */}
+      {/* Tab Content 1: Video Translation Projects */}
+      {activeTab === "video" && (
+        <div className="flex flex-col gap-6 animate-fadeIn">
+          {/* Controls bar */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm kiếm dự án theo ID, ngôn ngữ, giọng..."
+                className="w-full pl-10 pr-4 py-2 bg-surface-dim border border-white/10 rounded-xl text-xs text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={fetchVideoProjects}
+                disabled={isLoadingProjects}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-variant hover:bg-white/10 text-on-surface border border-white/10 text-xs font-semibold transition-all cursor-pointer"
+                title="Làm mới danh sách dự án"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingProjects ? "animate-spin text-primary" : ""}`} />
+                Làm mới
+              </button>
+            </div>
+          </div>
+
+          {isLoadingProjects ? (
+            <div className="py-16 flex flex-col items-center justify-center gap-3 text-on-surface-variant">
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              <span className="text-xs font-medium">Đang tải danh sách dự án dịch video...</span>
+            </div>
+          ) : filteredVideoProjects.length === 0 ? (
+            <div className="p-12 text-center text-on-surface-variant font-mono-data text-mono-data border border-dashed border-white/10 rounded-2xl bg-surface-dim flex flex-col items-center gap-3">
+              <Film className="w-10 h-10 text-on-surface-variant/40" />
+              <p className="text-sm text-on-surface">
+                {searchQuery ? "Không tìm thấy dự án video phù hợp với từ khóa." : "Chưa có dự án dịch video nào được lưu lại."}
+              </p>
+              {!searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => window.location.assign("/video-translate")}
+                  className="mt-2 px-5 py-2.5 rounded-xl bg-primary text-black font-bold text-xs flex items-center gap-2 shadow-lg shadow-primary/20 hover:opacity-90 cursor-pointer"
+                >
+                  <Clapperboard className="w-4 h-4" />
+                  Bắt Đầu Dịch Video Mới
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {filteredVideoProjects.map((project) => (
+                <VideoProjectCard
+                  key={project.task_id}
+                  project={project}
+                  onDelete={handleDeleteVideoProject}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab Content 2: Audio Records (Phòng thu) */}
       {activeTab === "audio" && (
         <div className="flex flex-col gap-6 animate-fadeIn">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <span className="text-xs font-medium text-on-surface-variant">
-              Hiển thị các bản thu âm và chuyển văn bản thành giọng nói đã tạo
+              Hiển thị các bản thu âm và chuyển văn bản thành giọng nói đã tạo từ Voice Studio Pro
             </span>
 
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleCleanJunk}
-                disabled={isCleaning}
-                className="flex items-center gap-1.5 bg-surface-variant hover:bg-white/10 text-on-surface border border-white/10 px-3.5 py-2 rounded-xl font-label-caps text-xs transition-all shadow-sm cursor-pointer"
-                title="Quét và xóa các file audio tạm/mồ côi trong thư mục outputs/ không còn được lưu"
-              >
-                <span className={`material-symbols-outlined text-[16px] ${isCleaning ? "animate-spin" : "text-amber-400"}`}>
-                  {isCleaning ? "sync" : "mop"}
-                </span>
-                Dọn dẹp rác
-              </button>
               <div className="bg-surface-variant px-3.5 py-1.5 rounded-xl text-xs font-mono-data text-on-surface-variant border border-white/5">
                 {history.length} mục
               </div>
@@ -632,72 +749,65 @@ export default function Library() {
         </div>
       )}
 
-      {/* Tab Content 2: Video Translation Projects */}
-      {activeTab === "video" && (
-        <div className="flex flex-col gap-6 animate-fadeIn">
-          {/* Controls bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm kiếm dự án theo ID, ngôn ngữ, giọng..."
-                className="w-full pl-10 pr-4 py-2 bg-surface-dim border border-white/10 rounded-xl text-xs text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary transition-colors"
-              />
+      {/* Modal Xác Nhận Xóa Bộ Nhớ Riêng Biệt Cho Từng Tab */}
+      {isConfirmClearModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-surface border border-white/10 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setIsConfirmClearModalOpen(false)}
+              className="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-bold text-on-surface">
+                  {activeTab === "video"
+                    ? "Xác Nhận Xóa Lịch Sử Dịch Video"
+                    : "Xác Nhận Xóa Lịch Sử Phòng Thu"}
+                </h3>
+                <p className="text-xs text-on-surface-variant leading-relaxed">
+                  {activeTab === "video"
+                    ? `Bạn có chắc chắn muốn xóa toàn bộ ${videoProjects.length} dự án dịch video và tất cả các file video đã render, file phụ đề để giải phóng dung lượng ổ cứng?`
+                    : `Bạn có chắc chắn muốn xóa toàn bộ ${history.length} bản thu âm giọng đọc và các file âm thanh đã lưu để giải phóng dung lượng ổ cứng?`}
+                </p>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>
+                Lưu ý: Hành động này chỉ xóa dữ liệu của <strong>{activeTab === "video" ? "Lịch Sử Dịch Video" : "Lịch Sử Phòng Thu"}</strong> và không làm mất dữ liệu của tab còn lại.
+              </span>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
-                onClick={fetchVideoProjects}
-                disabled={isLoadingProjects}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-variant hover:bg-white/10 text-on-surface border border-white/10 text-xs font-semibold transition-all cursor-pointer"
-                title="Làm mới danh sách dự án"
+                onClick={() => setIsConfirmClearModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface text-xs font-semibold border border-white/10 transition-colors cursor-pointer"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingProjects ? "animate-spin text-primary" : ""}`} />
-                Làm mới
+                Hủy Bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteClearActiveTab}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>
+                  {activeTab === "video" ? "Xóa Sạch Lịch Sử Video" : "Xóa Sạch Lịch Sử Phòng Thu"}
+                </span>
               </button>
             </div>
           </div>
-
-          {isLoadingProjects ? (
-            <div className="py-16 flex flex-col items-center justify-center gap-3 text-on-surface-variant">
-              <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              <span className="text-xs font-medium">Đang tải danh sách dự án dịch video...</span>
-            </div>
-          ) : filteredVideoProjects.length === 0 ? (
-            <div className="p-12 text-center text-on-surface-variant font-mono-data text-mono-data border border-dashed border-white/10 rounded-2xl bg-surface-dim flex flex-col items-center gap-3">
-              <Film className="w-10 h-10 text-on-surface-variant/40" />
-              <p className="text-sm text-on-surface">
-                {searchQuery ? "Không tìm thấy dự án video phù hợp với từ khóa." : "Chưa có dự án dịch video nào được lưu lại."}
-              </p>
-              {!searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => window.location.assign("/video-translate")}
-                  className="mt-2 px-5 py-2.5 rounded-xl bg-primary text-black font-bold text-xs flex items-center gap-2 shadow-lg shadow-primary/20 hover:opacity-90 cursor-pointer"
-                >
-                  <Clapperboard className="w-4 h-4" />
-                  Bắt Đầu Dịch Video Mới
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {filteredVideoProjects.map((project) => (
-                <VideoProjectCard
-                  key={project.task_id}
-                  project={project}
-                  onDelete={handleDeleteVideoProject}
-                />
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>
   );
 }
-

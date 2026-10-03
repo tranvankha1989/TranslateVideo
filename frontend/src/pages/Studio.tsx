@@ -120,11 +120,10 @@ export default function Studio() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface">
-            OmniVoice Studio
+            Voice Studio Pro
           </h1>
           <p className="text-on-surface-variant text-sm 2k:text-base mt-0.5">
-            Tổng hợp giọng nói AI chất lượng cao 24kHz với mô hình OmniVoice
-            (k2-fsa)
+            Tổng hợp giọng nói AI chất lượng cao 24kHz với mô hình OmniVoice (k2-fsa)
           </p>
         </div>
 

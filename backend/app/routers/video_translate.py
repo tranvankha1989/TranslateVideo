@@ -1496,3 +1496,48 @@ async def studio_quick_remux_endpoint(task_id: str, req: StudioRemuxRequest | No
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+# ── CÁC ENDPOINT QUẢN LÝ LỊCH SỬ DỰ ÁN TRONG THƯ VIỆN (LIBRARY) ──────────
+
+@router.get("/tasks")
+async def list_video_translate_tasks_endpoint():
+    """Lấy danh sách toàn bộ các dự án dịch video đã thực hiện trong thư viện."""
+    tasks = VideoTranslationPipeline.list_all_tasks()
+    return {"tasks": tasks, "total": len(tasks)}
+
+
+@router.delete("/tasks/{task_id}")
+async def delete_video_translate_task_endpoint(task_id: str):
+    """Xóa một dự án dịch video cụ thể và giải phóng dung lượng đĩa."""
+    ok = VideoTranslationPipeline.delete_task(task_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án video để xóa.")
+    return {"status": "ok", "message": f"Đã xóa thành công dự án {task_id}."}
+
+
+@router.delete("/tasks")
+async def clear_all_video_translate_tasks_endpoint():
+    """Xóa toàn bộ lịch sử và file của tất cả các dự án dịch video để giải phóng dung lượng máy."""
+    deleted_count = 0
+    total_freed_bytes = 0
+    if TRANSLATE_OUTPUT_DIR.exists():
+        for folder in TRANSLATE_OUTPUT_DIR.iterdir():
+            if folder.is_dir():
+                try:
+                    for sub in folder.rglob("*"):
+                        if sub.is_file():
+                            total_freed_bytes += sub.stat().st_size
+                    shutil.rmtree(folder, ignore_errors=True)
+                    deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"Lỗi khi xóa folder {folder}: {e}")
+    
+    _TASK_STORE.clear()
+    freed_mb = round(total_freed_bytes / (1024 * 1024), 2)
+    return {
+        "status": "ok",
+        "deleted_count": deleted_count,
+        "freed_mb": freed_mb,
+        "message": f"Đã xóa toàn bộ {deleted_count} dự án dịch video và giải phóng {freed_mb} MB dung lượng!"
+    }
+

@@ -1491,7 +1491,7 @@ export default function VideoTranslate() {
             <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface">
               Dịch & Lồng Tiếng Video
             </h1>
-            <span className="text-[10px] font-normal text-on-surface-variant/40 font-mono tracking-wider select-none">
+            <span className="text-xs font-medium text-on-surface-variant font-mono tracking-wide select-none">
               Version: {APP_VERSION}-Demo
             </span>
           </div>

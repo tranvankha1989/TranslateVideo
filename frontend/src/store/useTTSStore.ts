@@ -1198,7 +1198,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
         return {
           ok: false,
           has_update: false,
-          current_version: "2.9.0",
+          current_version: "3.7.0",
           commits_behind: 0,
           commit_messages: [],
           message: "Không thể kiểm tra bản cập nhật",
