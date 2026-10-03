@@ -221,6 +221,8 @@ export default function VideoTranslate() {
   const [studioSearch, setStudioSearch] = React.useState("");
   const [playingAudioSegId, setPlayingAudioSegId] = React.useState<number | null>(null);
   const [deletingSegId, setDeletingSegId] = React.useState<number | null>(null);
+  const [isStudioOpen, setIsStudioOpen] = React.useState(true);
+  const [studioViewMode, setStudioViewMode] = React.useState<"current" | "all">("current");
 
   // Thêm câu thoại mới tại vị trí bất kỳ
   const [showAddSegmentModal, setShowAddSegmentModal] = React.useState(false);
@@ -2387,7 +2389,7 @@ export default function VideoTranslate() {
           </div>
           ) : (
             /* Chế độ Thủ Công (Manual Pipeline - 4-Step Stepper Wizard) */
-            <div className="space-y-5 animate-fadeIn">
+            <div className="space-y-5">
               {/* Stepper Navigation Bar with < > arrow buttons */}
               <div className="bg-surface/90 border border-white/10 rounded-2xl p-2 backdrop-blur-xl shadow-lg flex items-center gap-2">
                 {/* Nút Mũi Tên < (Bước trước) */}
@@ -3509,267 +3511,563 @@ export default function VideoTranslate() {
                 </div>
 
                 {/* 2. Studio Xem Lại & Thuyết Minh Thời Gian Thực (Interactive Timeline & In-Place Redub) */}
-                <div className="p-4 rounded-3xl bg-surface/90 border-2 border-primary/40 space-y-4 shadow-xl animate-fadeIn">
-                  {/* Studio Header */}
-                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-white/10">
+                <div className="rounded-3xl bg-surface/90 border border-white/10 shadow-xl overflow-hidden transition-all duration-300">
+                  {/* Studio Header - Dạng Sổ Xuống (Accordion Collapsible) */}
+                  <div
+                    onClick={() => setIsStudioOpen(!isStudioOpen)}
+                    className="p-4 flex items-center justify-between flex-wrap gap-2 cursor-pointer select-none bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors border-b border-white/5"
+                  >
                     <div className="flex items-center gap-2.5">
                       <span className="p-2 rounded-xl bg-primary/20 text-primary">
-                        <Sparkles className="w-5 h-5" />
+                        <Sparkles className="w-4 h-4" />
                       </span>
                       <div>
                         <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
-                          <span>Studio Xem Lại & Biên Tập Câu Thoại</span>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
-                            Đồng bộ thời gian thực
+                          <span>Xem Lại & Chỉnh Sửa Lời Thoại</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30 font-mono">
+                            {studioSegments.length > 0 ? `${studioSegments.length} câu` : "Thời gian thực"}
                           </span>
                         </h3>
                         <p className="text-[11px] text-on-surface-variant">
-                          💡 <b>Sửa lời câu nào chỉ cần bấm "Nạp Lại Lời Thoại" câu đó</b> (chỉ mất ~0.5s) để cập nhật video ngay lập tức.
+                          {isStudioOpen
+                            ? "💡 Đang mở bảng chỉnh sửa câu thoại theo vị trí video phát"
+                            : "👉 Nhấp vào đây để sổ bảng xem lại & sửa câu thoại"}
                         </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-on-surface-variant font-medium">
+                        {isStudioOpen ? "Thu gọn" : "Mở chỉnh sửa"}
+                      </span>
+                      <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-on-surface-variant">
+                        {isStudioOpen ? (
+                          <ChevronUp className="w-4 h-4 text-primary" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Status Banner */}
-                  {studioRemuxMessage && (
-                    <div className="p-2.5 rounded-xl bg-green-500/10 border border-green-500/30 text-green-300 text-xs flex items-center justify-between animate-fadeIn">
-                      <span>{studioRemuxMessage}</span>
-                      <button
-                        type="button"
-                        onClick={() => setStudioRemuxMessage(null)}
-                        className="text-green-400 hover:text-white text-xs font-bold px-1"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Search Bar & Refresh */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={studioSearch}
-                      onChange={(e) => setStudioSearch(e.target.value)}
-                      placeholder="🔍 Tìm kiếm nhanh câu thoại..."
-                      className="w-full text-xs bg-surface-variant/40 border border-white/10 rounded-xl px-3 py-2 text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary"
-                    />
-                    {taskStatus?.task_id && (
-                      <button
-                        type="button"
-                        onClick={() => fetchStudioSegments(taskStatus.task_id)}
-                        disabled={isLoadingStudioSegments}
-                        className="px-2.5 py-2 rounded-xl bg-surface-variant/60 hover:bg-surface-variant text-on-surface text-xs flex items-center gap-1 border border-white/10 cursor-pointer shrink-0 disabled:opacity-50"
-                        title="Tải lại danh sách câu thoại"
-                      >
-                        {isLoadingStudioSegments ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <RotateCcw className="w-3.5 h-3.5 text-primary" />
-                        )}
-                        <span>Nạp lại</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Danh sách câu thoại đồng bộ thời gian thực */}
-                  {isLoadingStudioSegments && studioSegments.length === 0 ? (
-                    <div className="py-8 flex flex-col items-center justify-center gap-2 text-on-surface-variant text-xs">
-                      <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                      <span>Đang nạp dữ liệu timeline studio...</span>
-                    </div>
-                  ) : studioSegments.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-on-surface-variant">
-                      Chưa có dữ liệu câu thoại cho video này.
-                    </div>
-                  ) : (
-                    <div ref={transcriptContainerRef} className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
-                      {filteredStudioSegments.map((seg) => {
-                        const isActive = activeStudioSegmentId === seg.id;
-                        const isPlayingAudio = playingAudioSegId === seg.id;
-                        return (
-                          <div
-                            key={seg.id}
-                            id={`studio-seg-${seg.id}`}
-                            onClick={() => handlePlaySingleSegmentOnVideo(seg)}
-                            className={cn(
-                              "p-3 rounded-2xl border transition-all duration-200 space-y-2 cursor-pointer group",
-                              isActive
-                                ? "bg-primary/10 border-primary shadow-md shadow-primary/15 ring-1 ring-primary/40"
-                                : "bg-surface-variant/25 border-white/5 hover:border-primary/40 hover:bg-surface-variant/40"
-                            )}
-                            title="Nhấp vào đây để phát riêng đoạn video này và tự động dừng khi kết thúc"
+                  {/* Nội dung bên trong khi xổ ra */}
+                  {isStudioOpen && (
+                    <div className="p-4 space-y-4 step-transition">
+                      {/* Status Banner */}
+                      {studioRemuxMessage && (
+                        <div className="p-2.5 rounded-xl bg-green-500/10 border border-green-500/30 text-green-300 text-xs flex items-center justify-between">
+                          <span>{studioRemuxMessage}</span>
+                          <button
+                            type="button"
+                            onClick={() => setStudioRemuxMessage(null)}
+                            className="text-green-400 hover:text-white text-xs font-bold px-1"
                           >
-                            {/* Top row: ID, Timeline seek, Start time adjuster, Actions */}
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                <span
+                            ✕
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Header điều khiển: Chuyển chế độ xem & Nạp lại */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap pb-1">
+                        <div className="flex items-center p-1 bg-surface-variant/40 rounded-xl border border-white/5 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setStudioViewMode("current")}
+                            className={cn(
+                              "py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer",
+                              studioViewMode === "current"
+                                ? "bg-primary text-black shadow-sm font-bold"
+                                : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+                            )}
+                          >
+                            <span>🎯 Câu tại vị trí video đang phát</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStudioViewMode("all")}
+                            className={cn(
+                              "py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer",
+                              studioViewMode === "all"
+                                ? "bg-primary text-black shadow-sm font-bold"
+                                : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+                            )}
+                          >
+                            <span>📋 Xem tất cả ({filteredStudioSegments.length})</span>
+                          </button>
+                        </div>
+
+                        {taskStatus?.task_id && (
+                          <button
+                            type="button"
+                            onClick={() => fetchStudioSegments(taskStatus.task_id)}
+                            disabled={isLoadingStudioSegments}
+                            className="px-3 py-1.5 rounded-xl bg-surface-variant/60 hover:bg-surface-variant text-on-surface text-xs flex items-center gap-1.5 border border-white/10 cursor-pointer shrink-0 disabled:opacity-50"
+                            title="Tải lại danh sách câu thoại"
+                          >
+                            {isLoadingStudioSegments ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                            ) : (
+                              <RotateCcw className="w-3.5 h-3.5 text-primary" />
+                            )}
+                            <span>Nạp lại</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Nạp dữ liệu hoặc thông báo rỗng */}
+                      {isLoadingStudioSegments && studioSegments.length === 0 ? (
+                        <div className="py-8 flex flex-col items-center justify-center gap-2 text-on-surface-variant text-xs">
+                          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                          <span>Đang nạp dữ liệu timeline studio...</span>
+                        </div>
+                      ) : studioSegments.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-on-surface-variant">
+                          Chưa có dữ liệu câu thoại cho video này.
+                        </div>
+                      ) : studioViewMode === "current" ? (
+                        /* CHẾ ĐỘ 1: Chỉ hiển thị câu thoại tại vị trí video đang phát với nút < > chuyển câu */
+                        (() => {
+                          const currentActiveSeg =
+                            filteredStudioSegments.find((s) => s.id === activeStudioSegmentId) ||
+                            filteredStudioSegments[0] ||
+                            null;
+                          const currentActiveIndex = currentActiveSeg
+                            ? filteredStudioSegments.findIndex((s) => s.id === currentActiveSeg.id)
+                            : -1;
+
+                          if (!currentActiveSeg) {
+                            return (
+                              <div className="py-6 text-center text-xs text-on-surface-variant">
+                                Không tìm thấy câu thoại phù hợp.
+                              </div>
+                            );
+                          }
+
+                          const isPlayingAudio = playingAudioSegId === currentActiveSeg.id;
+
+                          return (
+                            <div className="space-y-3">
+                              {/* Thanh điều hướng câu thoại với nút < và > */}
+                              <div className="bg-surface-variant/30 border border-white/10 rounded-2xl p-2 flex items-center justify-between gap-2">
+                                {/* Nút Mũi Tên < (Câu trước) */}
+                                <button
+                                  type="button"
+                                  disabled={currentActiveIndex <= 0}
+                                  onClick={() => {
+                                    if (currentActiveIndex > 0) {
+                                      const prevSeg = filteredStudioSegments[currentActiveIndex - 1];
+                                      handleSeekToSegment(prevSeg);
+                                    }
+                                  }}
+                                  title={
+                                    currentActiveIndex <= 0
+                                      ? "Đang ở câu thoại đầu tiên"
+                                      : `Xem câu trước (#${filteredStudioSegments[currentActiveIndex - 1]?.id})`
+                                  }
                                   className={cn(
-                                    "text-[10px] font-mono font-bold px-2 py-0.5 rounded-md",
-                                    isActive ? "bg-primary text-black" : "bg-white/10 text-on-surface-variant"
+                                    "w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 shrink-0 border cursor-pointer",
+                                    currentActiveIndex <= 0
+                                      ? "opacity-20 text-white/30 border-white/5 bg-transparent cursor-not-allowed"
+                                      : "opacity-40 hover:opacity-100 text-white/70 hover:text-white bg-white/5 hover:bg-white/20 border-white/10 hover:border-white/40 hover:scale-105 active:scale-95 shadow-sm"
                                   )}
                                 >
-                                  #{seg.id}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSeekToSegment(seg)}
-                                  className="text-[11px] font-mono text-primary hover:underline flex items-center gap-1 cursor-pointer font-semibold"
-                                  title="Tua video đến mốc này và tiếp tục phát"
-                                >
-                                  <Play className="w-3 h-3 text-primary fill-primary" />
-                                  <span>{formatSrtTime(seg.start)} ➔ {formatSrtTime(seg.end)}</span>
+                                  <ChevronLeft className="w-5 h-5" />
                                 </button>
-                                {seg.audio_duration ? (
-                                  <span className="text-[10px] text-on-surface-variant/70 font-mono">
-                                    ({seg.audio_duration.toFixed(1)}s)
+
+                                {/* Thông tin vị trí câu thoại đang chọn */}
+                                <div className="flex items-center gap-2 text-center min-w-0">
+                                  <span className="text-xs font-bold text-primary font-mono px-2 py-0.5 rounded-lg bg-primary/10 border border-primary/20">
+                                    Câu #{currentActiveSeg.id} ({currentActiveIndex + 1}/{filteredStudioSegments.length})
                                   </span>
-                                ) : null}
-                              </div>
+                                  <span className="text-[11px] font-mono text-on-surface-variant hidden sm:inline">
+                                    [{formatSrtTime(currentActiveSeg.start)} ➔ {formatSrtTime(currentActiveSeg.end)}]
+                                  </span>
+                                </div>
 
-                              {/* Tinh chỉnh thời gian bắt đầu câu thoại (±0.1s) */}
-                              <div
-                                className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-lg border border-white/10"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <span className="text-[10px] text-on-surface-variant font-medium">Bắt đầu:</span>
+                                {/* Nút Mũi Tên > (Câu tiếp) */}
                                 <button
                                   type="button"
-                                  onClick={() => handleAdjustSegmentStart(seg, -0.1)}
-                                  className="w-5 h-5 rounded bg-white/10 hover:bg-primary/20 text-on-surface hover:text-primary flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
-                                  title="Lùi mốc bắt đầu 0.1 giây"
+                                  disabled={
+                                    currentActiveIndex >= filteredStudioSegments.length - 1 ||
+                                    currentActiveIndex === -1
+                                  }
+                                  onClick={() => {
+                                    if (currentActiveIndex < filteredStudioSegments.length - 1) {
+                                      const nextSeg = filteredStudioSegments[currentActiveIndex + 1];
+                                      handleSeekToSegment(nextSeg);
+                                    }
+                                  }}
+                                  title={
+                                    currentActiveIndex >= filteredStudioSegments.length - 1
+                                      ? "Đang ở câu thoại cuối cùng"
+                                      : `Xem câu tiếp theo (#${filteredStudioSegments[currentActiveIndex + 1]?.id})`
+                                  }
+                                  className={cn(
+                                    "w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 shrink-0 border cursor-pointer",
+                                    currentActiveIndex >= filteredStudioSegments.length - 1 ||
+                                    currentActiveIndex === -1
+                                      ? "opacity-20 text-white/30 border-white/5 bg-transparent cursor-not-allowed"
+                                      : "opacity-40 hover:opacity-100 text-white/70 hover:text-white bg-white/5 hover:bg-white/20 border-white/10 hover:border-white/40 hover:scale-105 active:scale-95 shadow-sm"
+                                  )}
                                 >
-                                  <Minus className="w-2.5 h-2.5" />
-                                </button>
-                                <span className="font-mono text-[11px] text-primary font-bold px-1">
-                                  {seg.start.toFixed(1)}s
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleAdjustSegmentStart(seg, +0.1)}
-                                  className="w-5 h-5 rounded bg-white/10 hover:bg-primary/20 text-on-surface hover:text-primary flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
-                                  title="Tiến mốc bắt đầu 0.1 giây"
-                                >
-                                  <Plus className="w-2.5 h-2.5" />
+                                  <ChevronRight className="w-5 h-5" />
                                 </button>
                               </div>
 
-                              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                {/* Nghe thử âm thanh câu này */}
-                                {seg.audio_url && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handlePlaySegmentAudio(seg.id, seg.audio_url)}
-                                    className={cn(
-                                      "px-2.5 py-1 rounded-lg text-xs flex items-center gap-1 border transition-all cursor-pointer",
-                                      isPlayingAudio
-                                        ? "bg-primary text-black border-primary animate-pulse font-bold"
-                                        : "bg-white/5 hover:bg-white/10 text-on-surface border-white/10"
-                                    )}
-                                    title="Nghe thử file âm thanh lồng tiếng riêng của câu này"
-                                  >
-                                    <Volume2 className="w-3 h-3 text-primary" />
-                                    <span>{isPlayingAudio ? "Đang phát..." : "Nghe thử"}</span>
-                                  </button>
+                              {/* Thẻ chỉnh sửa chi tiết câu thoại hiện tại */}
+                              <div className="p-4 rounded-2xl border border-primary/30 bg-surface-variant/40 space-y-3 shadow-lg step-transition">
+                                {/* Top Controls */}
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSeekToSegment(currentActiveSeg)}
+                                      className="text-xs font-mono text-primary hover:underline flex items-center gap-1 cursor-pointer font-bold px-2 py-1 rounded-lg bg-primary/10 border border-primary/20"
+                                      title="Tua video đến mốc này và phát"
+                                    >
+                                      <Play className="w-3 h-3 text-primary fill-primary" />
+                                      <span>
+                                        {formatSrtTime(currentActiveSeg.start)} ➔ {formatSrtTime(currentActiveSeg.end)}
+                                      </span>
+                                    </button>
+                                    {currentActiveSeg.audio_duration ? (
+                                      <span className="text-[11px] text-on-surface-variant/70 font-mono">
+                                        ({currentActiveSeg.audio_duration.toFixed(1)}s)
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  {/* Tinh chỉnh mốc thời gian bắt đầu */}
+                                  <div className="flex items-center gap-1 bg-black/40 px-2.5 py-1 rounded-lg border border-white/10">
+                                    <span className="text-[11px] text-on-surface-variant font-medium">Bắt đầu:</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAdjustSegmentStart(currentActiveSeg, -0.1)}
+                                      className="w-5 h-5 rounded bg-white/10 hover:bg-primary/20 text-on-surface hover:text-primary flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
+                                      title="Lùi mốc bắt đầu 0.1 giây"
+                                    >
+                                      <Minus className="w-2.5 h-2.5" />
+                                    </button>
+                                    <span className="font-mono text-xs text-primary font-bold px-1">
+                                      {currentActiveSeg.start.toFixed(1)}s
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAdjustSegmentStart(currentActiveSeg, +0.1)}
+                                      className="w-5 h-5 rounded bg-white/10 hover:bg-primary/20 text-on-surface hover:text-primary flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
+                                      title="Tiến mốc bắt đầu 0.1 giây"
+                                    >
+                                      <Plus className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Câu gốc tiếng nước ngoài (nếu có) */}
+                                {currentActiveSeg.original_text && (
+                                  <div className="text-xs font-mono text-amber-300/80 bg-black/40 px-3 py-1.5 rounded-xl border border-amber-500/10">
+                                    <span className="text-amber-400 font-medium">Gốc: </span>
+                                    {currentActiveSeg.original_text}
+                                  </div>
                                 )}
 
-                                {/* Thu lại câu này */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleRedubSingleSegment(seg)}
-                                  disabled={seg.isRedubbing}
-                                  className="px-2.5 py-1 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
-                                  title="Chỉ thu lại duy nhất câu này bằng giọng đọc AI (chỉ mất ~0.5s)"
-                                >
-                                  {seg.isRedubbing ? (
-                                    <>
-                                      <Loader2 className="w-3 h-3 animate-spin text-primary" />
-                                      <span>Đang thu...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Mic className="w-3 h-3 text-primary" />
-                                      <span>Thu lại</span>
-                                    </>
-                                  )}
-                                </button>
+                                {/* Textarea Sửa Văn Bản */}
+                                <div className="space-y-2">
+                                  <label className="text-[11px] font-medium text-on-surface-variant flex items-center justify-between">
+                                    <span>Nội dung câu thoại tiếng Việt:</span>
+                                    <span className="text-[10px] text-primary">Tự động đồng bộ</span>
+                                  </label>
+                                  <textarea
+                                    value={currentActiveSeg.text}
+                                    onChange={(e) => updateStudioSegmentText(currentActiveSeg.id, e.target.value)}
+                                    onBlur={() =>
+                                      handleSyncSegmentUpdate(
+                                        currentActiveSeg.id,
+                                        currentActiveSeg.text,
+                                        currentActiveSeg.start,
+                                        currentActiveSeg.end
+                                      )
+                                    }
+                                    rows={3}
+                                    className="w-full text-xs bg-black/60 border border-white/10 rounded-xl p-3 text-on-surface focus:outline-none focus:border-primary resize-y leading-relaxed font-sans"
+                                    placeholder="Nhập hoặc chỉnh sửa câu thoại tiếng Việt..."
+                                  />
+                                </div>
 
-                                {/* Chèn câu thoại tiếp nối sau câu này */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenAddSegment(seg.end, Math.round((seg.end + 2.5) * 10) / 10)}
-                                  className="px-2 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer"
-                                  title="Chèn thêm một câu thoại ngay sau câu này"
-                                >
-                                  <Plus className="w-3 h-3 text-primary" />
-                                  <span>+ Chèn</span>
-                                </button>
+                                {/* Hàng nút hành động: Nghe thử, Thu lại, Thêm, Xóa */}
+                                <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+                                  <div className="flex items-center gap-1.5">
+                                    {currentActiveSeg.audio_url && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePlaySegmentAudio(currentActiveSeg.id, currentActiveSeg.audio_url)}
+                                        className={cn(
+                                          "px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all cursor-pointer",
+                                          isPlayingAudio
+                                            ? "bg-primary text-black border-primary font-bold animate-pulse"
+                                            : "bg-white/5 hover:bg-white/10 text-on-surface border-white/10"
+                                        )}
+                                      >
+                                        <Volume2 className="w-3.5 h-3.5 text-primary" />
+                                        <span>{isPlayingAudio ? "Đang phát..." : "Nghe thử"}</span>
+                                      </button>
+                                    )}
 
-                                {/* Xóa đoạn phụ đề / câu thoại này */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteStudioSegment(seg.id)}
-                                  disabled={deletingSegId === seg.id}
-                                  className="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
-                                  title="Xóa bỏ hoàn toàn câu này khỏi video (lời thoại và phụ đề)"
-                                >
-                                  {deletingSegId === seg.id ? (
-                                    <Loader2 className="w-3 h-3 animate-spin text-rose-400" />
-                                  ) : (
-                                    <Trash2 className="w-3 h-3 text-rose-400" />
-                                  )}
-                                  <span>Xóa</span>
-                                </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleOpenAddSegment(
+                                          currentActiveSeg.end,
+                                          Math.round((currentActiveSeg.end + 2.5) * 10) / 10
+                                        )
+                                      }
+                                      className="px-2.5 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer"
+                                      title="Chèn câu thoại ngay sau câu này"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>+ Chèn</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteStudioSegment(currentActiveSeg.id)}
+                                      disabled={deletingSegId === currentActiveSeg.id}
+                                      className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                      title="Xóa câu này khỏi video"
+                                    >
+                                      {deletingSegId === currentActiveSeg.id ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                                      ) : (
+                                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                                      )}
+                                      <span>Xóa</span>
+                                    </button>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRedubSingleSegment(currentActiveSeg)}
+                                    disabled={currentActiveSeg.isRedubbing}
+                                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-primary/30 to-amber-500/30 hover:from-primary/40 hover:to-amber-500/40 text-primary border border-primary/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+                                    title="Tạo giọng mới cho câu này và cập nhật vào video"
+                                  >
+                                    {currentActiveSeg.isRedubbing ? (
+                                      <>
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                                        <span>Đang thu...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Mic className="w-3.5 h-3.5 text-primary" />
+                                        <span>⚡ Nạp Lại Lời Thoại Này</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                             </div>
+                          );
+                        })()
+                      ) : (
+                        /* CHẾ ĐỘ 2: Xem toàn bộ danh sách câu thoại dạng cuộn */
+                        <div className="space-y-3">
+                          <input
+                            type="text"
+                            value={studioSearch}
+                            onChange={(e) => setStudioSearch(e.target.value)}
+                            placeholder="🔍 Tìm kiếm nhanh câu thoại..."
+                            className="w-full text-xs bg-surface-variant/40 border border-white/10 rounded-xl px-3 py-2 text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary"
+                          />
 
-                            {/* Câu gốc tiếng Trung (nếu có) */}
-                            {seg.original_text && (
-                              <div className="text-[11px] font-mono text-amber-300/80 bg-black/30 px-2.5 py-1 rounded-lg border border-amber-500/10">
-                                <span className="text-amber-400 font-medium">Gốc: </span>
-                                {seg.original_text}
-                              </div>
-                            )}
-
-                            {/* Ô nhập câu dịch tiếng Việt có thể sửa trực tiếp & Nút Nạp Lại Lời Thoại */}
-                            <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                              <textarea
-                                value={seg.text}
-                                onChange={(e) => updateStudioSegmentText(seg.id, e.target.value)}
-                                onBlur={() => handleSyncSegmentUpdate(seg.id, seg.text, seg.start, seg.end)}
-                                rows={2}
-                                className="w-full text-xs bg-black/60 border border-white/10 rounded-xl p-2.5 text-on-surface focus:outline-none focus:border-primary resize-y leading-relaxed font-sans"
-                                placeholder="Nhập câu thoại tiếng Việt..."
-                              />
-                              <div className="flex items-center justify-between gap-2 pt-0.5">
-                                <span className="text-[10px] text-on-surface-variant/70">
-                                  💡 Sửa văn bản xong bấm nút bên phải để tạo giọng mới cho phân đoạn này
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRedubSingleSegment(seg)}
-                                  disabled={seg.isRedubbing}
-                                  className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-primary/30 to-amber-500/30 hover:from-primary/40 hover:to-amber-500/40 text-primary border border-primary/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
-                                  title="Tổng hợp lại âm thanh lời thoại cho câu này và ghi đè vào video"
-                                >
-                                  {seg.isRedubbing ? (
-                                    <>
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                                      <span>Đang nạp âm thanh...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Mic className="w-3.5 h-3.5 text-primary" />
-                                      <span>⚡ Nạp Lại Lời Thoại Này</span>
-                                    </>
+                          <div ref={transcriptContainerRef} className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+                            {filteredStudioSegments.map((seg) => {
+                              const isActive = activeStudioSegmentId === seg.id;
+                              const isPlayingAudio = playingAudioSegId === seg.id;
+                              return (
+                                <div
+                                  key={seg.id}
+                                  id={`studio-seg-${seg.id}`}
+                                  onClick={() => handlePlaySingleSegmentOnVideo(seg)}
+                                  className={cn(
+                                    "p-3 rounded-2xl border transition-all duration-200 space-y-2 cursor-pointer group",
+                                    isActive
+                                      ? "bg-primary/10 border-primary shadow-md shadow-primary/15 ring-1 ring-primary/40"
+                                      : "bg-surface-variant/25 border-white/5 hover:border-primary/40 hover:bg-surface-variant/40"
                                   )}
-                                </button>
-                              </div>
-                            </div>
+                                  title="Nhấp vào đây để phát riêng đoạn video này và tự động dừng khi kết thúc"
+                                >
+                                  {/* Top row */}
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                      <span
+                                        className={cn(
+                                          "text-[10px] font-mono font-bold px-2 py-0.5 rounded-md",
+                                          isActive ? "bg-primary text-black" : "bg-white/10 text-on-surface-variant"
+                                        )}
+                                      >
+                                        #{seg.id}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSeekToSegment(seg)}
+                                        className="text-[11px] font-mono text-primary hover:underline flex items-center gap-1 cursor-pointer font-semibold"
+                                        title="Tua video đến mốc này và tiếp tục phát"
+                                      >
+                                        <Play className="w-3 h-3 text-primary fill-primary" />
+                                        <span>
+                                          {formatSrtTime(seg.start)} ➔ {formatSrtTime(seg.end)}
+                                        </span>
+                                      </button>
+                                      {seg.audio_duration ? (
+                                        <span className="text-[10px] text-on-surface-variant/70 font-mono">
+                                          ({seg.audio_duration.toFixed(1)}s)
+                                        </span>
+                                      ) : null}
+                                    </div>
+
+                                    {/* Tinh chỉnh thời gian bắt đầu câu thoại (±0.1s) */}
+                                    <div
+                                      className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-lg border border-white/10"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <span className="text-[10px] text-on-surface-variant font-medium">Bắt đầu:</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAdjustSegmentStart(seg, -0.1)}
+                                        className="w-5 h-5 rounded bg-white/10 hover:bg-primary/20 text-on-surface hover:text-primary flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
+                                        title="Lùi mốc bắt đầu 0.1 giây"
+                                      >
+                                        <Minus className="w-2.5 h-2.5" />
+                                      </button>
+                                      <span className="font-mono text-[11px] text-primary font-bold px-1">
+                                        {seg.start.toFixed(1)}s
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAdjustSegmentStart(seg, +0.1)}
+                                        className="w-5 h-5 rounded bg-white/10 hover:bg-primary/20 text-on-surface hover:text-primary flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
+                                        title="Tiến mốc bắt đầu 0.1 giây"
+                                      >
+                                        <Plus className="w-2.5 h-2.5" />
+                                      </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                      {seg.audio_url && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handlePlaySegmentAudio(seg.id, seg.audio_url)}
+                                          className={cn(
+                                            "px-2.5 py-1 rounded-lg text-xs flex items-center gap-1 border transition-all cursor-pointer",
+                                            isPlayingAudio
+                                              ? "bg-primary text-black border-primary animate-pulse font-bold"
+                                              : "bg-white/5 hover:bg-white/10 text-on-surface border-white/10"
+                                          )}
+                                          title="Nghe thử file âm thanh lồng tiếng riêng của câu này"
+                                        >
+                                          <Volume2 className="w-3 h-3 text-primary" />
+                                          <span>{isPlayingAudio ? "Đang phát..." : "Nghe thử"}</span>
+                                        </button>
+                                      )}
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRedubSingleSegment(seg)}
+                                        disabled={seg.isRedubbing}
+                                        className="px-2.5 py-1 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                        title="Chỉ thu lại duy nhất câu này bằng giọng đọc AI"
+                                      >
+                                        {seg.isRedubbing ? (
+                                          <>
+                                            <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                                            <span>Đang thu...</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Mic className="w-3 h-3 text-primary" />
+                                            <span>Thu lại</span>
+                                          </>
+                                        )}
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleOpenAddSegment(seg.end, Math.round((seg.end + 2.5) * 10) / 10)
+                                        }
+                                        className="px-2 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer"
+                                        title="Chèn thêm một câu thoại ngay sau câu này"
+                                      >
+                                        <Plus className="w-3 h-3 text-primary" />
+                                        <span>+ Chèn</span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteStudioSegment(seg.id)}
+                                        disabled={deletingSegId === seg.id}
+                                        className="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                        title="Xóa câu này khỏi video"
+                                      >
+                                        {deletingSegId === seg.id ? (
+                                          <Loader2 className="w-3 h-3 animate-spin text-rose-400" />
+                                        ) : (
+                                          <Trash2 className="w-3 h-3 text-rose-400" />
+                                        )}
+                                        <span>Xóa</span>
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Câu gốc tiếng Trung */}
+                                  {seg.original_text && (
+                                    <div className="text-[11px] font-mono text-amber-300/80 bg-black/30 px-2.5 py-1 rounded-lg border border-amber-500/10">
+                                      <span className="text-amber-400 font-medium">Gốc: </span>
+                                      {seg.original_text}
+                                    </div>
+                                  )}
+
+                                  {/* Ô nhập câu dịch tiếng Việt */}
+                                  <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                                    <textarea
+                                      value={seg.text}
+                                      onChange={(e) => updateStudioSegmentText(seg.id, e.target.value)}
+                                      onBlur={() => handleSyncSegmentUpdate(seg.id, seg.text, seg.start, seg.end)}
+                                      rows={2}
+                                      className="w-full text-xs bg-black/60 border border-white/10 rounded-xl p-2.5 text-on-surface focus:outline-none focus:border-primary resize-y leading-relaxed font-sans"
+                                      placeholder="Nhập câu thoại tiếng Việt..."
+                                    />
+                                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                                      <span className="text-[10px] text-on-surface-variant/70">
+                                        💡 Sửa văn bản xong bấm nút bên phải để nạp lại câu này
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRedubSingleSegment(seg)}
+                                        disabled={seg.isRedubbing}
+                                        className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-primary/30 to-amber-500/30 hover:from-primary/40 hover:to-amber-500/40 text-primary border border-primary/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+                                      >
+                                        {seg.isRedubbing ? (
+                                          <>
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                                            <span>Đang nạp...</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Mic className="w-3.5 h-3.5 text-primary" />
+                                            <span>⚡ Nạp Lại Lời Thoại Này</span>
+                                          </>
+                                        )}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
+                        </div>
+                      )}
                     </div>
                   )}
+                </div>
 
                   {/* Phân vùng Chỉnh sửa phụ đề SRT & Lồng tiếng lại (Gộp chung trong Studio) */}
                   <div className="p-3.5 rounded-2xl bg-surface-variant/30 border border-primary/20 space-y-2.5 pt-3">
