@@ -1436,7 +1436,7 @@ export default function VideoTranslate() {
   const isTranscribingOriginal = isProcessing && (taskStatus?.current_step === "transcribing" || taskStatus?.current_step === "extracting");
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <div className="flex flex-col gap-6 2k:gap-8 animate-in fade-in duration-500 max-w-[1600px] 2k:max-w-[2000px] mx-auto w-full">
       {/* Top Banner Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-surface-variant/80 to-surface-variant/40 border border-white/10 rounded-3xl p-6 backdrop-blur-xl">
         <div className="space-y-1.5">
@@ -1448,11 +1448,11 @@ export default function VideoTranslate() {
               Dịch & Lồng Tiếng Video Tự Động
             </h1>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
-              VoiceSync AI Pro v3.2.0
+              VoiceSync AI Pro v3.6.0
             </span>
           </div>
-          <p className="text-sm text-on-surface-variant max-w-2xl">
-            Tự động chuyển ngữ video đa ngôn ngữ (V3.2.0): Tách giọng Demucs AI sạch 100% nhạc nền, Faster-Whisper Word Timestamps siêu chuẩn, Dịch thuật Gemini & Lồng tiếng Audio Ducking chuyên nghiệp.
+          <p className="text-sm text-on-surface-variant max-w-3xl">
+            Tự động chuyển ngữ video đa ngôn ngữ (V3.6.0): Tách giọng Demucs AI sạch 100% nhạc nền, Faster-Whisper Word Timestamps siêu chuẩn, Dịch thuật Gemini & Lồng tiếng Audio Ducking chuyên nghiệp.
           </p>
         </div>
 
@@ -1504,7 +1504,7 @@ export default function VideoTranslate() {
       </div>
 
       {/* Main Grid: Upload & Controls | Preview & Result */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 2k:gap-10 items-start">
         {/* Left Column: Upload & Config (7 cols - ẩn khi mở chế độ rạp chiếu) */}
         <div className={cn(isExpandedPlayer ? "hidden" : "lg:col-span-7", "space-y-6 transition-all duration-300")}>
           {/* Tab Switcher: Chế độ Dịch Thủ Công vs Chế độ Dịch Tự Động (Đưa lên trên cùng) */}
