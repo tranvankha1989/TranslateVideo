@@ -102,8 +102,27 @@
     100% { background-position: 0 0; }
   }
 
-  /* Step & Tab Transition Animation */
+  /* Step & Tab Transition Animation (Liquid Smooth with micro-blur) */
   @keyframes stepFadeSlide {
+    0% {
+      opacity: 0;
+      transform: translateY(10px) scale(0.992);
+      filter: blur(2px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  .step-transition {
+    animation: stepFadeSlide 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    will-change: transform, opacity, filter;
+  }
+
+  /* Smooth Fade In Animation */
+  @keyframes smoothFadeIn {
     0% {
       opacity: 0;
       transform: translateY(6px);
@@ -114,25 +133,8 @@
     }
   }
 
-  .step-transition {
-    animation: stepFadeSlide 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-    will-change: transform, opacity;
-  }
-
-  /* Smooth Fade In Animation */
-  @keyframes smoothFadeIn {
-    0% {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
   .animate-fadeIn {
-    animation: smoothFadeIn 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation: smoothFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     will-change: transform, opacity;
   }
 

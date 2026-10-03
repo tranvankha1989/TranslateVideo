@@ -1529,9 +1529,9 @@ export default function VideoTranslate() {
               type="button"
               onClick={() => setTranslationMode("manual")}
               className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer",
+                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all duration-300 ease-out cursor-pointer",
                 translationMode === "manual"
-                  ? "bg-primary text-black shadow-lg shadow-primary/20"
+                  ? "bg-primary text-black shadow-lg shadow-primary/20 scale-[1.01]"
                   : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
               )}
             >
@@ -1542,9 +1542,9 @@ export default function VideoTranslate() {
               type="button"
               onClick={() => setTranslationMode("auto")}
               className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer",
+                "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all duration-300 ease-out cursor-pointer",
                 translationMode === "auto"
-                  ? "bg-primary text-black shadow-lg shadow-primary/20"
+                  ? "bg-primary text-black shadow-lg shadow-primary/20 scale-[1.01]"
                   : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
               )}
             >
@@ -2421,12 +2421,12 @@ export default function VideoTranslate() {
                         type="button"
                         onClick={() => setManualActiveStep(item.step)}
                         className={cn(
-                          "flex items-center gap-2 px-2.5 py-2 rounded-xl text-left transition-all cursor-pointer border",
+                          "flex items-center gap-2 px-2.5 py-2 rounded-xl text-left transition-all duration-300 ease-out cursor-pointer border",
                           isCurrent
                             ? "bg-primary text-black font-semibold border-primary shadow-md shadow-primary/20 scale-[1.01]"
                             : item.done
-                            ? "bg-surface-variant/70 text-green-400 hover:bg-surface-variant border-green-500/30"
-                            : "bg-surface-variant/40 text-on-surface-variant hover:bg-surface-variant/70 border-white/5 hover:text-on-surface"
+                            ? "bg-surface-variant/70 text-green-400 hover:bg-surface-variant border-green-500/30 hover:border-green-500/50"
+                            : "bg-surface-variant/40 text-on-surface-variant hover:bg-surface-variant/70 border-white/5 hover:text-on-surface hover:border-white/20"
                         )}
                       >
                         <div className={cn(
