@@ -237,7 +237,7 @@ export default function VideoTranslate() {
   const [studioSearch, setStudioSearch] = React.useState("");
   const [playingAudioSegId, setPlayingAudioSegId] = React.useState<number | null>(null);
   const [deletingSegId, setDeletingSegId] = React.useState<number | null>(null);
-  const [isStudioOpen, setIsStudioOpen] = React.useState(true);
+  const [isStudioOpen, setIsStudioOpen] = React.useState(false);
   const [studioViewMode, setStudioViewMode] = React.useState<"current" | "all">("current");
 
   // Thêm câu thoại mới tại vị trí bất kỳ
