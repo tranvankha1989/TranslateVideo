@@ -16,7 +16,7 @@ scratch_*.txt
 *.scratch.*
 
 # Environments
-# .env
+.env
 .venv
 
 # Distribution / packaging

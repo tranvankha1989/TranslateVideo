@@ -76,6 +76,14 @@ if not exist "%~dp0backend\venv\Scripts\python.exe" (
     echo -> Đã có sẵn môi trường ảo backend\venv.
 )
 
+:: Tự động tạo file backend\.env nếu chưa có
+if not exist "%~dp0backend\.env" (
+    if exist "%~dp0backend\.env.example" (
+        copy "%~dp0backend\.env.example" "%~dp0backend\.env" >nul
+        echo -> Đã tự động tạo file backend\.env từ file mẫu .env.example!
+    )
+)
+
 echo.
 echo -------------------------------------------------------------------
 echo [▓▓▓▓▓▓░░░░] [60%%] Cài đặt toàn bộ thư viện Python Backend (AI Models)...

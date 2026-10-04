@@ -24,6 +24,14 @@ if not exist "%~dp0backend\venv\Scripts\python.exe" (
     exit /b 1
 )
 
+:: Tu dong tao file backend\.env neu chua co
+if not exist "%~dp0backend\.env" (
+    if exist "%~dp0backend\.env.example" (
+        copy "%~dp0backend\.env.example" "%~dp0backend\.env" >nul
+        echo [INFO] Da tu dong khoi tao file backend\.env tu .env.example
+    )
+)
+
 :: Kiem tra cong cu pnpm
 where pnpm >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
