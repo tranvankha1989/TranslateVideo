@@ -2160,244 +2160,196 @@ export default function VideoTranslate() {
               <div className={cn("curtain-collapse", showAdvanced && "curtain-expanded")}>
                 <div className="curtain-inner">
                   <div className="p-4 border-t border-white/10 space-y-4 bg-black/20 text-xs">
-                  {/* Chế độ phụ đề */}
-                  <div className="space-y-1.5">
-                    <label className="font-medium text-on-surface flex items-center gap-1.5">
-                      <Subtitles className="w-3.5 h-3.5 text-primary" />
-                      Kiểu gắn phụ đề (Subtitles):
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: "hard_target", label: "Phụ đề dịch" },
-                        { id: "hard_dual", label: "Song ngữ (Dual)" },
-                        { id: "none", label: "Không gắn sub" },
-                      ].map((sub) => (
-                        <button
-                          key={sub.id}
-                          type="button"
-                          onClick={() => setSubtitleMode(sub.id)}
-                          className={cn(
-                            "py-2 px-3 rounded-xl text-xs font-medium border transition-all text-center cursor-pointer",
-                            subtitleMode === sub.id
-                              ? "bg-primary text-black border-primary font-semibold shadow-md"
-                              : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
-                          )}
+                      {/* Chế độ phụ đề - Dạng Dropdown */}
+                      <div className="space-y-1.5">
+                        <label className="font-medium text-on-surface flex items-center gap-1.5">
+                          <Subtitles className="w-3.5 h-3.5 text-primary" />
+                          Kiểu gắn phụ đề (Subtitles):
+                        </label>
+                        <select
+                          value={subtitleMode}
+                          onChange={(e) => setSubtitleMode(e.target.value)}
+                          className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary transition-colors cursor-pointer"
                         >
-                          {sub.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                          <option value="hard_target">🔤 Phụ đề dịch (Hardsub tiếng Việt)</option>
+                          <option value="hard_dual">🌐 Song ngữ (Gốc + Dịch song song)</option>
+                          <option value="none">🚫 Không gắn phụ đề (Chỉ lồng tiếng)</option>
+                        </select>
+                      </div>
 
-                  {/* Tùy chỉnh chi tiết phụ đề (Font Size, Vị trí MarginV) - Tự động ẩn khi Không gắn sub */}
-                  {subtitleMode !== "none" && (
-                    <div className="space-y-3 pt-2 border-t border-white/5 bg-surface-variant/30 p-3 rounded-2xl border border-white/5 animate-fadeIn">
-                      {/* Kích thước chữ */}
-                      <div className="space-y-1">
+                      {/* Tùy chỉnh chi tiết phụ đề (Font Size, Vị trí MarginV) - Tự động ẩn khi Không gắn sub */}
+                      {subtitleMode !== "none" && (
+                        <div className="space-y-3 pt-2 border-t border-white/5 bg-surface-variant/30 p-3 rounded-2xl border border-white/5 animate-fadeIn">
+                          {/* Kích thước chữ */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs text-on-surface-variant">
+                              <span className="font-medium text-on-surface">Kích thước chữ phụ đề (Font Size):</span>
+                              <span className="font-mono text-primary font-bold">{subtitleFontSize}px</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="16"
+                              max="36"
+                              step="1"
+                              value={subtitleFontSize}
+                              onChange={(e) => setSubtitleFontSize(parseInt(e.target.value))}
+                              className="w-full accent-primary cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-on-surface-variant/70">
+                              <span>16px (Nhỏ)</span>
+                              <span className="text-primary font-semibold">Mặc định: 20px</span>
+                              <span>36px (Lớn)</span>
+                            </div>
+                          </div>
+
+                          {/* Vị trí hiển thị */}
+                          <div className="space-y-1.5 pt-2 border-t border-white/5">
+                            <label className="font-medium text-on-surface flex items-center justify-between text-xs">
+                              <span>Vị trí hiển thị phụ đề:</span>
+                              <span className="text-[10px] text-primary font-bold">
+                                {subtitlePosition === "bottom" ? "Dưới đáy" : subtitlePosition === "middle" ? "Giữa màn hình" : "Trên cùng"}
+                              </span>
+                            </label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { id: "bottom", label: "⬇️ Dưới đáy" },
+                                { id: "middle", label: "⏹️ Giữa màn hình" },
+                                { id: "top", label: "⬆️ Trên cùng" },
+                              ].map((pos) => (
+                                <button
+                                  key={pos.id}
+                                  type="button"
+                                  onClick={() => setSubtitlePosition(pos.id as any)}
+                                  className={cn(
+                                    "py-1.5 px-2 rounded-xl text-xs font-medium border transition-all text-center cursor-pointer",
+                                    subtitlePosition === pos.id
+                                      ? "bg-primary text-black border-primary font-bold shadow-md"
+                                      : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
+                                  )}
+                                >
+                                  {pos.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Chuẩn Video Đầu Ra (Resolution) - Dạng Dropdown */}
+                      <div className="space-y-1.5 pt-2 border-t border-white/5">
+                        <label className="font-medium text-on-surface flex items-center gap-1.5">
+                          <Film className="w-3.5 h-3.5 text-primary" />
+                          Độ phân giải video đầu ra:
+                        </label>
+                        <select
+                          value={outputResolution}
+                          onChange={(e) => setOutputResolution(e.target.value)}
+                          className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                        >
+                          <option value="original">📐 Giữ nguyên độ phân giải gốc</option>
+                          <option value="1080p">📺 1080p (Full HD sắc nét)</option>
+                          <option value="720p">💻 720p (HD tiêu chuẩn - Tối ưu xuất nhanh)</option>
+                          <option value="480p">📱 480p (SD Siêu nhẹ)</option>
+                        </select>
+                      </div>
+
+                      {/* Âm thanh nền ghép cùng thuyết minh - Dạng Dropdown */}
+                      <div className="space-y-2 pt-2 border-t border-white/5">
+                        <label className="font-medium text-on-surface flex items-center gap-1.5">
+                          <Music className="w-3.5 h-3.5 text-secondary" />
+                          Kiểu âm thanh nền ghép cùng thuyết minh:
+                        </label>
+                        <select
+                          value={!preserveBgm ? "none" : bgmType}
+                          onChange={(e) => {
+                            const val = e.target.value as "bgm" | "original" | "none";
+                            setBgmType(val);
+                            setPreserveBgm(val !== "none");
+                          }}
+                          className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary transition-colors cursor-pointer"
+                        >
+                          <option value="bgm">🎵 Nhạc nền tách (Lọc sạch vocal cũ - Demucs)</option>
+                          <option value="original">🎙️ Âm thanh gốc (Giữ nguyên gốc - Thuyết minh đè lên)</option>
+                          <option value="none">🔇 Tắt hẳn nhạc nền (Chỉ giữ giọng đọc AI)</option>
+                        </select>
+
+                        {bgmType !== "none" && preserveBgm && (
+                          <div className="space-y-1.5 pl-3 border-l-2 border-secondary/40 pt-1">
+                            <div className="flex justify-between text-xs text-on-surface-variant">
+                              <span>Âm lượng {bgmType === "original" ? "âm thanh gốc" : "nhạc nền"}:</span>
+                              <span className="font-semibold text-secondary font-mono">{Math.round(bgmVolume * 100)}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.0"
+                              max="1.0"
+                              step="0.01"
+                              value={bgmVolume}
+                              onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                              className="w-full accent-secondary cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-on-surface-variant/70">
+                              <span>0%</span>
+                              <span className="text-secondary font-semibold">Mặc định: 30%</span>
+                              <span>100% (Cho video âm thanh nhỏ)</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Tốc độ đọc AI */}
+                      <div className="space-y-1.5 pt-2 border-t border-white/5">
+                        <label className="font-medium text-on-surface block">
+                          Tốc độ đọc mặc định:
+                        </label>
+                        <select
+                          value={voiceRate}
+                          onChange={(e) => setVoiceRate(e.target.value)}
+                          className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-on-surface focus:outline-none focus:border-primary"
+                        >
+                          <option value="-15%">Chậm (-15%)</option>
+                          <option value="-10%">Hơi chậm (-10%)</option>
+                          <option value="+0%">Bình thường (+0%)</option>
+                          <option value="+10%">Hơi nhanh (+10%)</option>
+                          <option value="+15%">Nhanh (+15%)</option>
+                        </select>
+                      </div>
+
+                      {/* Tốc độ co giãn tối đa (SpeedRate) */}
+                      <div className="space-y-1 pt-2 border-t border-white/5">
                         <div className="flex justify-between text-xs text-on-surface-variant">
-                          <span className="font-medium text-on-surface">Kích thước chữ phụ đề (Font Size):</span>
-                          <span className="font-mono text-primary font-bold">{subtitleFontSize}px</span>
+                          <span className="font-medium text-on-surface">Tốc độ đọc tăng tối đa (SpeedRate):</span>
+                          <span className="font-mono text-primary font-bold">{maxSpeedRate}x</span>
                         </div>
                         <input
                           type="range"
-                          min="16"
-                          max="36"
-                          step="1"
-                          value={subtitleFontSize}
-                          onChange={(e) => setSubtitleFontSize(parseInt(e.target.value))}
+                          min="1.1"
+                          max="1.5"
+                          step="0.05"
+                          value={maxSpeedRate}
+                          onChange={(e) => setMaxSpeedRate(parseFloat(e.target.value))}
                           className="w-full accent-primary cursor-pointer"
                         />
-                        <div className="flex justify-between text-[10px] text-on-surface-variant/70">
-                          <span>16px (Nhỏ)</span>
-                          <span className="text-primary font-semibold">Mặc định: 20px</span>
-                          <span>36px (Lớn)</span>
-                        </div>
+                        <p className="text-[10px] text-on-surface-variant/70">
+                          Tự động tăng tốc câu lồng tiếng nếu câu dịch dài hơn thời lượng cảnh quay video gốc.
+                        </p>
                       </div>
 
-                      {/* Vị trí hiển thị */}
-                      <div className="space-y-1.5 pt-2 border-t border-white/5">
-                        <label className="font-medium text-on-surface flex items-center justify-between text-xs">
-                          <span>Vị trí hiển thị phụ đề:</span>
-                          <span className="text-[10px] text-primary font-bold">
-                            {subtitlePosition === "bottom" ? "Dưới đáy" : subtitlePosition === "middle" ? "Giữa màn hình" : "Trên cùng"}
-                          </span>
-                        </label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[
-                            { id: "bottom", label: "⬇️ Dưới đáy" },
-                            { id: "middle", label: "⏹️ Giữa màn hình" },
-                            { id: "top", label: "⬆️ Trên cùng" },
-                          ].map((pos) => (
-                            <button
-                              key={pos.id}
-                              type="button"
-                              onClick={() => setSubtitlePosition(pos.id as any)}
-                              className={cn(
-                                "py-1.5 px-2 rounded-xl text-xs font-medium border transition-all text-center cursor-pointer",
-                                subtitlePosition === pos.id
-                                  ? "bg-primary text-black border-primary font-bold shadow-md"
-                                  : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
-                              )}
-                            >
-                              {pos.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Chuẩn Video Đầu Ra (Resolution) */}
-                  <div className="space-y-1.5 pt-2 border-t border-white/5">
-                    <label className="font-medium text-on-surface flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Film className="w-3.5 h-3.5 text-primary" />
-                        Độ phân giải video đầu ra:
-                      </span>
-                      <span className="text-[10px] text-primary font-mono uppercase font-bold">
-                        {outputResolution === "original" ? "Gốc" : outputResolution}
-                      </span>
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[
-                        { id: "720p", label: "720p (HD)", desc: "Mặc định • Chuẩn" },
-                        { id: "1080p", label: "1080p", desc: "Full HD nét" },
-                        { id: "480p", label: "480p", desc: "Siêu nhẹ" },
-                        { id: "original", label: "Gốc", desc: "Giữ nguyên" },
-                      ].map((res) => (
+                      {/* 🔄 Nút Phục Hồi Mặc Định */}
+                      <div className="pt-3 border-t border-white/10 flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-[11px] text-on-surface-variant/70">
+                          💡 Chuẩn khuyến nghị: <code>Phụ đề dịch</code>, <code>720p</code>, <code>BGM 30%</code>, <code>Tốc độ +0%</code>.
+                        </span>
                         <button
-                          key={res.id}
                           type="button"
-                          onClick={() => setOutputResolution(res.id)}
-                          className={cn(
-                            "py-2 px-1.5 rounded-xl text-xs font-medium border transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer",
-                            outputResolution === res.id
-                              ? "bg-primary text-black border-primary font-bold shadow-md scale-[1.02]"
-                              : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
-                          )}
+                          onClick={handleResetAudioSubtitleDefaults}
+                          className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-sm"
                         >
-                          <span className="font-semibold text-[11px] leading-tight">{res.label}</span>
-                          <span className={cn("text-[9px] leading-none", outputResolution === res.id ? "text-black/80 font-medium" : "text-on-surface-variant/60")}>
-                            {res.desc}
-                          </span>
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Phục hồi mặc định
                         </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Tùy chọn Âm thanh nền & Thuyết minh */}
-                  <div className="space-y-2 pt-2 border-t border-white/5">
-                    <label className="font-medium text-on-surface flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Music className="w-3.5 h-3.5 text-secondary" />
-                        Âm thanh nền lồng ghép (BGM / Âm thanh gốc):
-                      </span>
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: "bgm", label: "🎵 Nhạc nền tách (BGM)", desc: "Tách vocal, giữ giai điệu" },
-                        { id: "original", label: "🎙️ Âm thanh gốc (Voice-over)", desc: "Giữ toàn bộ âm gốc nhỏ phía dưới" },
-                        { id: "none", label: "🔇 Không dùng nền", desc: "Tắt nền, chỉ giữ giọng AI" },
-                      ].map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            setBgmType(item.id as "bgm" | "original" | "none");
-                            setPreserveBgm(item.id !== "none");
-                          }}
-                          className={cn(
-                            "py-2 px-2 rounded-xl text-xs font-medium border transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer",
-                            (bgmType === item.id || (!preserveBgm && item.id === "none"))
-                              ? "bg-secondary/20 border-secondary text-secondary font-bold shadow-md scale-[1.01]"
-                              : "bg-surface-variant/40 text-on-surface-variant border-white/5 hover:border-white/20"
-                          )}
-                        >
-                          <span className="font-semibold text-[11px] leading-tight">{item.label}</span>
-                          <span className="text-[9px] text-on-surface-variant/70 leading-none">
-                            {item.desc}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {bgmType !== "none" && preserveBgm && (
-                      <div className="space-y-1.5 pl-3 border-l-2 border-secondary/40 pt-1">
-                        <div className="flex justify-between text-xs text-on-surface-variant">
-                          <span>Âm lượng {bgmType === "original" ? "âm thanh gốc" : "nhạc nền"}:</span>
-                          <span className="font-semibold text-secondary font-mono">{Math.round(bgmVolume * 100)}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0.0"
-                          max="1.0"
-                          step="0.01"
-                          value={bgmVolume}
-                          onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
-                          className="w-full accent-secondary cursor-pointer"
-                        />
-                        <div className="flex justify-between text-[10px] text-on-surface-variant/70">
-                          <span>0% (Tắt)</span>
-                          <span className="text-secondary font-semibold">Mặc định: 30%</span>
-                          <span>100% (Tối đa)</span>
-                        </div>
                       </div>
-                    )}
-                  </div>
-
-                  {/* Tốc độ đọc cơ bản */}
-                  <div className="space-y-1 pt-2 border-t border-white/5">
-                    <label className="font-medium text-on-surface block">
-                      Tốc độ đọc giọng:
-                    </label>
-                    <select
-                      value={voiceRate}
-                      onChange={(e) => setVoiceRate(e.target.value)}
-                      className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-on-surface focus:outline-none focus:border-primary"
-                    >
-                      <option value="-15%">Chậm (-15%)</option>
-                      <option value="-10%">Hơi chậm (-10%)</option>
-                      <option value="+0%">Bình thường (+0%)</option>
-                      <option value="+10%">Hơi nhanh (+10%)</option>
-                      <option value="+15%">Nhanh (+15%)</option>
-                    </select>
-                  </div>
-
-                  {/* Tốc độ co giãn tối đa (SpeedRate) */}
-                  <div className="space-y-1 pt-2 border-t border-white/5">
-                    <div className="flex justify-between text-xs text-on-surface-variant">
-                      <span className="font-medium text-on-surface">Tốc độ đọc tăng tối đa (SpeedRate):</span>
-                      <span className="font-mono text-primary font-bold">{maxSpeedRate}x</span>
                     </div>
-                    <input
-                      type="range"
-                      min="1.1"
-                      max="1.5"
-                      step="0.05"
-                      value={maxSpeedRate}
-                      onChange={(e) => setMaxSpeedRate(parseFloat(e.target.value))}
-                      className="w-full accent-primary cursor-pointer"
-                    />
-                    <p className="text-[10px] text-on-surface-variant/70">
-                      Tự động tăng tốc câu lồng tiếng nếu câu dịch dài hơn thời lượng cảnh quay video gốc.
-                    </p>
-                  </div>
-
-                  {/* 🔄 Nút Phục Hồi Mặc Định */}
-                  <div className="pt-3 border-t border-white/10 flex items-center justify-between flex-wrap gap-2">
-                    <span className="text-[11px] text-on-surface-variant/70">
-                      💡 Chuẩn khuyến nghị: <code>Phụ đề dịch</code>, <code>720p</code>, <code>BGM 30%</code>, <code>Tốc độ +0%</code>.
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleResetAudioSubtitleDefaults}
-                      className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-sm"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      Phục hồi mặc định
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
           </div>

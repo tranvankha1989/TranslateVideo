@@ -1,6 +1,6 @@
 {
-  "version": "3.7.1",
+  "version": "3.7.2",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-04",
-  "description": "Nâng cấp V3.7.1: Bổ sung nút 'Nạp lại quy tắc' kế bên nút 'Khôi phục mặc định' ở Bước 2 tab Dịch video, hỗ trợ đồng bộ quy tắc dịch tức thì và duy trì cơ chế tự động lưu khi chỉnh sửa."
+  "description": "Nâng cấp V3.7.2: Đồng bộ hóa hoàn toàn giao diện tùy chỉnh phụ đề và âm thanh nền (BGM, độ phân giải, font chữ, tốc độ đọc) giữa chế độ Dịch Tự Động và Bước 4 Dịch Thủ Công."
 }
