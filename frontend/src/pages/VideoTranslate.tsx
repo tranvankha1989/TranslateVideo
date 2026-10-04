@@ -251,6 +251,10 @@ export default function VideoTranslate() {
   const [newSegEngine, setNewSegEngine] = React.useState<string>("");
   const [isAddingSegment, setIsAddingSegment] = React.useState<boolean>(false);
 
+  // Đơn vị mốc thời gian cắt video (Giây hoặc Phút, mặc định là Giây)
+  const [startTimeUnit, setStartTimeUnit] = React.useState<"seconds" | "minutes">("seconds");
+  const [endTimeUnit, setEndTimeUnit] = React.useState<"seconds" | "minutes">("seconds");
+
   const filteredStudioSegments = studioSegments.filter((s) => {
     if (!studioSearch.trim()) return true;
     const q = studioSearch.toLowerCase();
@@ -1723,24 +1727,63 @@ export default function VideoTranslate() {
                             <Clock className="w-3 h-3" />
                             Bắt đầu từ:
                           </span>
-                          <span className="font-mono text-xs text-primary font-bold">{formatSrtTime(videoStartTime)}</span>
+                          <span className="font-mono text-xs text-primary font-bold">
+                            {formatSrtTime(videoStartTime)}
+                          </span>
                         </label>
                         <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.5"
-                            value={videoStartTime}
-                            onChange={(e) => setVideoStartTime(Math.max(0, parseFloat(e.target.value) || 0))}
-                            className="w-20 bg-surface-variant/80 border border-white/10 rounded-lg px-2 py-1 text-xs text-on-surface font-mono"
-                            placeholder="0.0s"
-                          />
+                          <div className="flex items-center bg-surface-variant/80 border border-white/10 rounded-lg overflow-hidden focus-within:border-primary/50">
+                            <input
+                              type="number"
+                              min="0"
+                              step={startTimeUnit === "seconds" ? "0.5" : "0.1"}
+                              value={
+                                startTimeUnit === "seconds"
+                                  ? videoStartTime
+                                  : videoStartTime === 0
+                                  ? 0
+                                  : Number((videoStartTime / 60).toFixed(2))
+                              }
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (isNaN(val)) {
+                                  setVideoStartTime(0);
+                                } else if (startTimeUnit === "seconds") {
+                                  setVideoStartTime(Math.max(0, val));
+                                } else {
+                                  setVideoStartTime(
+                                    Math.max(0, Math.round(val * 60 * 10) / 10)
+                                  );
+                                }
+                              }}
+                              className="w-16 bg-transparent px-2 py-1 text-xs text-on-surface font-mono focus:outline-none"
+                              placeholder={startTimeUnit === "seconds" ? "0.0s" : "0.0p"}
+                            />
+                            <select
+                              value={startTimeUnit}
+                              onChange={(e) =>
+                                setStartTimeUnit(
+                                  e.target.value as "seconds" | "minutes"
+                                )
+                              }
+                              className="bg-black/40 text-[11px] font-bold text-primary px-1.5 py-1 border-l border-white/10 cursor-pointer focus:outline-none"
+                              title="Chọn đơn vị thời gian (Giây hoặc Phút)"
+                            >
+                              <option value="seconds">Giây</option>
+                              <option value="minutes">Phút</option>
+                            </select>
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
-                              const cur = previewVideoRef.current?.currentTime || resultVideoRef.current?.currentTime || 0;
+                              const cur =
+                                previewVideoRef.current?.currentTime ||
+                                resultVideoRef.current?.currentTime ||
+                                0;
                               setVideoStartTime(Math.round(cur * 10) / 10);
-                              toast.success(`📍 Đã lấy mốc bắt đầu: ${formatSrtTime(cur)}`);
+                              toast.success(
+                                `📍 Đã lấy mốc bắt đầu: ${formatSrtTime(cur)}`
+                              );
                             }}
                             className="flex-1 py-1.5 px-2 bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                             title="Đặt mốc thời gian hiện tại của video player làm điểm bắt đầu"
@@ -1758,32 +1801,75 @@ export default function VideoTranslate() {
                             Kết thúc tại:
                           </span>
                           <span className="font-mono text-xs text-primary font-bold">
-                            {videoEndTime !== null ? formatSrtTime(videoEndTime) : "Hết video"}
+                            {videoEndTime !== null
+                              ? formatSrtTime(videoEndTime)
+                              : "Hết video"}
                           </span>
                         </label>
                         <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.5"
-                            value={videoEndTime ?? ""}
-                            placeholder="Hết video"
-                            onChange={(e) => {
-                              const val = e.target.value.trim();
-                              setVideoEndTime(val ? Math.max(0, parseFloat(val)) : null);
-                            }}
-                            className="w-20 bg-surface-variant/80 border border-white/10 rounded-lg px-2 py-1 text-xs text-on-surface font-mono"
-                          />
+                          <div className="flex items-center bg-surface-variant/80 border border-white/10 rounded-lg overflow-hidden focus-within:border-primary/50">
+                            <input
+                              type="number"
+                              min="0"
+                              step={endTimeUnit === "seconds" ? "0.5" : "0.1"}
+                              value={
+                                videoEndTime === null
+                                  ? ""
+                                  : endTimeUnit === "seconds"
+                                  ? videoEndTime
+                                  : Number((videoEndTime / 60).toFixed(2))
+                              }
+                              placeholder="Hết video"
+                              onChange={(e) => {
+                                const raw = e.target.value.trim();
+                                if (!raw) {
+                                  setVideoEndTime(null);
+                                } else {
+                                  const val = parseFloat(raw);
+                                  if (isNaN(val)) {
+                                    setVideoEndTime(null);
+                                  } else if (endTimeUnit === "seconds") {
+                                    setVideoEndTime(Math.max(0, val));
+                                  } else {
+                                    setVideoEndTime(
+                                      Math.max(0, Math.round(val * 60 * 10) / 10)
+                                    );
+                                  }
+                                }
+                              }}
+                              className="w-16 bg-transparent px-2 py-1 text-xs text-on-surface font-mono focus:outline-none"
+                            />
+                            <select
+                              value={endTimeUnit}
+                              onChange={(e) =>
+                                setEndTimeUnit(
+                                  e.target.value as "seconds" | "minutes"
+                                )
+                              }
+                              className="bg-black/40 text-[11px] font-bold text-red-400 px-1.5 py-1 border-l border-white/10 cursor-pointer focus:outline-none"
+                              title="Chọn đơn vị thời gian (Giây hoặc Phút)"
+                            >
+                              <option value="seconds">Giây</option>
+                              <option value="minutes">Phút</option>
+                            </select>
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
-                              const cur = previewVideoRef.current?.currentTime || resultVideoRef.current?.currentTime || 0;
+                              const cur =
+                                previewVideoRef.current?.currentTime ||
+                                resultVideoRef.current?.currentTime ||
+                                0;
                               if (cur <= videoStartTime) {
-                                toast.error("Mốc kết thúc phải lớn hơn mốc bắt đầu");
+                                toast.error(
+                                  "Mốc kết thúc phải lớn hơn mốc bắt đầu"
+                                );
                                 return;
                               }
                               setVideoEndTime(Math.round(cur * 10) / 10);
-                              toast.success(`📍 Đã lấy mốc kết thúc: ${formatSrtTime(cur)}`);
+                              toast.success(
+                                `📍 Đã lấy mốc kết thúc: ${formatSrtTime(cur)}`
+                              );
                             }}
                             className="flex-1 py-1.5 px-2 bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                             title="Đặt mốc thời gian hiện tại của video player làm điểm kết thúc"

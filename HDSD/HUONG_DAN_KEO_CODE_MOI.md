@@ -13,7 +13,7 @@ Hệ thống sẽ tự động thực hiện từ A đến Z:
 2. Tự động kiểm tra và cài đặt bổ sung các thư viện Python Backend mới vào môi trường ảo `venv`.
 3. Tự động chuyển vào thư mục `frontend` và chạy `pnpm install` để đồng bộ giao diện người dùng.
 
-Sau khi hoàn tất, bạn chỉ việc bấm **`dev.bat`** (để vừa sửa code vừa test tự reload) hoặc **`start.bat`** (để sử dụng).
+Sau khi hoàn tất, bạn chỉ việc bấm **`start.bat`** hoặc icon **VideoTranslate AI** ngoài Desktop để sử dụng.
 
 ---
 
@@ -58,14 +58,10 @@ cd ..
 
 ### Bước 4: Khởi động ứng dụng
 
-Tùy theo nhu cầu sử dụng, bạn chọn 1 trong 2 cách sau:
-
-* **Chế độ Lập trình & Sửa code (Khuyên dùng khi dev):**
-  Bấm đúp file **`dev.bat`** tại thư mục gốc  
-  *(Cửa sổ Terminal luôn mở hiển thị log trực tiếp, khi sửa file `.tsx` hay `.py` hệ thống sẽ **Tự Động Reload (Hot-Reload)** trong tích tắc mà không bị sập hay tắt server).*
-
-* **Chế độ Sử dụng Thông thường:**
+* **Khởi động ứng dụng:**
   Bấm đúp file **`start.bat`** hoặc bấm icon **VideoTranslate AI** ngoài màn hình Desktop.
+* **Dành cho lập trình viên muốn xem log trực tiếp:**
+  Mở terminal tại thư mục `frontend` và chạy: `pnpm run dev:all`.
 
 ---
 
@@ -77,4 +73,3 @@ Tùy theo nhu cầu sử dụng, bạn chọn 1 trong 2 cách sau:
 | Chạy `pnpm install` báo lỗi không tìm thấy package.json | Đang đứng nhầm ở thư mục `backend`. | Gõ `cd ..\frontend` rồi mới chạy `pnpm install`. |
 | `pnpm : The term 'pnpm' is not recognized` | Máy laptop chưa cài công cụ `pnpm`. | Chạy lệnh: `npm install -g pnpm` để cài toàn cục. |
 | `pip install` báo lỗi quyền hoặc cài vào Python gốc | Quên kích hoạt môi trường ảo `venv`. | Chạy lệnh: `.\venv\Scripts\activate` trước khi `pip install`. |
-| Khi sửa code xong ứng dụng bị tắt ngúm | Chạy bằng icon Desktop hoặc `start.bat` có khay tray. | Hãy chạy bằng file **`dev.bat`** để giữ nguyên terminal và tự động reload. |

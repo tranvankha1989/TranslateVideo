@@ -30,6 +30,8 @@ import {
   Bug,
   Activity,
   ArrowDownUp,
+  Play,
+  Pause,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -144,6 +146,21 @@ export default function Settings() {
   const [logLinesCount, setLogLinesCount] = useState(300);
   const [logStats, setLogStats] = useState<{ total_lines: number; file_size_kb: number; log_path: string } | null>(null);
 
+  // Tự động làm mới Logs: mặc định là Play (đang chạy), chu kỳ 1s - 10s (lưu vào localStorage, mặc định 1s)
+  const [isLogAutoRefresh, setIsLogAutoRefresh] = useState(true);
+  const [logRefreshInterval, setLogRefreshInterval] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("log_refresh_interval");
+      if (saved) {
+        const parsed = Number(saved);
+        if (parsed >= 1 && parsed <= 10) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return 1;
+  });
+
   // Chế độ Ghi nhật ký chi tiết từng bước (Verbose / Debug Step-by-Step)
   const [verboseLogging, setVerboseLogging] = useState(false);
   const [isTogglingVerbose, setIsTogglingVerbose] = useState(false);
@@ -212,19 +229,21 @@ export default function Settings() {
     }
   };
 
-  // Tự động làm mới logs mỗi 1 giây khi tab logs đang mở
+  // Tự động làm mới logs theo chu kỳ đã chọn (1s - 10s) khi tab logs đang mở và ở trạng thái Play
   useEffect(() => {
     if (activeTab !== "logs") return;
 
     fetchVerboseStatus();
     fetchLogContent(logLinesCount, logOrder, !logContent);
 
+    if (!isLogAutoRefresh) return;
+
     const interval = setInterval(() => {
       fetchLogContent(logLinesCount, logOrder, false);
-    }, 1000);
+    }, logRefreshInterval * 1000);
 
     return () => clearInterval(interval);
-  }, [activeTab, logLinesCount, logOrder]);
+  }, [activeTab, logLinesCount, logOrder, isLogAutoRefresh, logRefreshInterval]);
 
   const handleToggleLogOrder = () => {
     const nextOrder = logOrder === "desc" ? "asc" : "desc";
@@ -850,56 +869,6 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Card Xuất File Log Báo Lỗi & Chẩn Đoán Hệ Thống */}
-          <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-primary" />
-                  <span>Xuất File Log Báo Lỗi & Chẩn Đoán</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
-                    app.log
-                  </span>
-                </h3>
-                <p className="text-xs text-on-surface-variant max-w-xl">
-                  Tải file nhật ký hoạt động của AI, GPU và lỗi hệ thống để gửi cho kỹ thuật viên chẩn đoán và khắc phục nhanh chóng.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handleDownloadLog}
-                  className="px-4 py-2.5 rounded-2xl bg-primary hover:brightness-110 text-black font-bold text-xs flex items-center gap-2 shadow-md shadow-primary/20 transition-all cursor-pointer hover:scale-[1.02]"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Tải File Log (.log)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleOpenLogsFolder}
-                  className="px-4 py-2.5 rounded-2xl bg-surface-variant hover:bg-surface-variant/80 border border-white/10 hover:border-white/20 text-on-surface text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer hover:scale-[1.02]"
-                >
-                  <FolderOpen className="w-4 h-4 text-amber-300" />
-                  <span>Mở Thư Mục Logs</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab("logs");
-                    fetchLogContent();
-                  }}
-                  className="px-4 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-on-surface text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer"
-                >
-                  <Search className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Xem Live Log</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
           {/* Action Bar Lưu Thay Đổi */}
           <div className="flex items-center justify-between pt-4 border-t border-white/10">
             <span className="text-xs text-on-surface-variant font-mono">
@@ -1326,14 +1295,83 @@ export default function Settings() {
               </div>
 
               {logStats && (
-                <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-2">
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono">
+                  {/* Nhóm điều khiển Tự động làm mới: Play/Stop & Lựa chọn chu kỳ 1s - 10s */}
+                  <div
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all",
+                      isLogAutoRefresh
+                        ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-300"
+                        : "bg-amber-500/10 border-amber-500/25 text-amber-300"
+                    )}
+                  >
+                    {/* Nút Play / Stop (Mặc định là Play - đang chạy) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !isLogAutoRefresh;
+                        setIsLogAutoRefresh(next);
+                        toast.info(
+                          next
+                            ? `▶️ Đã BẬT tự động làm mới logs (${logRefreshInterval}s)`
+                            : "⏸️ Đã TẠM DỪNG tự động làm mới để bạn dễ dàng xem logs"
+                        );
+                      }}
+                      className={cn(
+                        "w-6 h-6 rounded-lg flex items-center justify-center transition-all cursor-pointer shadow-xs",
+                        isLogAutoRefresh
+                          ? "bg-emerald-500 text-black hover:bg-emerald-400"
+                          : "bg-amber-500 text-black hover:bg-amber-400"
+                      )}
+                      title={
+                        isLogAutoRefresh
+                          ? "Nhấp để TẠM DỪNG tự động làm mới để soi logs"
+                          : "Nhấp để TIẾP TỤC tự động làm mới logs"
+                      }
+                    >
+                      {isLogAutoRefresh ? (
+                        <Pause className="w-3.5 h-3.5 fill-black" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5 fill-black ml-0.5" />
+                      )}
+                    </button>
+
+                    {/* Hiệu ứng đèn ping khi đang Play */}
+                    {isLogAutoRefresh && (
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                    )}
+
+                    <span className="font-sans font-medium text-[11px]">
+                      {isLogAutoRefresh ? "Tự động làm mới:" : "Đã tạm dừng:"}
                     </span>
-                    <span className="font-sans font-medium text-[11px]">Tự động làm mới (1s)</span>
-                  </span>
+
+                    {/* Bộ chọn chu kỳ từ 1s đến 10s */}
+                    <select
+                      value={logRefreshInterval}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setLogRefreshInterval(val);
+                        try {
+                          localStorage.setItem("log_refresh_interval", String(val));
+                        } catch {
+                          // ignore
+                        }
+                        toast.success(`Đã lưu chu kỳ làm mới logs: ${val}s`);
+                      }}
+                      className="bg-black/50 text-on-surface font-mono font-bold text-xs px-2 py-0.5 rounded-lg border border-white/10 focus:outline-none focus:border-primary cursor-pointer hover:bg-black/70 transition-colors"
+                      title="Chọn chu kỳ tự động làm mới từ 1s đến 10s (tự động ghi nhớ)"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((sec) => (
+                        <option key={sec} value={sec}>
+                          {sec}s
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <span className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-on-surface">
                     📊 Dung lượng: <strong className="text-primary">{logStats.file_size_kb} KB</strong>
                   </span>

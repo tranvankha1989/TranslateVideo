@@ -1,6 +1,6 @@
 {
-  "version": "3.7.2",
+  "version": "3.8.0",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-04",
-  "description": "Nâng cấp V3.7.2: Đồng bộ hóa hoàn toàn giao diện tùy chỉnh phụ đề và âm thanh nền (BGM, độ phân giải, font chữ, tốc độ đọc) giữa chế độ Dịch Tự Động và Bước 4 Dịch Thủ Công."
+  "description": "Nâng cấp V3.8.0: Thêm tính năng tự động dọn dẹp dự án hết hạn theo số ngày tùy chọn trong Thư viện, hỗ trợ chọn đơn vị cắt video (Giây/Phút), tối ưu điều khiển nhật ký với Play/Pause và ghi nhớ chu kỳ làm mới (1s-10s), chuẩn hóa modal xác nhận xóa ra giữa màn hình."
 }

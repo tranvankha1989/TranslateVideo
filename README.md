@@ -41,6 +41,10 @@ Trước khi bắt đầu, đảm bảo máy tính của bạn đã cài đặt:
 
 ---
 
+# Chạy chế đọ nhà phát triễn
+cd frontend
+pnpm run dev:all
+
 ## 🚀 Hướng Dẫn Cài Đặt
 
 ### 1. Cài đặt Backend (Python)
@@ -132,7 +136,7 @@ Sau khi hoàn tất cài đặt lần đầu, bạn chỉ cần:
    - Nhấn nút thu nhỏ (`_`) trên cửa sổ Terminal, ứng dụng sẽ ẩn vào khay hệ thống cạnh đồng hồ.
    - Click đúp vào icon để mở lại cửa sổ, hoặc click chuột phải để truy cập menu tiện ích.
 3. **Tạo lại Shortcut Desktop (nếu cần):**
-   - Click đúp vào file **`create_shortcut.bat`** để tạo ngay shortcut app ngoài Desktop với icon chuyên nghiệp.
+   - Chạy file **`start.bat`** hoặc script `scripts/create_desktop_shortcut.ps1` để tự động tạo shortcut app ngoài Desktop với icon chuyên nghiệp.
 
 ---
 
@@ -171,8 +175,7 @@ Sau khi hoàn tất cài đặt lần đầu, bạn chỉ cần:
 │   ├── tray_manager.ps1    # Quản lý ẩn khay hệ thống (System Tray) & auto-open
 │   ├── create_desktop_shortcut.ps1 # Tạo shortcut ngoài Desktop với app icon
 │   └── generate_icon.py    # Script sinh icon ứng dụng chuẩn đa kích thước
-├── start.bat               # Trình khởi chạy 1-click toàn bộ hệ thống
-└── create_shortcut.bat     # Trình tạo shortcut Desktop 1-click
+└── start.bat               # Trình khởi chạy 1-click toàn bộ hệ thống
 ```
 
 ---

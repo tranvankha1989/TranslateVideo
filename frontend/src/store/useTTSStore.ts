@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API_BASE_URL } from "@/constants/api";
+import { APP_VERSION } from "@/constants/version";
 
 export interface AudioRecord {
   id: string;
@@ -1198,7 +1199,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
         return {
           ok: false,
           has_update: false,
-          current_version: "3.7.2",
+          current_version: APP_VERSION,
           commits_behind: 0,
           commit_messages: [],
           message: "Không thể kiểm tra bản cập nhật",

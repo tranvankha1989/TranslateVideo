@@ -1539,3 +1539,55 @@ async def clear_all_video_translate_tasks_endpoint():
         "message": f"Đã xóa toàn bộ {deleted_count} dự án dịch video và giải phóng {freed_mb} MB dung lượng!"
     }
 
+
+@router.post("/cleanup-expired")
+async def cleanup_expired_video_translate_tasks_endpoint(days: int = Query(7, ge=1, le=365)):
+    """
+    Tự động xóa các dự án dịch video cũ hơn số ngày chỉ định (ví dụ 7 ngày)
+    để giải phóng dung lượng ổ đĩa theo cấu hình người dùng.
+    """
+    cutoff_time = time.time() - (days * 86400)
+    deleted_count = 0
+    total_freed_bytes = 0
+
+    if TRANSLATE_OUTPUT_DIR.exists():
+        for folder in list(TRANSLATE_OUTPUT_DIR.iterdir()):
+            if not folder.is_dir():
+                continue
+            task_id = folder.name
+            meta_file = folder / "task_meta.json"
+            created_at = None
+            if meta_file.exists():
+                try:
+                    with open(meta_file, "r", encoding="utf-8") as f:
+                        meta = json.load(f)
+                        created_at = meta.get("created_at") or meta.get("_start_time")
+                except Exception:
+                    pass
+            if created_at is None:
+                created_at = folder.stat().st_mtime
+
+            try:
+                created_at = float(created_at)
+            except (ValueError, TypeError):
+                created_at = folder.stat().st_mtime
+
+            if created_at < cutoff_time:
+                try:
+                    for sub in folder.rglob("*"):
+                        if sub.is_file():
+                            total_freed_bytes += sub.stat().st_size
+                    VideoTranslationPipeline.delete_task(task_id)
+                    deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"Lỗi khi tự động xóa task cũ {task_id}: {e}")
+
+    freed_mb = round(total_freed_bytes / (1024 * 1024), 2)
+    return {
+        "status": "ok",
+        "deleted_count": deleted_count,
+        "freed_mb": freed_mb,
+        "days": days,
+        "message": f"Đã tự động xóa {deleted_count} dự án cũ hơn {days} ngày và giải phóng {freed_mb} MB!"
+    }
+

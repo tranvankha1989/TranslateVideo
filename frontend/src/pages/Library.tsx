@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTTSStore, type AudioRecord } from "../store/useTTSStore";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ import {
   Languages,
   AlertTriangle,
   X,
+  Clock,
 } from "lucide-react";
 
 interface VideoProjectItem {
@@ -44,10 +46,10 @@ interface VideoProjectItem {
 
 export function AudioRecordItem({
   record,
-  removeHistory,
+  onDeleteRequest,
 }: {
   record: AudioRecord;
-  removeHistory: (id: string) => void;
+  onDeleteRequest: (record: AudioRecord) => void;
 }) {
   const navigate = useNavigate();
   const { projects, updateRecordProject, setPendingVoiceForVideo } = useTTSStore();
@@ -183,7 +185,7 @@ export function AudioRecordItem({
           </button>
           <button
             className="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-error/20 hover:text-error transition-colors cursor-pointer"
-            onClick={() => removeHistory(record.id)}
+            onClick={() => onDeleteRequest(record)}
             title="Xóa khỏi lịch sử"
           >
             <span className="material-symbols-outlined text-[20px]">
@@ -205,10 +207,10 @@ export function AudioRecordItem({
 
 function VideoProjectCard({
   project,
-  onDelete,
+  onDeleteRequest,
 }: {
   project: VideoProjectItem;
-  onDelete: (taskId: string) => void;
+  onDeleteRequest: (project: VideoProjectItem) => void;
 }) {
   const navigate = useNavigate();
   const [isPlaying, setIsPlaying] = useState(false);
@@ -392,7 +394,7 @@ function VideoProjectCard({
 
           <button
             type="button"
-            onClick={() => onDelete(project.task_id)}
+            onClick={() => onDeleteRequest(project)}
             className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error/10 border border-transparent hover:border-error/20 transition-all cursor-pointer"
             title="Xóa vĩnh viễn dự án này"
           >
@@ -415,8 +417,18 @@ export default function Library() {
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal xác nhận xóa riêng cho từng tab
-  const [isConfirmClearModalOpen, setIsConfirmClearModalOpen] = useState(false);
+  // Cài đặt thời gian lưu trữ dữ liệu (Retention Policy: 3, 7, 14, 30, 60 ngày hoặc 0 = vĩnh viễn)
+  const [retentionDays, setRetentionDays] = useState<number>(() => {
+    const saved = localStorage.getItem("library_retention_days");
+    return saved !== null ? Number(saved) : 7; // Mặc định 7 ngày
+  });
+
+  // Modal xác nhận xóa tập trung ở GIỮA MÀN HÌNH (thay thế toast ở dưới đáy màn hình)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    type: "video_single" | "audio_single" | "clear_active_tab";
+    videoProject?: VideoProjectItem;
+    audioRecord?: AudioRecord;
+  } | null>(null);
 
   // Phân trang Audio
   const [currentPage, setCurrentPage] = useState(1);
@@ -446,29 +458,105 @@ export default function Library() {
     }
   }, []);
 
-  // Tải danh sách dự án video ngay khi vào trang
+  // Tự động dọn dẹp các tệp cũ hơn số ngày lưu trữ
+  const runAutoCleanup = useCallback(
+    async (days: number, notifyUser: boolean = false) => {
+      if (days <= 0) return;
+      try {
+        let totalFreedMb = 0;
+        let deletedVideos = 0;
+        let deletedAudios = 0;
+
+        // 1. Dọn dẹp video projects cũ trên backend
+        const res = await fetch(
+          `http://localhost:8000/api/video-translate/cleanup-expired?days=${days}`,
+          { method: "POST" }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          totalFreedMb += Number(data.freed_mb || 0);
+          deletedVideos += Number(data.deleted_count || 0);
+        }
+
+        // 2. Dọn dẹp audio records cũ trong history
+        const cutoffTime = Date.now() - days * 86400 * 1000;
+        const expiredAudios = history.filter((h) => h.timestamp < cutoffTime);
+        if (expiredAudios.length > 0) {
+          for (const item of expiredAudios) {
+            await removeHistory(item.id);
+            deletedAudios++;
+          }
+        }
+
+        if (deletedVideos > 0 || deletedAudios > 0) {
+          fetchVideoProjects();
+          toast.success(
+            `🧹 Đã tự động dọn dẹp ${deletedVideos} dự án video và ${deletedAudios} bản thu âm cũ hơn ${days} ngày (giải phóng ${totalFreedMb.toFixed(1)} MB)!`
+          );
+        } else if (notifyUser) {
+          toast.info(`Không có dữ liệu nào cũ hơn ${days} ngày cần dọn dẹp.`);
+        }
+      } catch (e: any) {
+        if (notifyUser) toast.error(`Lỗi khi dọn dẹp tự động: ${e.message}`);
+      }
+    },
+    [history, removeHistory, fetchVideoProjects]
+  );
+
+  const handleRetentionDaysChange = (days: number) => {
+    setRetentionDays(days);
+    localStorage.setItem("library_retention_days", String(days));
+    if (days > 0) {
+      toast.success(
+        `Đã lưu cấu hình: Tự động xóa dữ liệu sau ${days} ngày để giải phóng dung lượng.`
+      );
+      runAutoCleanup(days, true);
+    } else {
+      toast.info("Đã chọn lưu trữ Vĩnh viễn (Không tự xóa).");
+    }
+  };
+
+  // Tải danh sách dự án video và chạy dọn dẹp định kỳ ngay khi vào trang
   useEffect(() => {
     fetchVideoProjects();
-  }, [fetchVideoProjects]);
+    const savedRetention = localStorage.getItem("library_retention_days");
+    const days = savedRetention !== null ? Number(savedRetention) : 7;
+    if (days > 0) {
+      runAutoCleanup(days, false);
+    }
+  }, [fetchVideoProjects, runAutoCleanup]);
 
-  const handleDeleteVideoProject = (taskId: string) => {
-    toast("Bạn có chắc chắn muốn xóa toàn bộ file của dự án này?", {
-      action: {
-        label: "Xác nhận xóa",
-        onClick: async () => {
-          try {
-            const res = await fetch(`http://localhost:8000/api/video-translate/tasks/${taskId}`, {
-              method: "DELETE",
-            });
-            if (!res.ok) throw new Error("Lỗi khi xóa dự án");
-            toast.success("Đã xóa dự án video thành công!");
-            setVideoProjects((prev) => prev.filter((p) => p.task_id !== taskId));
-          } catch (e: any) {
-            toast.error(e.message || "Không thể xóa dự án video");
-          }
-        },
-      },
-    });
+  // Xác nhận xóa thực tế từ modal ở giữa màn hình
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    if (deleteTarget.type === "video_single" && deleteTarget.videoProject) {
+      const taskId = deleteTarget.videoProject.task_id;
+      setDeleteTarget(null);
+      try {
+        const res = await fetch(
+          `http://localhost:8000/api/video-translate/tasks/${taskId}`,
+          { method: "DELETE" }
+        );
+        if (!res.ok) throw new Error("Lỗi khi xóa dự án");
+        toast.success("Đã xóa vĩnh viễn dự án video thành công!");
+        setVideoProjects((prev) => prev.filter((p) => p.task_id !== taskId));
+      } catch (e: any) {
+        toast.error(e.message || "Không thể xóa dự án video");
+      }
+    } else if (deleteTarget.type === "audio_single" && deleteTarget.audioRecord) {
+      const recordId = deleteTarget.audioRecord.id;
+      setDeleteTarget(null);
+      try {
+        await removeHistory(recordId);
+        toast.success("Đã xóa bản thu âm khỏi lịch sử!");
+      } catch (e: any) {
+        toast.error("Không thể xóa bản thu âm: " + e.message);
+      }
+    } else if (deleteTarget.type === "clear_active_tab") {
+      setDeleteTarget(null);
+      await handleExecuteClearActiveTab();
+    }
   };
 
   // Thực hiện Xóa bộ nhớ riêng theo từng tab đang mở
@@ -557,11 +645,43 @@ export default function Library() {
             </div>
           </div>
 
-          {/* Nút Xóa Bộ Nhớ theo Tab đang mở */}
-          <div className="flex items-center gap-2.5">
+          {/* Nhóm Cài đặt Lưu trữ & Nút Xóa Bộ Nhớ */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Bộ chọn thời gian lưu trữ dữ liệu (Retention Policy) */}
+            <div className="flex items-center gap-2 bg-surface-dim/90 border border-white/10 px-3 py-2 rounded-xl text-xs shadow-xs">
+              <Clock className="w-4 h-4 text-primary shrink-0" />
+              <span className="text-on-surface-variant font-medium hidden sm:inline">Lưu trữ tối đa:</span>
+              <select
+                value={retentionDays}
+                onChange={(e) => handleRetentionDaysChange(Number(e.target.value))}
+                className="bg-surface-variant text-on-surface font-semibold text-xs px-2.5 py-1 rounded-lg border border-white/10 focus:outline-none focus:border-primary cursor-pointer hover:bg-white/10 transition-colors"
+                title="Dữ liệu cũ hơn thời gian này sẽ tự động được xóa để giải phóng dung lượng đĩa"
+              >
+                <option value={3}>3 ngày</option>
+                <option value={7}>7 ngày (Khuyên dùng)</option>
+                <option value={14}>14 ngày</option>
+                <option value={30}>30 ngày</option>
+                <option value={60}>60 ngày</option>
+                <option value={0}>Vĩnh viễn (Không tự xóa)</option>
+              </select>
+              {retentionDays > 0 && (
+                <button
+                  type="button"
+                  onClick={() => runAutoCleanup(retentionDays, true)}
+                  disabled={isCleaning}
+                  className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-40"
+                  title="Dọn dẹp ngay các tệp cũ hơn thời hạn"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isCleaning ? "animate-spin" : ""}`} />
+                  <span className="hidden md:inline">Dọn ngay</span>
+                </button>
+              )}
+            </div>
+
+            {/* Nút Xóa Bộ Nhớ theo Tab đang mở */}
             <button
               type="button"
-              onClick={() => setIsConfirmClearModalOpen(true)}
+              onClick={() => setDeleteTarget({ type: "clear_active_tab" })}
               disabled={isCleaning || (activeTab === "video" ? videoProjects.length === 0 : history.length === 0)}
               className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
               title={
@@ -666,7 +786,9 @@ export default function Library() {
                 <VideoProjectCard
                   key={project.task_id}
                   project={project}
-                  onDelete={handleDeleteVideoProject}
+                  onDeleteRequest={(p) =>
+                    setDeleteTarget({ type: "video_single", videoProject: p })
+                  }
                 />
               ))}
             </div>
@@ -700,7 +822,9 @@ export default function Library() {
                   <AudioRecordItem
                     key={record.id}
                     record={record}
-                    removeHistory={removeHistory}
+                    onDeleteRequest={(r) =>
+                      setDeleteTarget({ type: "audio_single", audioRecord: r })
+                    }
                   />
                 ))}
               </div>
@@ -749,65 +873,116 @@ export default function Library() {
         </div>
       )}
 
-      {/* Modal Xác Nhận Xóa Bộ Nhớ Riêng Biệt Cho Từng Tab */}
-      {isConfirmClearModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-surface border border-white/10 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-200">
-            <button
-              onClick={() => setIsConfirmClearModalOpen(false)}
-              className="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+      {/* Modal Xác Nhận Xóa Tập Trung Chính Giữa Màn Hình (Portal trực tiếp ra document.body) */}
+      {deleteTarget &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[99999] w-screen h-screen flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => !isCleaning && setDeleteTarget(null)}
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: "100vw",
+              height: "100vh",
+              margin: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div
+              className="bg-surface border border-white/10 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-200 my-auto"
+              onClick={(e) => e.stopPropagation()}
             >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-lg font-bold text-on-surface">
-                  {activeTab === "video"
-                    ? "Xác Nhận Xóa Lịch Sử Dịch Video"
-                    : "Xác Nhận Xóa Lịch Sử Phòng Thu"}
-                </h3>
-                <p className="text-xs text-on-surface-variant leading-relaxed">
-                  {activeTab === "video"
-                    ? `Bạn có chắc chắn muốn xóa toàn bộ ${videoProjects.length} dự án dịch video và tất cả các file video đã render, file phụ đề để giải phóng dung lượng ổ cứng?`
-                    : `Bạn có chắc chắn muốn xóa toàn bộ ${history.length} bản thu âm giọng đọc và các file âm thanh đã lưu để giải phóng dung lượng ổ cứng?`}
-                </p>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
-              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
-              <span>
-                Lưu ý: Hành động này chỉ xóa dữ liệu của <strong>{activeTab === "video" ? "Lịch Sử Dịch Video" : "Lịch Sử Phòng Thu"}</strong> và không làm mất dữ liệu của tab còn lại.
-              </span>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex items-center justify-end gap-3 pt-2">
               <button
-                type="button"
-                onClick={() => setIsConfirmClearModalOpen(false)}
-                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface text-xs font-semibold border border-white/10 transition-colors cursor-pointer"
+                onClick={() => !isCleaning && setDeleteTarget(null)}
+                className="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
               >
-                Hủy Bỏ
+                <X className="w-4 h-4" />
               </button>
-              <button
-                type="button"
-                onClick={handleExecuteClearActiveTab}
-                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-all cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>
-                  {activeTab === "video" ? "Xóa Sạch Lịch Sử Video" : "Xóa Sạch Lịch Sử Phòng Thu"}
-                </span>
-              </button>
+
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div className="space-y-1.5 flex-1">
+                  <h3 className="text-lg font-bold text-on-surface">
+                    {deleteTarget.type === "video_single"
+                      ? "Xác Nhận Xóa Dự Án Video"
+                      : deleteTarget.type === "audio_single"
+                      ? "Xác Nhận Xóa Bản Thu Âm"
+                      : activeTab === "video"
+                      ? "Xác Nhận Xóa Toàn Bộ Lịch Sử Video"
+                      : "Xác Nhận Xóa Toàn Bộ Lịch Sử Phòng Thu"}
+                  </h3>
+                  <div className="text-xs text-on-surface-variant leading-relaxed">
+                    {deleteTarget.type === "video_single" && (
+                      <>
+                        Bạn có chắc chắn muốn xóa vĩnh viễn dự án video{" "}
+                        <strong className="text-on-surface font-semibold">
+                          "{deleteTarget.videoProject?.video_filename || deleteTarget.videoProject?.task_id}"
+                        </strong>
+                        ? Toàn bộ file video thành phẩm MP4, file phụ đề SRT và tài nguyên tạm sẽ bị xóa để giải phóng dung lượng đĩa.
+                      </>
+                    )}
+                    {deleteTarget.type === "audio_single" && (
+                      <>
+                        Bạn có chắc muốn xóa bản thu âm{" "}
+                        <span className="italic text-on-surface font-semibold">
+                          "{deleteTarget.audioRecord?.text?.slice(0, 80)}
+                          {(deleteTarget.audioRecord?.text?.length || 0) > 80 ? "..." : ""}"
+                        </span>
+                        ? File âm thanh này sẽ bị xóa hoàn toàn khỏi hệ thống.
+                      </>
+                    )}
+                    {deleteTarget.type === "clear_active_tab" && (
+                      activeTab === "video"
+                        ? `Bạn có chắc chắn muốn xóa toàn bộ ${videoProjects.length} dự án dịch video và tất cả các file video đã render, file phụ đề để giải phóng dung lượng ổ cứng?`
+                        : `Bạn có chắc chắn muốn xóa toàn bộ ${history.length} bản thu âm giọng đọc và các file âm thanh đã lưu để giải phóng dung lượng ổ cứng?`
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>Hành động này không thể hoàn tác sau khi đã thực hiện.</span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => !isCleaning && setDeleteTarget(null)}
+                  disabled={isCleaning}
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface text-xs font-semibold border border-white/10 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={isCleaning}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isCleaning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  <span>
+                    {deleteTarget.type === "clear_active_tab"
+                      ? activeTab === "video"
+                        ? "Xóa Sạch Lịch Sử Video"
+                        : "Xóa Sạch Lịch Sử Phòng Thu"
+                      : "Xác Nhận Xóa"}
+                  </span>
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
