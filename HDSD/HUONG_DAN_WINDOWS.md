@@ -13,7 +13,6 @@ Chỉ cần làm đúng **5 bước** dưới đây bằng **PowerShell** là �
 ### Bước 1: Cài đặt toàn bộ phần mềm nền tảng (Chỉ làm 1 lần trên máy mới)
 Mở **PowerShell với quyền Administrator** (Bấm nút `Windows` ➔ gõ `powershell` ➔ chọn *Run as Administrator*), copy toàn bộ khối lệnh dưới và dán vào:
 
-<<<<<<< HEAD
 Trước khi kéo code, bạn cần cài đặt 4 công cụ nền tảng trên máy tính và chuẩn bị 2 tài khoản dịch vụ AI trực tuyến:
 
 ### 1.1. Cài đặt Git (Quản lý mã nguồn)

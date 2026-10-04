@@ -75,6 +75,14 @@ cd ..
 
 ---
 
+## 🔄 HƯỚNG DẪN KHI KÉO CODE MỚI VỀ LAPTOP (UPDATE TỰ ĐỘNG)
+
+Sau này khi có bản cập nhật mới trên GitHub, bạn chỉ cần thực hiện 1 trong 2 cách:
+1. **Cách 1 (Nhanh nhất):** Bấm đúp vào file **`update.bat`** ở thư mục gốc để hệ thống tự kéo code và tự cài thư viện mới.
+2. **Cách 2 (Thủ công):** Xem chi tiết tại tài liệu [HUONG_DAN_KEO_CODE_MOI.md](./HUONG_DAN_KEO_CODE_MOI.md).
+
+---
+
 ## 🌐 Địa chỉ truy cập
 * **Web UI:** [http://localhost:5173](http://localhost:5173)
 * **API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
