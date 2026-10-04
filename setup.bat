@@ -57,6 +57,10 @@ if %ERRORLEVEL% NEQ 0 (
 )
 call pnpm --version
 
+:: 3. Tự động kiểm tra & cập nhật Visual C++ để chống lỗi WinError 126
+echo Đang kiểm tra và tự động cập nhật gói Microsoft Visual C++...
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile '$env:TEMP\vc_redist.x64.exe' -UseBasicParsing; Start-Process '$env:TEMP\vc_redist.x64.exe' -ArgumentList '/install','/quiet','/norestart' -Wait; Remove-Item '$env:TEMP\vc_redist.x64.exe' -Force -ErrorAction SilentlyContinue } catch {}"
+
 echo.
 echo -------------------------------------------------------------------
 echo [▓▓▓░░░░░░░] [30%%] Thiết lập môi trường Python Backend (venv)...
@@ -90,6 +94,7 @@ if %ERRORLEVEL% EQU 0 (
     "%~dp0backend\venv\Scripts\python.exe" -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --upgrade --progress-bar on
 ) else (
     echo [Máy sử dụng CPU] Đang tải PyTorch bản chuẩn CPU...
+    "%~dp0backend\venv\Scripts\python.exe" -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --upgrade --progress-bar on
 )
 
 :: Cài toàn bộ requirements có thanh progress bar %
