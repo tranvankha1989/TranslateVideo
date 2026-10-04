@@ -145,11 +145,9 @@ def cleanup_task_temp_files(task_dir: Path | str) -> None:
     logger.info(f"🧹 [Cleanup] Bắt đầu dọn dẹp file nháp tạm thời cho task: {task_id}")
 
     # 1. Danh sách các file nháp trung gian cần xóa trực tiếp trong thư mục task
+    # TUYỆT ĐỐI BẢO VỆ: input_trimmed.mp4 (video cắt), no_vocals.wav (nhạc nền), raw_audio.wav (audio chuẩn)
     files_to_remove = [
-        "raw_audio.wav",
         "vocals.wav",
-        "no_vocals.wav",
-        "input_trimmed.mp4",
         "voice_timeline_raw.wav",
         "chunks_list.txt",
     ]
@@ -1504,6 +1502,7 @@ class VideoTranslationPipeline:
         try:
             task = cls.get_task(task_id) or {}
             task_dir = TRANSLATE_OUTPUT_DIR / task_id
+            task_dir.mkdir(parents=True, exist_ok=True)
             if not task_dir.exists():
                 raise RuntimeError(f"Tác vụ {task_id} không tồn tại trên hệ thống.")
 
@@ -1540,11 +1539,49 @@ class VideoTranslationPipeline:
             # Tìm video gốc
             video_path_str = task.get("video_path")
             video_path = Path(video_path_str) if video_path_str else None
+
+            # Phục hồi an toàn: nếu video_path là input_trimmed.mp4 mà bị thiếu trên đĩa (ví dụ bị cleanup nhầm)
+            if (not video_path or not video_path.exists()) and video_path_str and "input_trimmed.mp4" in video_path_str:
+                orig_candidates = [f for f in task_dir.glob("input_*.*") if f.name != "input_trimmed.mp4" and f.is_file()]
+                if orig_candidates:
+                    orig_v = orig_candidates[0]
+                    c_start = task.get("clip_start")
+                    c_end = task.get("clip_end")
+                    if (c_start and float(c_start) > 0.0) or (c_end and float(c_end) > 0.0):
+                        trimmed_v = task_dir / "input_trimmed.mp4"
+                        trim_cmd = ["ffmpeg", "-y"]
+                        if c_start and float(c_start) > 0.0:
+                            trim_cmd.extend(["-ss", str(c_start)])
+                        trim_cmd.extend(["-i", str(orig_v)])
+                        if c_end and float(c_end) > 0.0:
+                            dur = float(c_end) - (float(c_start) if c_start else 0.0)
+                            if dur > 0:
+                                trim_cmd.extend(["-t", str(dur)])
+                        trim_cmd.extend([
+                            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                            "-c:a", "aac", "-b:a", "192k", str(trimmed_v)
+                        ])
+                        try:
+                            logger.info(f"✂️ [Auto Re-Trim] Đang tự động tạo lại {trimmed_v.name} từ {orig_v.name}...")
+                            subprocess.run(trim_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            if trimmed_v.exists() and trimmed_v.stat().st_size > 0:
+                                video_path = trimmed_v
+                        except Exception as te:
+                            logger.warning(f"Không thể cắt lại video: {te}")
+                    if not video_path or not video_path.exists():
+                        video_path = orig_v
+
             if not video_path or not video_path.exists():
                 for f in task_dir.glob("input_*.*"):
                     if f.is_file():
                         video_path = f
                         break
+            if not video_path or not video_path.exists():
+                for f in task_dir.glob("*.mp4"):
+                    if f.is_file() and not f.name.startswith("final_"):
+                        video_path = f
+                        break
+
             if not video_path or not video_path.exists():
                 raise RuntimeError("Không tìm thấy video gốc để render lại.")
 
@@ -1611,6 +1648,7 @@ class VideoTranslationPipeline:
                 "alignment": align,
             }
             try:
+                task_dir.mkdir(parents=True, exist_ok=True)
                 (task_dir / "task_meta.json").write_text(json.dumps(task_meta, ensure_ascii=False, indent=2), encoding="utf-8")
                 (task_dir / "dubbed_segments.json").write_text(json.dumps(dub_res["dubbed_segments"], ensure_ascii=False, indent=2), encoding="utf-8")
             except Exception as e:

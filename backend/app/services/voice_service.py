@@ -18,6 +18,7 @@ from app.core.config import (
     PRESETS_DIR,
     CUSTOM_VOICES_DIR,
     CUSTOM_VOICES_JSON,
+    USER_CUSTOM_VOICES_JSON,
     logger,
 )
 from app.schemas.voice import RandomVoiceRequest
@@ -45,10 +46,48 @@ async def fetch_all_voices() -> list[dict]:
         with open(voices_json, "r", encoding="utf-8") as f:
             voices.extend(json.load(f))
 
+    # 1. Nạp giọng mẫu hệ thống từ custom_voices.json
     if CUSTOM_VOICES_JSON.exists():
-        with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
-            custom_voices = json.load(f)
-            voices.extend(custom_voices)
+        try:
+            with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
+                custom_voices = json.load(f)
+                voices.extend(custom_voices)
+        except Exception as e:
+            logger.warning(f"Lỗi đọc custom_voices.json: {e}")
+
+    # 2. Nạp giọng cá nhân do khách hàng tự tạo từ custom_voices_user.json (bảo vệ tuyệt đối khi git pull)
+    if USER_CUSTOM_VOICES_JSON.exists():
+        try:
+            with open(USER_CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
+                user_voices = json.load(f)
+                for uv in user_voices:
+                    if not any(v.get("id") == uv.get("id") for v in voices):
+                        voices.append(uv)
+        except Exception as e:
+            logger.warning(f"Lỗi đọc custom_voices_user.json: {e}")
+
+    # 3. Cơ chế Auto-Discovery / Auto-Recovery:
+    # Quét thư mục custom/ nếu phát hiện file .pt của khách mà chưa có trong danh sách sẽ tự phục hồi 100%
+    existing_ids = {v.get("id") for v in voices if isinstance(v, dict)}
+    for pt_file in CUSTOM_VOICES_DIR.glob("*.pt"):
+        v_id = pt_file.stem
+        if v_id not in existing_ids:
+            wav_candidate = CUSTOM_VOICES_DIR / f"{v_id}.wav"
+            recovered_voice = {
+                "id": v_id,
+                "name": v_id.replace("custom_", "Giọng Custom "),
+                "gender": "other",
+                "description": "Giọng tự tạo (Đã tự động phục hồi)",
+                "icon": "record_voice_over",
+                "url": f"http://localhost:8000/presets/custom/{v_id}.wav" if wav_candidate.exists() else "",
+                "prompt_text": "",
+                "type": "custom",
+                "has_cache_pt": True,
+                "samples_count": 1,
+                "duration": 5.0,
+            }
+            voices.append(recovered_voice)
+            existing_ids.add(v_id)
 
     return voices
 
@@ -205,12 +244,7 @@ async def clone_custom_voice(
         except Exception as pe:
             logger.warning(f"⚠️ Không thể tạo trước prompt .pt (sẽ tạo lại khi gọi tts): {pe}")
 
-        # 8. Lưu metadata vào custom_voices.json
-        custom_voices = []
-        if CUSTOM_VOICES_JSON.exists():
-            with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
-                custom_voices = json.load(f)
-
+        # 8. Lưu metadata vào custom_voices_user.json (BẢO TOÀN TUYỆT ĐỐI KHI GIT PULL) và custom_voices.json
         new_voice = {
             "id": custom_id,
             "name": name,
@@ -224,10 +258,7 @@ async def clone_custom_voice(
             "samples_count": len(file_list),
             "duration": total_duration,
         }
-        custom_voices.append(new_voice)
-
-        with open(CUSTOM_VOICES_JSON, "w", encoding="utf-8") as f:
-            json.dump(custom_voices, f, ensure_ascii=False, indent=2)
+        _save_user_custom_voice(new_voice)
 
         return {
             "message": f"Clone giọng đọc thành công từ {len(file_list)} mẫu âm thanh ({total_duration}s)!",
@@ -243,27 +274,48 @@ async def clone_custom_voice(
             p.unlink(missing_ok=True)
 
 
+def _save_user_custom_voice(new_voice: dict) -> None:
+    """Lưu metadata giọng tự tạo vào cả custom_voices_user.json và custom_voices.json."""
+    for json_path in (USER_CUSTOM_VOICES_JSON, CUSTOM_VOICES_JSON):
+        try:
+            voices = []
+            if json_path.exists():
+                with open(json_path, "r", encoding="utf-8") as f:
+                    voices = json.load(f)
+            voices = [v for v in voices if isinstance(v, dict) and v.get("id") != new_voice.get("id")]
+            voices.append(new_voice)
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(voices, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Lỗi khi lưu giọng vào {json_path.name}: {e}")
+
+
 async def remove_custom_voice(voice_id: str) -> dict:
     if not voice_id.startswith("custom_"):
         raise HTTPException(status_code=400, detail="Chỉ được phép xoá giọng tự tạo")
 
-    if CUSTOM_VOICES_JSON.exists():
-        with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
-            custom_voices = json.load(f)
+    deleted = False
+    for json_path in (USER_CUSTOM_VOICES_JSON, CUSTOM_VOICES_JSON):
+        if json_path.exists():
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    voices = json.load(f)
+                filtered = [v for v in voices if isinstance(v, dict) and v.get("id") != voice_id]
+                if len(filtered) < len(voices):
+                    with open(json_path, "w", encoding="utf-8") as f:
+                        json.dump(filtered, f, ensure_ascii=False, indent=2)
+                    deleted = True
+            except Exception as e:
+                logger.warning(f"Lỗi xóa giọng khỏi {json_path.name}: {e}")
 
-        filtered_voices = [v for v in custom_voices if v["id"] != voice_id]
+    wav_path = CUSTOM_VOICES_DIR / f"{voice_id}.wav"
+    wav_path.unlink(missing_ok=True)
 
-        if len(filtered_voices) < len(custom_voices):
-            with open(CUSTOM_VOICES_JSON, "w", encoding="utf-8") as f:
-                json.dump(filtered_voices, f, ensure_ascii=False, indent=2)
+    pt_path = CUSTOM_VOICES_DIR / f"{voice_id}.pt"
+    pt_path.unlink(missing_ok=True)
 
-            wav_path = CUSTOM_VOICES_DIR / f"{voice_id}.wav"
-            wav_path.unlink(missing_ok=True)
-
-            pt_path = CUSTOM_VOICES_DIR / f"{voice_id}.pt"
-            pt_path.unlink(missing_ok=True)
-
-            return {"message": "Đã xoá giọng đọc và bộ đệm thành công"}
+    if deleted or not wav_path.exists():
+        return {"message": "Đã xoá giọng đọc và bộ đệm thành công"}
 
     raise HTTPException(status_code=404, detail="Không tìm thấy giọng đọc")
 
@@ -395,11 +447,6 @@ async def save_preview_as_custom_voice(
         except Exception as pe:
             logger.warning(f"⚠️ Không thể tạo .pt cho giọng random: {pe}")
 
-        custom_voices_list = []
-        if CUSTOM_VOICES_JSON.exists():
-            with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
-                custom_voices_list = json.load(f)
-
         new_voice = {
             "id": custom_id,
             "name": name,
@@ -412,10 +459,7 @@ async def save_preview_as_custom_voice(
             "instruct": instruct,
             "has_cache_pt": has_pt,
         }
-        custom_voices_list.append(new_voice)
-
-        with open(CUSTOM_VOICES_JSON, "w", encoding="utf-8") as f:
-            json.dump(custom_voices_list, f, ensure_ascii=False, indent=2)
+        _save_user_custom_voice(new_voice)
 
         try:
             src_path.unlink(missing_ok=True)

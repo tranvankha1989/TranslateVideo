@@ -998,7 +998,7 @@ async def cleanup_temporary_cache_endpoint():
                 except Exception:
                     pass
 
-    # 6. Dọn dẹp outputs/video_translate/ (Chỉ xoá các tác vụ đã kết thúc, bảo vệ tuyệt đối task đang chạy)
+    # 6. Dọn dẹp các file rác tạm thời trong outputs/video_translate/ (BẢO VỆ TUYỆT ĐỐI thư mục dự án)
     if TRANSLATE_OUTPUT_DIR.exists():
         for item in TRANSLATE_OUTPUT_DIR.iterdir():
             if item.is_dir():
@@ -1006,19 +1006,17 @@ async def cleanup_temporary_cache_endpoint():
                 if task_id in active_task_ids:
                     continue  # Bỏ qua tác vụ đang chạy
 
-                task_info = _TASK_STORE.get(task_id)
-                if not task_info or task_info.get("status") in ["completed", "failed"]:
-                    try:
-                        for sub in item.rglob("*"):
-                            if sub.is_file():
-                                total_freed_bytes += sub.stat().st_size
+                # Chỉ dọn dẹp các file nháp tạm thời (voice_timeline_raw.wav, compressed_*, chunks)
+                # TUYỆT ĐỐI GIỮ LẠI: final_translated.mp4, input_*.mp4, input_trimmed.mp4, no_vocals.wav, subtitles.srt, task_meta.json
+                for pattern in ["compressed_*.*", "*_compressed.*", "voice_timeline_raw.wav", "chunks_list.txt", "*.tmp"]:
+                    for junk_file in item.glob(pattern):
+                        try:
+                            if junk_file.is_file() and not junk_file.name.startswith("final_"):
+                                total_freed_bytes += junk_file.stat().st_size
+                                junk_file.unlink(missing_ok=True)
                                 deleted_files_count += 1
-                        shutil.rmtree(item, ignore_errors=True)
-                        deleted_dirs_count += 1
-                        if task_id in _TASK_STORE:
-                            _TASK_STORE.pop(task_id, None)
-                    except Exception as e:
-                        logger.warning(f"Không thể xoá thư mục task cũ {item}: {e}")
+                        except Exception:
+                            pass
 
     freed_mb = round(total_freed_bytes / (1024 * 1024), 2)
     logger.info(f"🧹 [Cache Cleanup] Đã giải phóng {freed_mb} MB ({deleted_files_count} files, {deleted_dirs_count} folders)")

@@ -29,6 +29,12 @@ if not CUSTOM_VOICES_JSON.exists():
     with open(CUSTOM_VOICES_JSON, "w", encoding="utf-8") as f:
         f.write("[]")
 
+# File lưu trữ danh sách giọng cá nhân do khách hàng tự tạo (không bị Git ghi đè khi pull)
+USER_CUSTOM_VOICES_JSON = PRESETS_DIR / "custom_voices_user.json"
+if not USER_CUSTOM_VOICES_JSON.exists():
+    with open(USER_CUSTOM_VOICES_JSON, "w", encoding="utf-8") as f:
+        f.write("[]")
+
 # Thư mục logs hệ thống tại thư mục gốc dự án
 LOGS_DIR = BASE_DIR.parent / "logs"
 LOGS_DIR.mkdir(exist_ok=True)

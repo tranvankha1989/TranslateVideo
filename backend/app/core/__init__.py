@@ -5,6 +5,7 @@ from .config import (
     PRESETS_DIR,
     CUSTOM_VOICES_DIR,
     CUSTOM_VOICES_JSON,
+    USER_CUSTOM_VOICES_JSON,
     DEFAULT_NUM_STEP,
     logger,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "PRESETS_DIR",
     "CUSTOM_VOICES_DIR",
     "CUSTOM_VOICES_JSON",
+    "USER_CUSTOM_VOICES_JSON",
     "DEFAULT_NUM_STEP",
     "logger",
 ]

@@ -15,6 +15,7 @@ backend/local_models/
 backend/outputs/
 backend/presets/bgm/custom/*
 !backend/presets/bgm/custom/.gitkeep
+backend/presets/custom_voices_user.json
 backend/scratch_*.txt
 backend/*.scratch.*
 
