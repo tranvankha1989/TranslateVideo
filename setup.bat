@@ -9,12 +9,13 @@ echo ===================================================================
 echo     🚀 CHƯƠNG TRÌNH TỰ ĐỘNG THIẾT LẬP & CÀI ĐẶT VIDEOTRANSLATE AI
 echo ===================================================================
 echo.
-echo Hệ thống sẽ tự động cấu hình toàn bộ từ A đến Z:
-echo   [1] Kiểm tra môi trường Python và Node.js/pnpm
-echo   [2] Tạo môi trường ảo venv cho Backend (nếu chưa có)
-echo   [3] Tự động cài toàn bộ thư viện Python (AI, PyTorch, Whisper, FastAPI)
-echo   [4] Tự động cài đặt thư viện Frontend (React + Vite)
-echo   [5] Tạo biểu tượng Shortcut ra màn hình Desktop
+echo Hệ thống sẽ tự động cấu hình toàn bộ theo 5 giai đoạn:
+echo   [10%%] Kiểm tra môi trường Python và Node.js / pnpm
+echo   [30%%] Tạo môi trường ảo venv cho Backend
+echo   [60%%] Tự động cài thư viện Python AI (có thanh %% tải trực tiếp)
+echo   [85%%] Tự động cài đặt thư viện Frontend (React + Vite)
+echo   [95%%] Tạo biểu tượng Shortcut ra màn hình Desktop
+echo   [100%%] Hoàn tất và phát chuông thông báo thành công!
 echo.
 echo Bạn KHÔNG CẦN gõ bất kỳ câu lệnh nào!
 echo ===================================================================
@@ -23,7 +24,7 @@ pause
 
 echo.
 echo -------------------------------------------------------------------
-echo [Bước 1/4] Kiểm tra phần mềm nền tảng...
+echo [▓░░░░░░░░░] [10%%] Đang kiểm tra phần mềm nền tảng...
 echo -------------------------------------------------------------------
 
 :: 1. Kiểm tra Python
@@ -58,7 +59,7 @@ call pnpm --version
 
 echo.
 echo -------------------------------------------------------------------
-echo [Bước 2/4] Thiết lập môi trường Python Backend (venv)...
+echo [▓▓▓░░░░░░░] [30%%] Thiết lập môi trường Python Backend (venv)...
 echo -------------------------------------------------------------------
 
 if not exist "%~dp0backend\venv\Scripts\python.exe" (
@@ -66,15 +67,18 @@ if not exist "%~dp0backend\venv\Scripts\python.exe" (
     cd /d "%~dp0backend"
     python -m venv venv
     cd /d "%~dp0"
+    echo -> Đã tạo môi trường venv thành công!
 ) else (
-    echo Đã có sẵn môi trường ảo backend\venv.
+    echo -> Đã có sẵn môi trường ảo backend\venv.
 )
 
 echo.
 echo -------------------------------------------------------------------
-echo [Bước 3/4] Cài đặt toàn bộ thư viện Python Backend (AI Models)...
+echo [▓▓▓▓▓▓░░░░] [60%%] Cài đặt toàn bộ thư viện Python Backend (AI Models)...
 echo -------------------------------------------------------------------
-echo Quá trình này có thể mất 2-5 phút tùy tốc độ mạng, vui lòng chờ...
+echo Quá trình này có thể mất 2-5 phút tùy tốc độ mạng.
+echo Thanh tiến trình % của từng thư viện sẽ hiển thị trực tiếp bên dưới:
+echo.
 
 :: Nâng cấp pip trong venv
 "%~dp0backend\venv\Scripts\python.exe" -m pip install --upgrade pip --quiet
@@ -82,24 +86,26 @@ echo Quá trình này có thể mất 2-5 phút tùy tốc độ mạng, vui lò
 :: Kiểm tra card NVIDIA để tối ưu PyTorch
 where nvidia-smi >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
-    echo Phát hiện card đồ họa rời NVIDIA. Tối ưu PyTorch hỗ trợ GPU CUDA...
-    "%~dp0backend\venv\Scripts\python.exe" -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --upgrade
+    echo [Phát hiện GPU NVIDIA] Đang tải PyTorch CUDA 12.4...
+    "%~dp0backend\venv\Scripts\python.exe" -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --upgrade --progress-bar on
 ) else (
-    echo Máy sử dụng CPU. Cài đặt PyTorch chuẩn cho CPU...
+    echo [Máy sử dụng CPU] Đang tải PyTorch bản chuẩn CPU...
 )
 
-:: Cài toàn bộ requirements
-"%~dp0backend\venv\Scripts\python.exe" -m pip install -r "%~dp0backend\requirements.txt"
+:: Cài toàn bộ requirements có thanh progress bar %
+"%~dp0backend\venv\Scripts\python.exe" -m pip install -r "%~dp0backend\requirements.txt" --progress-bar on
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo [CẢNH BÁO] Có một số gói phụ thuộc chưa cài được hết, đang thử cài lại các gói cốt lõi...
-    "%~dp0backend\venv\Scripts\python.exe" -m pip install fastapi "uvicorn[standard]" python-multipart pydantic faster-whisper edge-tts
+    echo [CẢNH BÁO] Đang kiểm tra và bổ sung các gói cốt lõi còn thiếu...
+    "%~dp0backend\venv\Scripts\python.exe" -m pip install fastapi "uvicorn[standard]" python-multipart pydantic faster-whisper edge-tts --progress-bar on
 )
 
 echo.
+echo -> Đã cài đặt xong toàn bộ thư viện Backend!
+echo.
 echo -------------------------------------------------------------------
-echo [Bước 4/4] Cài đặt thư viện Frontend (React + Vite)...
+echo [▓▓▓▓▓▓▓▓░░] [85%%] Cài đặt thư viện Frontend (React + Vite)...
 echo -------------------------------------------------------------------
 cd /d "%~dp0frontend"
 call pnpm install
@@ -107,17 +113,22 @@ cd /d "%~dp0"
 
 echo.
 echo -------------------------------------------------------------------
-echo [Hoàn Tất] Tạo Shortcut ra màn hình Desktop...
+echo [▓▓▓▓▓▓▓▓▓░] [95%%] Tạo Shortcut ra màn hình Desktop...
 echo -------------------------------------------------------------------
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\create_desktop_shortcut.ps1"
 
+:: Phát chuông báo hoàn thành của Windows
+powershell -NoProfile -Command "[System.Media.SystemSounds]::Asterisk.Play()" >nul 2>&1
+
 echo.
 echo ===================================================================
-echo   🎉 CHÚC MỪNG BẠN! TOÀN BỘ ỨNG DỤNG ĐÃ ĐƯỢC CÀI ĐẶT THÀNH CÔNG 100%!
+echo [▓▓▓▓▓▓▓▓▓▓] [100%%] CÀI ĐẶT HOÀN TẤT THÀNH CÔNG 100%!
 echo ===================================================================
 echo.
-echo - Biểu tượng "VideoTranslate AI" đã xuất hiện ngoài màn hình Desktop.
-echo - Bạn có thể bấm phím bất kỳ dưới đây để KHỞI ĐỘNG ỨNG DỤNG NGAY!
+echo  🎉 CHÚC MỪNG BẠN! ỨNG DỤNG ĐÃ ĐƯỢC THIẾT LẬP HOÀN CHỈNH!
+echo  - Biểu tượng "VideoTranslate AI" đã xuất hiện trên màn hình Desktop.
+echo  - Bạn có thể bấm phím bất kỳ dưới đây để KHỞI ĐỘNG ỨNG DỤNG NGAY!
+echo ===================================================================
 echo.
 pause
 
