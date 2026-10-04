@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "dev:backend": "cd ../backend && venv\\Scripts\\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir .",
+    "dev:backend": "cd ../backend && venv\\Scripts\\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app --reload-include main.py",
     "dev:tray": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/tray_manager.ps1",
-    "start:all": "concurrently --kill-others-on-fail --names \"BACKEND,FRONTEND,TRAY\" --prefix-colors \"blue,magenta,cyan\" \"pnpm run dev:backend\" \"pnpm run dev\" \"pnpm run dev:tray\"",
+    "dev:all": "concurrently --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,magenta\" \"pnpm run dev:backend\" \"pnpm run dev\"",
+    "start:all": "concurrently --names \"BACKEND,FRONTEND,TRAY\" --prefix-colors \"blue,magenta,cyan\" \"pnpm run dev:backend\" \"pnpm run dev\" \"pnpm run dev:tray\"",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
