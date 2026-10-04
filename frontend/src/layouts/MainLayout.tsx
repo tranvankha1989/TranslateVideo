@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTTSStore } from "@/store/useTTSStore";
-import { APP_VERSION } from "@/constants/version";
+import { APP_VERSION, APP_VERSION_LABEL } from "@/constants/version";
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },
@@ -93,7 +93,7 @@ export function MainLayout() {
                     VideoTranslate AI
                   </h2>
                   <p className="text-xs text-on-surface-variant font-mono font-medium tracking-wide mt-0.5 select-none">
-                    Version: {APP_VERSION}-Demo
+                    {APP_VERSION_LABEL}
                   </p>
                 </div>
               </Link>
