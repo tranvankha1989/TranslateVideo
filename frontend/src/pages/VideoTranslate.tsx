@@ -797,6 +797,20 @@ export default function VideoTranslate() {
     toast.success("✅ Đã khôi phục Quy tắc Prompt AI về mặc định!");
   };
 
+  const handleReloadCustomPrompt = () => {
+    if (customTranslationPrompt && customTranslationPrompt.trim()) {
+      localStorage.setItem("tts_custom_translation_prompt", customTranslationPrompt);
+    }
+    const saved = localStorage.getItem("tts_custom_translation_prompt");
+    if (saved && saved.trim()) {
+      setCustomTranslationPrompt(saved);
+      toast.success("🔄 Đã nạp lại quy tắc dịch thuật thành công!");
+    } else {
+      setCustomTranslationPrompt(DEFAULT_TRANSLATION_PROMPT_TEMPLATE);
+      toast.info("🔄 Đã nạp lại quy tắc dịch thuật mặc định!");
+    }
+  };
+
   // 2. Sao chép nhanh toàn bộ phụ đề gốc kèm Prompt AI vào Clipboard
   const [isCopyingOriginalSrt, setIsCopyingOriginalSrt] = useState(false);
 
@@ -2804,18 +2818,29 @@ export default function VideoTranslate() {
                   <div className={cn("curtain-collapse", showPromptPreview && "curtain-expanded")}>
                     <div className="curtain-inner">
                       <div className="p-3.5 border-t border-white/10 bg-black/30 space-y-2.5 text-xs">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                           <span className="text-[11px] text-on-surface-variant font-medium">
                             💡 Bạn có thể dán hoặc chỉnh sửa quy tắc dịch thuật theo ý muốn (hệ thống sẽ tự ghi nhớ):
                           </span>
-                          <button
-                            type="button"
-                            onClick={handleResetCustomPrompt}
-                            className="px-2 py-0.5 rounded-lg bg-surface-variant/60 hover:bg-surface-variant text-[10px] text-on-surface-variant hover:text-on-surface border border-white/10 cursor-pointer"
-                            title="Khôi phục về prompt chuẩn ban đầu"
-                          >
-                            Khôi phục mặc định
-                          </button>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={handleReloadCustomPrompt}
+                              className="px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 text-[10px] font-semibold flex items-center gap-1 transition-all active:scale-95 cursor-pointer shadow-xs"
+                              title="Nạp lại quy tắc dịch thuật đã lưu"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              Nạp lại quy tắc
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleResetCustomPrompt}
+                              className="px-2 py-0.5 rounded-lg bg-surface-variant/60 hover:bg-surface-variant text-[10px] text-on-surface-variant hover:text-on-surface border border-white/10 cursor-pointer transition-all active:scale-95"
+                              title="Khôi phục về prompt chuẩn ban đầu"
+                            >
+                              Khôi phục mặc định
+                            </button>
+                          </div>
                         </div>
                         <textarea
                           value={customTranslationPrompt}
