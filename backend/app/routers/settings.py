@@ -544,9 +544,15 @@ async def perform_update_endpoint():
                     "backend/venv",
                     "frontend/node_modules",
                     "outputs",
+                    "backend/outputs",
                     "presets/custom",
                     "presets/custom_voices.json",
+                    "presets/custom_voices_user.json",
+                    "backend/presets/custom",
+                    "backend/presets/custom_voices.json",
+                    "backend/presets/custom_voices_user.json",
                     "logs",
+                    "backend/logs",
                 }
 
                 for member in z.infolist():
