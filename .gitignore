@@ -10,7 +10,7 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 backend/venv/
-backend/.env
+# backend/.env
 backend/local_models/
 backend/outputs/
 backend/presets/bgm/custom/*
