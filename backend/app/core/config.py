@@ -5,11 +5,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-APP_VERSION: str = "3.9.0"
+APP_VERSION: str = "3.10.0"
 
 # Đường dẫn thư mục gốc backend (thư mục chứa main.py)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 PROJECT_ROOT = BASE_DIR.parent if (BASE_DIR.parent / "bin").exists() or (BASE_DIR.parent / "frontend").exists() else BASE_DIR
+
+POSSIBLE_VERSION_FILES = [
+    PROJECT_ROOT / "version.json",
+    BASE_DIR / "version.json",
+    BASE_DIR.parent / "version.json",
+]
 
 # 1. Tự động liên kết FFmpeg trong thư mục nội bộ bin/
 BIN_DIR = PROJECT_ROOT / "bin"

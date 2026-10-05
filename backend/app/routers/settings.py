@@ -13,7 +13,16 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 import model_handler
-from app.core.config import BASE_DIR, LOGS_DIR, APP_LOG_FILE, logger, is_verbose_logging, set_verbose_logging
+from app.core.config import (
+    BASE_DIR,
+    LOGS_DIR,
+    APP_LOG_FILE,
+    APP_VERSION,
+    POSSIBLE_VERSION_FILES,
+    logger,
+    is_verbose_logging,
+    set_verbose_logging,
+)
 from app.schemas.feedback import FeedbackRequest, FeedbackResponse
 from app.services.telegram_service import TelegramService
 
