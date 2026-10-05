@@ -142,7 +142,7 @@ async function createMainWindow() {
     return { action: "deny" };
   });
 
-  // Tải trang Loading chờ server sẵn sàng
+  // Tải trang Loading chuẩn phong cách Apple iOS / macOS
   mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
     <!DOCTYPE html>
     <html>
@@ -150,38 +150,115 @@ async function createMainWindow() {
       <meta charset="utf-8">
       <title>VideoTranslate AI</title>
       <style>
+        * { box-sizing: border-box; }
         body {
           margin: 0;
-          background: #0b0f19;
-          color: #ffffff;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          padding: 0;
+          background: #090d16;
+          color: #f8fafc;
+          font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
           display: flex;
-          flex-direction: column;
           align-items: center;
           justify-content: center;
           height: 100vh;
           user-select: none;
+          overflow: hidden;
         }
-        .spinner {
-          width: 50px;
-          height: 50px;
-          border: 4px solid rgba(255, 255, 255, 0.1);
-          border-top-color: #3b82f6;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin-bottom: 24px;
+
+        /* Glassmorphism Container */
+        .splash-card {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 40px 48px;
+          background: rgba(18, 24, 38, 0.7);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 24px;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(59, 130, 246, 0.08);
+          text-align: center;
         }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
+
+        /* ─── Apple iOS / macOS 12-Blade Activity Indicator ─── */
+        .ios-spinner {
+          position: relative;
+          width: 48px;
+          height: 48px;
+          margin-bottom: 26px;
         }
-        h2 { margin: 0 0 8px; font-weight: 600; font-size: 20px; }
-        p { margin: 0; color: #94a3b8; font-size: 14px; }
+        .ios-spinner .blade {
+          position: absolute;
+          left: 47%;
+          top: 15%;
+          width: 3.5px;
+          height: 11px;
+          background: #ffffff;
+          border-radius: 2.5px;
+          transform-origin: center 17px;
+          animation: ios-fade 1.2s linear infinite;
+        }
+        .ios-spinner .blade:nth-child(1)  { transform: rotate(0deg);   animation-delay: -1.2s; }
+        .ios-spinner .blade:nth-child(2)  { transform: rotate(30deg);  animation-delay: -1.1s; }
+        .ios-spinner .blade:nth-child(3)  { transform: rotate(60deg);  animation-delay: -1.0s; }
+        .ios-spinner .blade:nth-child(4)  { transform: rotate(90deg);  animation-delay: -0.9s; }
+        .ios-spinner .blade:nth-child(5)  { transform: rotate(120deg); animation-delay: -0.8s; }
+        .ios-spinner .blade:nth-child(6)  { transform: rotate(150deg); animation-delay: -0.7s; }
+        .ios-spinner .blade:nth-child(7)  { transform: rotate(180deg); animation-delay: -0.6s; }
+        .ios-spinner .blade:nth-child(8)  { transform: rotate(210deg); animation-delay: -0.5s; }
+        .ios-spinner .blade:nth-child(9)  { transform: rotate(240deg); animation-delay: -0.4s; }
+        .ios-spinner .blade:nth-child(10) { transform: rotate(270deg); animation-delay: -0.3s; }
+        .ios-spinner .blade:nth-child(11) { transform: rotate(300deg); animation-delay: -0.2s; }
+        .ios-spinner .blade:nth-child(12) { transform: rotate(330deg); animation-delay: -0.1s; }
+
+        @keyframes ios-fade {
+          0% { opacity: 1; }
+          100% { opacity: 0.15; }
+        }
+
+        /* Typography & Glow */
+        h2 {
+          margin: 0 0 6px;
+          font-weight: 600;
+          font-size: 21px;
+          letter-spacing: -0.02em;
+          background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+          margin: 0;
+          color: #94a3b8;
+          font-size: 13.5px;
+          font-weight: 400;
+          letter-spacing: -0.01em;
+          animation: pulse 2.2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.6; }
+          50% { opacity: 1; }
+        }
       </style>
     </head>
     <body>
-      <div class="spinner"></div>
-      <h2>VideoTranslate AI</h2>
-      <p>Đang nạp mô hình và khởi động môi trường AI Studio...</p>
+      <div class="splash-card">
+        <div class="ios-spinner">
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+          <div class="blade"></div>
+        </div>
+        <h2>VideoTranslate AI</h2>
+        <p class="subtitle">Đang nạp mô hình và khởi động môi trường AI Studio...</p>
+      </div>
     </body>
     </html>
   `)}`);
