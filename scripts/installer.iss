@@ -46,8 +46,20 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
 [Files]
-; Sao chep toan bo thu muc du an vao thu muc cai dat, loai tru cac file rac va .git
-Source: "..\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.git*,*.vscode*,*installer_output*,*.iss,*__pycache__*,*logs\\*.log,*outputs\\translate\\*,*outputs\\captions\\*,*outputs\\audios\\*"
+; Sao chep toan bo ma nguon va moi truong, LOAI TRU TOAN BO video/audio render thu nghiem, logs va cache
+Source: "..\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.git*,*.vscode*,*installer_output*,*.iss,*__pycache__*,*.pyc,*.pyo,*logs\\*,*backend\\logs\\*,*outputs\\*,*backend\\outputs\\*,*notebooks\\*,*.tmp,*.bak,AGENTS.rar"
+
+[Dirs]
+; Tao san cac thu muc luu tru trong de he thong tu dong luu video/audio moi khi nguoi dung su dung
+Name: "{app}\outputs"
+Name: "{app}\backend\outputs"
+Name: "{app}\backend\outputs\translate"
+Name: "{app}\backend\outputs\captions"
+Name: "{app}\backend\outputs\audios"
+Name: "{app}\backend\outputs\alignment"
+Name: "{app}\backend\outputs\dubbing"
+Name: "{app}\logs"
+Name: "{app}\backend\logs"
 
 [Icons]
 ; Tao Shortcut ngoai Desktop kem Icon app.ico
