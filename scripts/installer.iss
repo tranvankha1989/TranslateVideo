@@ -3,7 +3,7 @@
 ; Phien ban: 3.8.1
 
 #define MyAppName "VideoTranslate AI"
-#define MyAppVersion "3.8.1"
+#define MyAppVersion "3.8.2"
 #define MyAppPublisher "Tran Van Kha"
 #define MyAppURL "https://github.com/tranvankha1989/TranslateVideo"
 #define MyAppExeName "start.bat"
