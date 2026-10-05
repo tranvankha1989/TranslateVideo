@@ -1,6 +1,7 @@
 {
-  "version": "3.9.0",
+  "version": "3.10.0",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-05",
-  "description": "Nâng cấp V3.9.0: Chuyển đổi sang Electron Native Desktop App chuyên nghiệp, tích hợp sẵn Python Portable 3.11.9 AI Runtime (PyTorch CUDA, Faster-Whisper, Demucs) và FFmpeg, mã hóa bộ cài Setup với Key bản quyền AES-256, tự động tắt tiến trình ngầm khi đóng cửa sổ."
+  "description": "Nâng cấp V3.10.0: Tích hợp cơ chế chống dịch ngược Backend (Python Bytecode Compiler), chặn DevTools Debug trong Production, bảo mật bộ cài với Mật khẩu động theo ngày và Master Key Aimabiet, nâng cấp Splash Screen chuẩn Apple iOS/macOS."
 }
+

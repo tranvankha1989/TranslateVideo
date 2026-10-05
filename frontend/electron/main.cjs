@@ -11,7 +11,7 @@ let isQuitting = false;
 // 1. Xác định đường dẫn thư mục gốc và các tài nguyên
 function getProjectPaths() {
   const isDev = !app.isPackaged && process.env.NODE_ENV !== "production";
-  
+
   // Thư mục gốc chứa backend, python_runtime, assets
   let rootDir = path.resolve(__dirname, "..");
   if (isDev) {
@@ -132,9 +132,23 @@ async function createMainWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       spellcheck: false,
-      webSecurity: true
+      webSecurity: true,
+      devTools: !app.isPackaged
     }
   });
+
+  // Chặn mở DevTools và phím tắt Debug (F12, Ctrl+Shift+I, Ctrl+U) trong bản Production
+  if (app.isPackaged) {
+    mainWindow.webContents.on("before-input-event", (event, input) => {
+      if (
+        (input.control && input.shift && (input.key.toLowerCase() === "i" || input.key.toLowerCase() === "j")) ||
+        input.key === "F12" ||
+        (input.control && input.key.toLowerCase() === "u")
+      ) {
+        event.preventDefault();
+      }
+    });
+  }
 
   // Mở các link target=_blank bên ngoài bằng trình duyệt mặc định của hệ điều hành
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -180,45 +194,22 @@ async function createMainWindow() {
           text-align: center;
         }
 
-        /* ─── Apple iOS / macOS 12-Blade Activity Indicator ─── */
-        .ios-spinner {
-          position: relative;
-          width: 48px;
-          height: 48px;
-          margin-bottom: 26px;
+        /* ─── Authentic Apple iOS / macOS 12-Spoke Activity Indicator ─── */
+        .apple-spinner {
+          width: 46px;
+          height: 46px;
+          margin-bottom: 24px;
+          animation: apple-rotate 0.95s steps(12, end) infinite;
         }
-        .ios-spinner .blade {
-          position: absolute;
-          left: 47%;
-          top: 15%;
-          width: 3.5px;
-          height: 11px;
-          background: #ffffff;
-          border-radius: 2.5px;
-          transform-origin: center 17px;
-          animation: ios-fade 1.2s linear infinite;
-        }
-        .ios-spinner .blade:nth-child(1)  { transform: rotate(0deg);   animation-delay: -1.2s; }
-        .ios-spinner .blade:nth-child(2)  { transform: rotate(30deg);  animation-delay: -1.1s; }
-        .ios-spinner .blade:nth-child(3)  { transform: rotate(60deg);  animation-delay: -1.0s; }
-        .ios-spinner .blade:nth-child(4)  { transform: rotate(90deg);  animation-delay: -0.9s; }
-        .ios-spinner .blade:nth-child(5)  { transform: rotate(120deg); animation-delay: -0.8s; }
-        .ios-spinner .blade:nth-child(6)  { transform: rotate(150deg); animation-delay: -0.7s; }
-        .ios-spinner .blade:nth-child(7)  { transform: rotate(180deg); animation-delay: -0.6s; }
-        .ios-spinner .blade:nth-child(8)  { transform: rotate(210deg); animation-delay: -0.5s; }
-        .ios-spinner .blade:nth-child(9)  { transform: rotate(240deg); animation-delay: -0.4s; }
-        .ios-spinner .blade:nth-child(10) { transform: rotate(270deg); animation-delay: -0.3s; }
-        .ios-spinner .blade:nth-child(11) { transform: rotate(300deg); animation-delay: -0.2s; }
-        .ios-spinner .blade:nth-child(12) { transform: rotate(330deg); animation-delay: -0.1s; }
 
-        @keyframes ios-fade {
-          0% { opacity: 1; }
-          100% { opacity: 0.15; }
+        @keyframes apple-rotate {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
 
         /* Typography & Glow */
         h2 {
-          margin: 0 0 6px;
+          margin: 0 0 8px;
           font-weight: 600;
           font-size: 21px;
           letter-spacing: -0.02em;
@@ -242,20 +233,20 @@ async function createMainWindow() {
     </head>
     <body>
       <div class="splash-card">
-        <div class="ios-spinner">
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-          <div class="blade"></div>
-        </div>
+        <svg class="apple-spinner" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="1.0" transform="rotate(0 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.92" transform="rotate(30 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.84" transform="rotate(60 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.76" transform="rotate(90 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.68" transform="rotate(120 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.60" transform="rotate(150 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.52" transform="rotate(180 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.44" transform="rotate(210 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.36" transform="rotate(240 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.28" transform="rotate(270 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.20" transform="rotate(300 24 24)" />
+          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.12" transform="rotate(330 24 24)" />
+        </svg>
         <h2>VideoTranslate AI</h2>
         <p class="subtitle">Đang nạp mô hình và khởi động môi trường AI Studio...</p>
       </div>
@@ -289,7 +280,7 @@ function killPythonBackend() {
       } else {
         pythonProcess.kill("SIGTERM");
       }
-    } catch (e) {}
+    } catch (e) { }
     pythonProcess = null;
   }
   cleanupPort(8000);

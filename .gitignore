@@ -37,7 +37,8 @@ bin/
 /*.mp3
 /*.wav
 *.rar
-# ── Installer Output ──────────────────────────────
+# ── Build Staging & Installer Output ──────────────
+build_staging/
 *.zip
 installer_output/
 

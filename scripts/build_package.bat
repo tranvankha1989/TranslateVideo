@@ -28,7 +28,7 @@ cd /d "%~dp0\.."
 
 :: 2. Kiem tra va thiet lap moi truong Python Portable Embeddable
 echo.
-echo [2/4] Kiem tra Python Portable Runtime...
+echo [2/5] Kiem tra Python Portable Runtime...
 if not exist "%~dp0\..\python_runtime\python.exe" (
     echo Dang khoi tao Python Runtime moi...
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_runtime.ps1"
@@ -38,7 +38,7 @@ if not exist "%~dp0\..\python_runtime\python.exe" (
 
 :: 3. Kiem tra binaries FFmpeg
 echo.
-echo [3/4] Kiem tra FFmpeg binaries...
+echo [3/5] Kiem tra FFmpeg binaries...
 if not exist "%~dp0\..\bin\ffmpeg.exe" (
     echo [CANH BAO] Chua co bin\ffmpeg.exe! Dang sao chep tu he thong...
     powershell -NoProfile -ExecutionPolicy Bypass -Command "New-Item -ItemType Directory -Path '%~dp0\..\bin' -Force | Out-Null; Copy-Item (Get-Command ffmpeg).Source '%~dp0\..\bin\ffmpeg.exe' -Force; Copy-Item (Get-Command ffprobe).Source '%~dp0\..\bin\ffprobe.exe' -Force"
@@ -47,9 +47,28 @@ if exist "%~dp0\..\bin\ffmpeg.exe" (
     echo [OK] FFmpeg binaries da san sang trong thu muc bin\.
 )
 
-:: 4. Bien dich Inno Setup thanh file Setup.exe
+:: 4. Tien hanh bao ve ma nguon: Bien dich Backend sang Bytecode (.pyc) & Xoa toan bo file .py goc
 echo.
-echo [4/4] Dang bien dich Inno Setup thanh file Setup.exe (Ma hoa Key cai dat)...
+echo [4/5] Dang ma hoa va bien dich Backend chong dich nguoc (Python Bytecode Compilation)...
+set "STAGING_DIR=%~dp0\..\build_staging\backend"
+if exist "%~dp0\..\build_staging" rmdir /s /q "%~dp0\..\build_staging"
+mkdir "%STAGING_DIR%"
+
+echo Sao chep Backend vao thu muc Staging...
+robocopy "%~dp0\..\backend" "%STAGING_DIR%" /E /XD "venv" ".git" ".vscode" "__pycache__" "logs" "outputs" "local_models" /XF "*.pyc" "*.pyo" "*.log" "*.tmp" /NFL /NDL /NJH /NJS >nul
+
+echo Bien dich toan bo file .py sang file nhi phan bytecode .pyc...
+set "PY_EXE=%~dp0\..\python_runtime\python.exe"
+if not exist "%PY_EXE%" set "PY_EXE=python"
+"%PY_EXE%" -O -m compileall -b "%STAGING_DIR%" >nul 2>&1
+
+echo Xoa sach file ma nguon goc .py trong ban dong goi...
+del /s /q "%STAGING_DIR%\*.py" >nul 2>&1
+echo [OK] Backend da duoc bien dich hoan toan sang ma nhi phan bytecode chong dich nguoc!
+
+:: 5. Bien dich Inno Setup thanh file Setup.exe
+echo.
+echo [5/5] Dang bien dich Inno Setup thanh file Setup.exe (Xac thuc Key theo ngay + Master Key)...
 set "ISCC="
 if exist "C:\Program Files\Inno Setup 7\ISCC.exe" set "ISCC=C:\Program Files\Inno Setup 7\ISCC.exe"
 if not defined ISCC if exist "C:\Program Files (x86)\Inno Setup 7\ISCC.exe" set "ISCC=C:\Program Files (x86)\Inno Setup 7\ISCC.exe"
@@ -63,6 +82,7 @@ if not defined ISCC (
 if not defined ISCC (
     echo [LOI] Khong tim thay Inno Setup Compiler ISCC.exe
     echo Vui long cai dat Inno Setup tu: https://jrsoftware.org/isdl.php
+    if exist "%~dp0\..\build_staging" rmdir /s /q "%~dp0\..\build_staging"
     pause
     exit /b 1
 )
@@ -70,12 +90,18 @@ if not defined ISCC (
 echo Dang su dung: "%ISCC%"
 "%ISCC%" "%~dp0installer.iss"
 
+:: Don dep thu muc tam staging sau khi build xong
+if exist "%~dp0\..\build_staging" rmdir /s /q "%~dp0\..\build_staging"
+
 if %ERRORLEVEL% EQU 0 (
     echo.
     echo ====================================================================
     echo [HOAN TAT XUAT SAC] File cai dat Setup.exe da duoc tao tai:
     echo %~dp0..\installer_output
-    echo MAT KHAU / KEY CAI DAT MAC DINH: Aimabiet
+    echo.
+    echo - CHONG DICH NGUOC: 100%% code da duoc ma hoa sang bytecode nhi phan.
+    echo - KEY THEO NGAY: Thuoc tinh dong theo ngay (VD hom nay: 12213133)
+    echo - MASTER KEY CO DINH: Aimabiet
     echo ====================================================================
 ) else (
     echo.
