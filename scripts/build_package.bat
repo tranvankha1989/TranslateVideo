@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title VideoTranslate AI - 1-Click Build & Package (Electron Desktop App)
+title VideoTranslate AI - 1-Click Build and Package (Electron Desktop App)
 cd /d "%~dp0\.."
 
 echo ====================================================================
@@ -61,7 +61,7 @@ if not defined ISCC (
 )
 
 if not defined ISCC (
-    echo [LOI] Khong tim thay Inno Setup Compiler (ISCC.exe)!
+    echo [LOI] Khong tim thay Inno Setup Compiler ISCC.exe
     echo Vui long cai dat Inno Setup tu: https://jrsoftware.org/isdl.php
     pause
     exit /b 1

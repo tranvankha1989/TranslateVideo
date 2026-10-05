@@ -28,6 +28,8 @@ POSSIBLE_DIST_PATHS = [
     BASE_DIR / "frontend" / "dist",
     PROJECT_ROOT / "dist",
     BASE_DIR / "dist",
+    PROJECT_ROOT / "resources" / "app" / "dist",
+    PROJECT_ROOT / "resources" / "app.asar.unpacked" / "dist",
 ]
 FRONTEND_DIST = next((p for p in POSSIBLE_DIST_PATHS if p.is_dir()), None)
 

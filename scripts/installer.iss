@@ -54,7 +54,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; 1. Electron Native Desktop App Binaries (File .exe chuan khong lo Antivirus chan)
 Source: "..\frontend\release\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; 2. Assets & App Icons
+; 2. Frontend Dist Build (Static web files cho FastAPI Backend phuc vu)
+Source: "..\frontend\dist\*"; DestDir: "{app}\frontend\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\frontend\dist\*"; DestDir: "{app}\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; 3. Assets & App Icons
 Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; 3. Binaries noi bo FFmpeg (ffmpeg.exe, ffprobe.exe)
