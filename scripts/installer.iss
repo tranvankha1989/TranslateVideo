@@ -66,6 +66,10 @@ Source: "..\python_runtime\*"; DestDir: "{app}\python_runtime"; Flags: ignorever
 ; 5. Backend Source (Loai tru file rac development va cache)
 Source: "..\backend\*"; DestDir: "{app}\backend"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.git*,*.vscode*,*venv\*,*__pycache__*,*.pyc,*.pyo,*.log,*logs\*,*outputs\*"
 
+; 6. File thong tin phien ban Version
+Source: "..\version.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\version.json"; DestDir: "{app}\backend"; Flags: ignoreversion
+
 [Dirs]
 ; Tao san cac thu muc luu tru trong %LocalAppData% de ung dung tu do doc ghi khong bi loi permission
 Name: "{app}\backend\outputs"

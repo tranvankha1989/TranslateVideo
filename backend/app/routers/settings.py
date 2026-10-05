@@ -316,8 +316,13 @@ async def reload_backend():
 
 # ─── QUẢN LÝ PHIÊN BẢN & TỰ ĐỘNG CẬP NHẬT PHẦN MỀM (AUTO UPDATE) ─────────────
 
-REPO_ROOT = BASE_DIR.parent
-VERSION_FILE = REPO_ROOT / "version.json"
+REPO_ROOT = BASE_DIR.parent if (BASE_DIR.parent / "version.json").exists() else BASE_DIR
+POSSIBLE_VERSION_FILES = [
+    REPO_ROOT / "version.json",
+    BASE_DIR / "version.json",
+    BASE_DIR.parent / "version.json",
+]
+VERSION_FILE = next((p for p in POSSIBLE_VERSION_FILES if p.exists()), REPO_ROOT / "version.json")
 
 
 class AppVersionResponse(BaseModel):
@@ -372,20 +377,22 @@ def _get_git_output(args: list[str], cwd: Path = REPO_ROOT, timeout: float = 12.
 async def get_app_version_endpoint():
     """Trả về thông tin phiên bản, ngày phát hành và commit Git hiện tại."""
     ver_data = {
-        "version": "3.0.1",
+        "version": APP_VERSION,
         "name": "VoiceSync AI",
-        "release_date": None,
-        "description": None,
+        "release_date": "2026-10-05",
+        "description": "VideoTranslate AI Studio",
     }
 
-    if VERSION_FILE.exists():
-        try:
-            import json
-            with open(VERSION_FILE, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-                ver_data.update(loaded)
-        except Exception as e:
-            logger.warning(f"Không thể đọc version.json: {e}")
+    for v_path in POSSIBLE_VERSION_FILES:
+        if v_path.exists():
+            try:
+                import json
+                with open(v_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    ver_data.update(loaded)
+                break
+            except Exception as e:
+                logger.warning(f"Không thể đọc version.json: {e}")
 
     # Lấy thông tin Git
     branch_code, branch_name = _get_git_output(["branch", "--show-current"])
@@ -393,7 +400,7 @@ async def get_app_version_endpoint():
     date_code, commit_date = _get_git_output(["log", "-1", "--format=%cd", "--date=short"])
 
     return AppVersionResponse(
-        version=ver_data.get("version", "3.0.1"),
+        version=ver_data.get("version", APP_VERSION),
         name=ver_data.get("name", "VoiceSync AI"),
         release_date=ver_data.get("release_date"),
         description=ver_data.get("description"),
@@ -410,22 +417,25 @@ async def check_update_endpoint():
     1. Kiểm tra trực tiếp qua GitHub HTTP API (Hoạt động 100% không cần cài Git).
     2. Nếu có Git, kiểm tra thêm số lượng commit chưa kéo về.
     """
-    cur_ver = "3.5.0"
-    if VERSION_FILE.exists():
-        try:
-            import json
-            with open(VERSION_FILE, "r", encoding="utf-8") as f:
-                cur_ver = json.load(f).get("version", cur_ver)
-        except Exception:
-            pass
+    cur_ver = APP_VERSION
+    for v_path in POSSIBLE_VERSION_FILES:
+        if v_path.exists():
+            try:
+                import json
+                with open(v_path, "r", encoding="utf-8") as f:
+                    cur_ver = json.load(f).get("version", cur_ver)
+                break
+            except Exception:
+                pass
 
     remote_ver = None
     remote_desc = None
 
-    # 1. Kiểm tra qua GitHub HTTP (Không cần Git)
+    # 1. Kiểm tra qua GitHub HTTP (Không cần Git) với cache-busting timestamp
     try:
+        import time
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            raw_url = "https://raw.githubusercontent.com/tranvankha1989/TranslateVideo/main/version.json"
+            raw_url = f"https://raw.githubusercontent.com/tranvankha1989/TranslateVideo/main/version.json?t={int(time.time())}"
             resp = await client.get(raw_url)
             if resp.status_code == 200:
                 data = resp.json()
