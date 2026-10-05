@@ -1,4 +1,4 @@
-# scripts/kill_ports.ps1
+﻿# scripts/kill_ports.ps1
 # Dọn dẹp an toàn và triệt để toàn bộ tiến trình đang chiếm dụng cổng 8000, 5173, 5174
 
 $ports = @(8000, 5173, 5174)

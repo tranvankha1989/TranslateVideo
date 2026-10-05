@@ -1,4 +1,4 @@
-# scripts/push_github.ps1
+﻿# scripts/push_github.ps1
 # Script tu dong Commit va Day toan bo ma nguon len GitHub tranvankha1989/TranslateVideo
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
