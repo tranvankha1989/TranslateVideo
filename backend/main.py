@@ -101,8 +101,9 @@ app.mount("/presets", StaticFiles(directory=str(PRESETS_DIR)), name="presets")
 app.include_router(api_router)
 
 # ─── Frontend SPA Static Files (Hỗ trợ truy cập trực tiếp http://localhost:8000) ─
-FRONTEND_DIST = (Path(__file__).resolve().parent / ".." / "frontend" / "dist").resolve()
-if FRONTEND_DIST.exists():
+from app.core.config import FRONTEND_DIST
+
+if FRONTEND_DIST and FRONTEND_DIST.exists():
     assets_dir = FRONTEND_DIST / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend_assets")

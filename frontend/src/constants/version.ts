@@ -2,5 +2,5 @@
  * Biến phiên bản ứng dụng duy nhất dùng chung cho toàn bộ Frontend.
  * Khi cần nâng cấp version, CHỈ CẦN THAY ĐỔI TẠI ĐÂY!
  */
-export const APP_VERSION = "3.8.2";
+export const APP_VERSION = "3.9.0";
 export const APP_VERSION_LABEL = `Version: ${APP_VERSION}-Demo`;

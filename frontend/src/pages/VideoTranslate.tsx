@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/constants/api";
-import { APP_VERSION, APP_VERSION_LABEL } from "@/constants/version";
+import { APP_VERSION_LABEL } from "@/constants/version";
 import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
 
 import {

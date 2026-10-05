@@ -1,8 +1,9 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "3.8.2",
+  "version": "3.9.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "dev:backend": "cd ../backend && venv\\Scripts\\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app --reload-include main.py",
@@ -10,8 +11,30 @@
     "dev:all": "concurrently --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,magenta\" \"pnpm run dev:backend\" \"pnpm run dev\"",
     "start:all": "concurrently --names \"BACKEND,FRONTEND,TRAY\" --prefix-colors \"blue,magenta,cyan\" \"pnpm run dev:backend\" \"pnpm run dev\" \"pnpm run dev:tray\"",
     "build": "tsc -b && vite build",
+    "electron:dev": "concurrently --names \"BACKEND,FRONTEND,ELECTRON\" --prefix-colors \"blue,magenta,green\" \"pnpm run dev:backend\" \"pnpm run dev\" \"electron electron/main.cjs\"",
+    "electron:pack": "electron-builder --dir",
     "lint": "oxlint",
     "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.tranvankha.videotranslateai",
+    "productName": "VideoTranslate AI",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "icon": "../assets/app.ico",
+      "target": [
+        {
+          "target": "dir",
+          "arch": ["x64"]
+        }
+      ]
+    }
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -34,6 +57,8 @@
     "@vitejs/plugin-react": "^6.1.0",
     "autoprefixer": "^10.5.4",
     "concurrently": "^10.0.5",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "oxlint": "^1.79.0",
     "postcss": "^8.5.26",
     "tailwindcss": "^3.4.19",

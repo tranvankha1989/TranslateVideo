@@ -22,8 +22,13 @@ backend/*.scratch.*
 # ── Node / Frontend ──────────────────────────────
 frontend/node_modules/
 frontend/dist/
+frontend/release/
 frontend/.env.local
 frontend/.env.production
+
+# ── Standalone Runtime & Binaries ─────────────────
+python_runtime/
+bin/
 
 # ── Logs & Temp ──────────────────────────────────
 *.log
@@ -35,4 +40,5 @@ frontend/.env.production
 # ── Installer Output ──────────────────────────────
 *.zip
 installer_output/
+
 

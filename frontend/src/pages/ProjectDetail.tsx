@@ -792,7 +792,7 @@ export default function ProjectDetail() {
                 <AudioRecordItem
                   key={record.id}
                   record={record}
-                  removeHistory={removeHistory}
+                  onDeleteRequest={(rec) => removeHistory(rec.id)}
                 />
               ))}
             </div>

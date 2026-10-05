@@ -5,10 +5,32 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-APP_VERSION: str = "3.8.2"
+APP_VERSION: str = "3.9.0"
 
 # Đường dẫn thư mục gốc backend (thư mục chứa main.py)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = BASE_DIR.parent if (BASE_DIR.parent / "bin").exists() or (BASE_DIR.parent / "frontend").exists() else BASE_DIR
+
+# 1. Tự động liên kết FFmpeg trong thư mục nội bộ bin/
+BIN_DIR = PROJECT_ROOT / "bin"
+if not BIN_DIR.exists():
+    BIN_DIR = BASE_DIR / "bin"
+
+if BIN_DIR.is_dir():
+    os.environ["PATH"] = str(BIN_DIR) + os.pathsep + os.environ.get("PATH", "")
+    ffmpeg_exe = BIN_DIR / "ffmpeg.exe"
+    if ffmpeg_exe.is_file():
+        os.environ["FFMPEG_BINARY"] = str(ffmpeg_exe)
+
+# 2. Cấu hình nhận diện thư mục frontend tĩnh (Production dist)
+POSSIBLE_DIST_PATHS = [
+    PROJECT_ROOT / "frontend" / "dist",
+    BASE_DIR / "frontend" / "dist",
+    PROJECT_ROOT / "dist",
+    BASE_DIR / "dist",
+]
+FRONTEND_DIST = next((p for p in POSSIBLE_DIST_PATHS if p.is_dir()), None)
+
 OUTPUTS_DIR = BASE_DIR / "outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
 
@@ -36,7 +58,7 @@ if not USER_CUSTOM_VOICES_JSON.exists():
         f.write("[]")
 
 # Thư mục logs hệ thống tại thư mục gốc dự án
-LOGS_DIR = BASE_DIR.parent / "logs"
+LOGS_DIR = PROJECT_ROOT / "logs" if PROJECT_ROOT.exists() else BASE_DIR / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 APP_LOG_FILE = LOGS_DIR / "app.log"
 

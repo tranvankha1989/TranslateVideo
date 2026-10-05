@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTTSStore } from "@/store/useTTSStore";
-import { APP_VERSION, APP_VERSION_LABEL } from "@/constants/version";
+import { APP_VERSION_LABEL } from "@/constants/version";
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },

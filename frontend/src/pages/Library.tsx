@@ -562,7 +562,6 @@ export default function Library() {
   // Thực hiện Xóa bộ nhớ riêng theo từng tab đang mở
   const handleExecuteClearActiveTab = async () => {
     setIsCleaning(true);
-    setIsConfirmClearModalOpen(false);
     const toastId = toast.loading(
       activeTab === "video"
         ? "Đang xóa toàn bộ lịch sử video và giải phóng ổ đĩa..."
