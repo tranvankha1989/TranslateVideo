@@ -9,7 +9,7 @@ echo ====================================================================
 echo.
 
 :: 1. Build Frontend & Dong goi Electron Binary
-echo [1/4] Dang build Frontend va dong goi Electron Desktop Native App...
+echo [1/5] Dang build Frontend va dong goi Electron Desktop Native App...
 cd /d "%~dp0\..\frontend"
 call pnpm run build
 if %ERRORLEVEL% NEQ 0 (
@@ -50,20 +50,7 @@ if exist "%~dp0\..\bin\ffmpeg.exe" (
 :: 4. Tien hanh bao ve ma nguon: Bien dich Backend sang Bytecode (.pyc) & Xoa toan bo file .py goc
 echo.
 echo [4/5] Dang ma hoa va bien dich Backend chong dich nguoc (Python Bytecode Compilation)...
-set "STAGING_DIR=%~dp0\..\build_staging\backend"
-if exist "%~dp0\..\build_staging" rmdir /s /q "%~dp0\..\build_staging"
-mkdir "%STAGING_DIR%"
-
-echo Sao chep Backend vao thu muc Staging...
-robocopy "%~dp0\..\backend" "%STAGING_DIR%" /E /XD "venv" ".git" ".vscode" "__pycache__" "logs" "outputs" "local_models" /XF "*.pyc" "*.pyo" "*.log" "*.tmp" /NFL /NDL /NJH /NJS >nul
-
-echo Bien dich toan bo file .py sang file nhi phan bytecode .pyc...
-set "PY_EXE=%~dp0\..\python_runtime\python.exe"
-if not exist "%PY_EXE%" set "PY_EXE=python"
-"%PY_EXE%" -O -m compileall -b "%STAGING_DIR%" >nul 2>&1
-
-echo Xoa sach file ma nguon goc .py trong ban dong goi...
-del /s /q "%STAGING_DIR%\*.py" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$staging = '%~dp0..\build_staging\backend'; if (Test-Path '%~dp0..\build_staging') { Remove-Item '%~dp0..\build_staging' -Recurse -Force }; New-Item -ItemType Directory -Path $staging -Force | Out-Null; Copy-Item -Path '%~dp0..\backend\*' -Destination $staging -Recurse -Force -Exclude 'venv','.git','.vscode','__pycache__','logs','outputs','local_models','.env'; $pyExe = '%~dp0..\python_runtime\python.exe'; if (-not (Test-Path $pyExe)) { $pyExe = 'python' }; & $pyExe -O -m compileall -b $staging | Out-Null; Get-ChildItem -Path $staging -Recurse -Filter '*.py' | Remove-Item -Force -ErrorAction SilentlyContinue; Remove-Item (Join-Path $staging '.env') -Force -ErrorAction SilentlyContinue;"
 echo [OK] Backend da duoc bien dich hoan toan sang ma nhi phan bytecode chong dich nguoc!
 
 :: 5. Bien dich Inno Setup thanh file Setup.exe
