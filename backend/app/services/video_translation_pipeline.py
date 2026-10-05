@@ -381,10 +381,10 @@ class VideoTranslationPipeline:
         output_resolution: str = "720p",
         clip_start: float = 0.0,
         clip_end: float | None = None,
-        vad_threshold: float = 0.15,
-        speech_pad_ms: int = 400,
+        vad_threshold: float = 0.35,
+        speech_pad_ms: int = 500,
         min_speech_duration_ms: int = 150,
-        min_silence_duration_ms: int = 1000,
+        min_silence_duration_ms: int = 500,
         beam_size: int = 5,
         font_size: int = 20,
         margin_v: int = 30,
@@ -1085,10 +1085,10 @@ class VideoTranslationPipeline:
         clip_start: float = 0.0,
         clip_end: float | None = None,
         vad_threshold: float = 0.35,
-        speech_pad_ms: int = 400,
+        speech_pad_ms: int = 500,
         min_speech_duration_ms: int = 150,
-        min_silence_duration_ms: int = 1000,
-        beam_size: int = 3,
+        min_silence_duration_ms: int = 500,
+        beam_size: int = 5,
     ) -> None:
         """
         Giai đoạn 1 của Chế độ Thủ công (Manual SRT Workflow):

@@ -304,11 +304,11 @@ def _execute_whisper_transcription(
     model_size: str | None = "large-v3",
     initial_prompt: str | None = None,
     vad_filter: bool = True,
-    vad_threshold: float = 0.30,
-    min_speech_duration_ms: int = 100,
-    min_silence_duration_ms: int = 1000,
-    speech_pad_ms: int = 400,
-    beam_size: int = 3,
+    vad_threshold: float = 0.35,
+    min_speech_duration_ms: int = 150,
+    min_silence_duration_ms: int = 500,
+    speech_pad_ms: int = 500,
+    beam_size: int = 5,
 ) -> dict:
     """Hàm lõi thực hiện bóc tách phụ đề bằng Faster-Whisper."""
     audio_path_str = str(audio_path)
@@ -335,12 +335,14 @@ def _execute_whisper_transcription(
             language=lang_arg,
             initial_prompt=chinese_prompt,
             beam_size=beam_size,
-            best_of=beam_size,
-            condition_on_previous_text=False,
-            repetition_penalty=1.2,
-            no_speech_threshold=0.35,
-            log_prob_threshold=-1.8,
-            compression_ratio_threshold=2.4,
+            condition_on_previous_text=False,  # Ngăn chặn hallucination kéo dài giữa các chunk 30s
+            repetition_penalty=1.0,            # BẮT BUỘC 1.0: Không làm biến dạng phân phối âm học (tránh đảo số 10/7 thành 7/10)
+            
+            # --- VÙNG CÂN BẰNG TỐI ƯU (BẮT TIẾNG THÌ THÀO & CHỐNG TỪ MA) ---
+            no_speech_threshold=0.45,          # 0.45: Đủ nhạy để bắt tiếng thì thào mà không sinh từ rác
+            log_prob_threshold=-1.4,           # -1.4: Chấp nhận âm lượng nhỏ nhưng chặn token đoán mò
+            compression_ratio_threshold=2.4,   # 2.4: Ngưỡng zlib tiêu chuẩn phát hiện lặp vô tận
+            
             temperature=0.0,
             vad_filter=vad_filter,
             vad_parameters=dict(
@@ -482,11 +484,11 @@ async def transcribe_endpoint(
     model_size: str | None = Form(default="large-v3"),
     initial_prompt: str | None = Form(default=None),
     vad_filter: bool = Form(default=True),
-    vad_threshold: float = Form(default=0.30),
-    min_speech_duration_ms: int = Form(default=100),
-    min_silence_duration_ms: int = Form(default=1000),
-    speech_pad_ms: int = Form(default=400),
-    beam_size: int = Form(default=3),
+    vad_threshold: float = Form(default=0.35),
+    min_speech_duration_ms: int = Form(default=150),
+    min_silence_duration_ms: int = Form(default=500),
+    speech_pad_ms: int = Form(default=500),
+    beam_size: int = Form(default=5),
 ):
     """Bóc tách phụ đề và nhận diện giọng nói sử dụng Faster-Whisper trên Colab GPU."""
     suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
@@ -535,11 +537,11 @@ async def transcribe_with_demucs_endpoint(
     model_size: str | None = Form(default="large-v3"),
     initial_prompt: str | None = Form(default=None),
     vad_filter: bool = Form(default=True),
-    vad_threshold: float = Form(default=0.30),
-    min_speech_duration_ms: int = Form(default=100),
-    min_silence_duration_ms: int = Form(default=1000),
-    speech_pad_ms: int = Form(default=400),
-    beam_size: int = Form(default=3),
+    vad_threshold: float = Form(default=0.35),
+    min_speech_duration_ms: int = Form(default=150),
+    min_silence_duration_ms: int = Form(default=500),
+    speech_pad_ms: int = Form(default=500),
+    beam_size: int = Form(default=5),
 ):
     """
     Tách Vocals sạch bằng Demucs AI trên GPU, đưa Vocals vào Faster-Whisper để nhận diện phụ đề,

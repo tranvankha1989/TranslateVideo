@@ -96,10 +96,10 @@ async def start_video_translation(
     output_resolution: str = Form("720p"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
-    vad_threshold: float = Form(0.15),
-    speech_pad_ms: int = Form(400),
+    vad_threshold: float = Form(0.35),
+    speech_pad_ms: int = Form(500),
     min_speech_duration_ms: int = Form(150),
-    min_silence_duration_ms: int = Form(1000),
+    min_silence_duration_ms: int = Form(500),
     beam_size: int = Form(5),
     font_size: int = Form(20),
     margin_v: int = Form(30),
@@ -132,10 +132,10 @@ async def start_video_translation(
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
     c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None
-    v_thresh = float(_form_val(vad_threshold, 0.15))
-    s_pad = int(_form_val(speech_pad_ms, 400))
+    v_thresh = float(_form_val(vad_threshold, 0.35))
+    s_pad = int(_form_val(speech_pad_ms, 500))
     m_speech = int(_form_val(min_speech_duration_ms, 150))
-    m_silence = int(_form_val(min_silence_duration_ms, 1000))
+    m_silence = int(_form_val(min_silence_duration_ms, 500))
     b_size = int(_form_val(beam_size, 5))
     f_size = int(_form_val(font_size, 20))
     m_v = int(_form_val(margin_v, 30))
@@ -245,10 +245,10 @@ async def start_manual_transcription(
     whisper_model: str = Form("large-v3"),
     start_time: float = Form(0.0),
     end_time: float | None = Form(None),
-    vad_threshold: float = Form(0.15),
-    speech_pad_ms: int = Form(400),
+    vad_threshold: float = Form(0.35),
+    speech_pad_ms: int = Form(500),
     min_speech_duration_ms: int = Form(150),
-    min_silence_duration_ms: int = Form(1000),
+    min_silence_duration_ms: int = Form(500),
     beam_size: int = Form(5),
 ):
     """
@@ -262,10 +262,10 @@ async def start_manual_transcription(
     c_start = float(_form_val(start_time, 0.0))
     raw_end = _form_val(end_time, None)
     c_end = float(raw_end) if raw_end is not None and str(raw_end).strip() != "" else None
-    v_thresh = float(_form_val(vad_threshold, 0.15))
-    s_pad = int(_form_val(speech_pad_ms, 400))
+    v_thresh = float(_form_val(vad_threshold, 0.35))
+    s_pad = int(_form_val(speech_pad_ms, 500))
     m_speech = int(_form_val(min_speech_duration_ms, 150))
-    m_silence = int(_form_val(min_silence_duration_ms, 1000))
+    m_silence = int(_form_val(min_silence_duration_ms, 500))
     b_size = int(_form_val(beam_size, 5))
 
     task_id = uuid.uuid4().hex[:12]

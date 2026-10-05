@@ -92,10 +92,10 @@ async def transcribe_video(
     model_size: str = Form("large-v3"),
     reference_script: str | None = Form(None),
     vad_threshold: float = Form(0.35),
-    speech_pad_ms: int = Form(400),
+    speech_pad_ms: int = Form(500),
     min_speech_duration_ms: int = Form(150),
-    min_silence_duration_ms: int = Form(1000),
-    beam_size: int = Form(3),
+    min_silence_duration_ms: int = Form(500),
+    beam_size: int = Form(5),
 ):
     session_id = uuid.uuid4().hex[:12]
 

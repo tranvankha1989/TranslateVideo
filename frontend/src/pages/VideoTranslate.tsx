@@ -95,6 +95,7 @@ export default function VideoTranslate() {
   const [manualSrtMode, setManualSrtMode] = React.useState<"file" | "text">("text");
   const [manualSrtText, setManualSrtText] = React.useState<string>("");
   const [manualUploadedCount, setManualUploadedCount] = React.useState<number | null>(null);
+  const [hasAppliedManualSrt, setHasAppliedManualSrt] = React.useState<boolean>(false);
   const [isUploadingManualSrt, setIsUploadingManualSrt] = React.useState(false);
   const [manualActiveStep, setManualActiveStep] = React.useState<number>(1);
   const [isStepTransitioning, setIsStepTransitioning] = React.useState<boolean>(false);
@@ -514,6 +515,7 @@ export default function VideoTranslate() {
     setTaskStatus(null);
     setManualActiveStep(1); // Tự động quay về Bước 1 để người dùng không cần bấm lại
     setManualUploadedCount(null);
+    setHasAppliedManualSrt(false);
     setManualSrtFile(null);
     setManualSrtText("");
     setStudioSegments([]);
@@ -942,6 +944,7 @@ export default function VideoTranslate() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Lỗi khi nạp file phụ đề");
       setManualUploadedCount(data.segments_count || null);
+      setHasAppliedManualSrt(true);
       switchManualStep(4);
       toast.success(`✅ ${data.message} • Đã chuyển sang Bước 4 để chọn giọng & render!`);
     } catch (err: any) {
@@ -957,6 +960,7 @@ export default function VideoTranslate() {
       const text = await navigator.clipboard.readText();
       if (text && text.trim()) {
         setManualSrtText(text);
+        setHasAppliedManualSrt(false);
         toast.success("📋 Đã dán nội dung từ clipboard!");
       } else {
         toast.info("Clipboard rỗng hoặc không có văn bản.");
@@ -991,6 +995,7 @@ export default function VideoTranslate() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Lỗi khi nạp nội dung phụ đề");
       setManualUploadedCount(data.segments_count || null);
+      setHasAppliedManualSrt(true);
       switchManualStep(4);
       toast.success(`✅ ${data.message} • Đã chuyển sang Bước 4 để chọn giọng & render!`);
     } catch (err: any) {
@@ -1010,6 +1015,7 @@ export default function VideoTranslate() {
     }
 
     setIsProcessing(true);
+    setHasAppliedManualSrt(false);
     setElapsedSeconds(0);
     taskStartTimeRef.current = Date.now();
 
@@ -1044,6 +1050,16 @@ export default function VideoTranslate() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Lỗi khi tiếp tục quy trình");
       setIsProcessing(true);
+      if (data.status) {
+        setTaskStatus({
+          ...(taskStatus || {}),
+          task_id: currentId,
+          status: data.status,
+          progress: 20,
+          current_step: "dubbing",
+          message: data.message || "Đang tiến hành lồng tiếng và render video...",
+        } as any);
+      }
     } catch (err: any) {
       toast.error(err.message || "Lỗi lồng tiếng và render");
       setIsProcessing(false);
@@ -1497,6 +1513,23 @@ export default function VideoTranslate() {
     manualUploadedCount !== null ||
     manualSrtFile !== null ||
     taskStatus?.subtitles_srt_url
+  );
+  const isTranslatedSrtReady = Boolean(
+    hasAppliedManualSrt ||
+    manualUploadedCount !== null ||
+    manualSrtFile !== null ||
+    (typeof manualSrtText === "string" && manualSrtText.trim().length > 0) ||
+    taskStatus?.subtitles_srt_url ||
+    (taskStatus?.status === "completed" && taskStatus?.task_id)
+  );
+  const isStep4Enabled = Boolean(
+    (taskStatus?.task_id || taskId) &&
+    !isProcessing &&
+    (
+      taskStatus?.status === "completed"
+        ? hasAppliedManualSrt
+        : (hasAppliedManualSrt || manualUploadedCount !== null || manualSrtFile !== null)
+    )
   );
   const isTranscribingOriginal = isProcessing && (taskStatus?.current_step === "transcribing" || taskStatus?.current_step === "extracting");
 
@@ -2493,7 +2526,7 @@ export default function VideoTranslate() {
                   {[
                     { step: 1, title: "1. Phụ đề gốc", desc: "Faster-Whisper", icon: Mic, active: manualActiveStep === 1, done: isOriginalSrtReady },
                     { step: 2, title: "2. Prompt & Dịch", desc: "Gemini AI / Copy", icon: Download, active: manualActiveStep === 2, done: manualUploadedCount !== null },
-                    { step: 3, title: "3. Nạp SRT Dịch", desc: "Upload / Paste", icon: FileEdit, active: manualActiveStep === 3, done: manualUploadedCount !== null },
+                    { step: 3, title: "3. Nạp SRT Dịch", desc: "Upload / Paste", icon: FileEdit, active: manualActiveStep === 3, done: isTranslatedSrtReady },
                     { step: 4, title: "4. Giọng & Render", desc: "OmniVoice / Edge", icon: Sliders, active: manualActiveStep === 4, done: taskStatus?.status === "completed" },
                   ].map((item) => {
                     const Icon = item.icon;
@@ -3109,7 +3142,10 @@ export default function VideoTranslate() {
 
                     <textarea
                       value={manualSrtText}
-                      onChange={(e) => setManualSrtText(e.target.value)}
+                      onChange={(e) => {
+                        setManualSrtText(e.target.value);
+                        setHasAppliedManualSrt(false);
+                      }}
                       placeholder={`1\n00:00:01,000 --> 00:00:04,500\nXin chào các bạn, đây là phụ đề đã dịch...\n\n2\n00:00:05,000 --> 00:00:08,200\nNội dung câu tiếp theo...`}
                       rows={7}
                       className="w-full bg-surface-variant/40 border border-white/10 focus:border-primary rounded-xl p-3 text-xs font-mono text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none transition-colors resize-y leading-relaxed"
@@ -3157,6 +3193,33 @@ export default function VideoTranslate() {
                     </span>
                   )}
                 </div>
+
+                {/* Thông báo trạng thái khi đã hoàn thành */}
+                {taskStatus?.status === "completed" && !hasAppliedManualSrt && (
+                  <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs text-amber-200 flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-semibold text-amber-300">Tác vụ video hiện tại đã xuất thành phẩm hoàn tất.</p>
+                      <p className="text-amber-200/80 leading-relaxed">
+                        Để lồng tiếng và render lại: Vui lòng quay lại{" "}
+                        <button
+                          type="button"
+                          onClick={() => switchManualStep(3)}
+                          className="underline font-bold text-amber-300 hover:text-white cursor-pointer inline-flex items-center gap-0.5"
+                        >
+                          Bước 3 (Nạp SRT Dịch)
+                        </button>
+                        , dán/nạp phụ đề dịch và bấm <b>"Áp Dụng Nội Dung Phụ Đề Này"</b> để mở khóa nút Render lại.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {taskStatus?.status === "completed" && hasAppliedManualSrt && (
+                  <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-2xl text-xs text-green-300 flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
+                    <span>Đã nạp và áp dụng nội dung phụ đề dịch mới! Nút <b>"Lồng Tiếng & Render Lại"</b> đã được mở khóa bên dưới.</span>
+                  </div>
+                )}
 
                 {/* Chọn Giọng Đọc Lồng Tiếng */}
                 <div className="space-y-1.5">
@@ -3418,30 +3481,55 @@ export default function VideoTranslate() {
                 {/* CTA Button Tiếp Tục Lồng Tiếng & Render */}
                 <button
                   onClick={handleResumeManualPipeline}
-                  disabled={(!taskStatus?.task_id && !taskId) || isProcessing || !isOriginalSrtReady || taskStatus?.status === "completed"}
+                  disabled={!isStep4Enabled}
                   title={
-                    (!taskStatus?.task_id && !taskId) || !isOriginalSrtReady
-                      ? "Vui lòng hoàn thành các bước bóc tách và nạp phụ đề trước"
+                    (!taskStatus?.task_id && !taskId)
+                      ? "Vui lòng chọn hoặc nạp video trước"
                       : isProcessing
                       ? "Đang tiến hành lồng tiếng & render video..."
+                      : taskStatus?.status === "completed" && !hasAppliedManualSrt
+                      ? "Để render lại: Vui lòng quay lại Bước 3 dán phụ đề và bấm 'Áp Dụng Nội Dung Phụ Đề Này'"
+                      : !isStep4Enabled
+                      ? "Vui lòng nạp phụ đề dịch (.srt) ở Bước 3 trước khi tiếp tục"
                       : taskStatus?.status === "completed"
-                      ? "Đã hoàn thành xuất video. Nạp video mới để thực hiện tác vụ mới."
+                      ? "Bắt đầu lồng tiếng và render lại video với phụ đề mới vừa áp dụng"
                       : "Bắt đầu lồng tiếng và render video thành phẩm"
                   }
                   className={cn(
                     "w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all duration-300 shadow-xl",
-                    (!taskStatus?.task_id && !taskId) || isProcessing || !isOriginalSrtReady || taskStatus?.status === "completed"
+                    !isStep4Enabled
                       ? "bg-surface-variant/40 text-on-surface-variant/60 cursor-not-allowed opacity-60 border border-white/5"
                       : "bg-gradient-to-r from-primary via-primary/90 to-primary text-black hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] shadow-primary/20 cursor-pointer"
                   )}
                 >
-                  {isProcessing && taskStatus?.current_step !== "transcribing"
-                    ? `Đang lồng tiếng & render video (${taskStatus?.progress || 0}%)...`
-                    : isTranscribingOriginal
-                    ? "Đang chờ tạo phụ đề thoại xong..."
-                    : taskStatus?.status === "completed"
-                    ? "Đã Hoàn Thành Xuất Video"
-                    : "Tiếp Tục Lồng Tiếng & Render Video"}
+                  {isProcessing && taskStatus?.current_step !== "transcribing" ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{`Đang lồng tiếng & render video (${taskStatus?.progress || 0}%)...`}</span>
+                    </>
+                  ) : isTranscribingOriginal ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Đang chờ tạo phụ đề thoại xong...</span>
+                    </>
+                  ) : taskStatus?.status === "completed" ? (
+                    hasAppliedManualSrt ? (
+                      <>
+                        <RotateCcw className="w-4 h-4" />
+                        <span>Lồng Tiếng & Render Lại</span>
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-4 h-4 opacity-50" />
+                        <span>Lồng Tiếng & Render Lại (Chờ áp dụng phụ đề ở Bước 3)</span>
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Tiếp Tục Lồng Tiếng & Render Video</span>
+                    </>
+                  )}
                 </button>
               </div>
               )}

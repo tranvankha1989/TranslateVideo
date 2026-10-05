@@ -60,22 +60,22 @@ def get_whisper_model(model_size: str | None = None) -> WhisperModel:
 def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
     """
     Trích xuất âm thanh từ video sang định dạng WAV 16kHz Mono (chuẩn tối ưu cho Whisper).
-    Bắt buộc sử dụng bộ lọc aresample=async=1:first_pts=0 để neo chuẩn xác mốc thời gian bắt đầu
-    tại PTS=0 và triệt tiêu hoàn toàn hiện tượng trôi mẫu âm thanh (sample drift), chống lệch timestamp.
-    Nếu video không có luồng âm thanh nào (video câm), tự động tạo âm thanh im lặng (silent audio) để không crash.
+    Kết hợp aresample=async=1:first_pts=0 chống lệch timestamp và chuẩn hóa âm lượng EBU R128 loudnorm
+    giúp kích âm lượng các đoạn thoại nhỏ/thì thào lên dải chuẩn nghe rõ mà không làm vỡ âm sắc.
+    Nếu video không có luồng âm thanh nào (video câm), tự động tạo âm thanh im lặng để không crash.
     """
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_path),
         "-vn",
-        "-af", "aresample=async=1:first_pts=0",
+        "-af", "aresample=async=1:first_pts=0,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-ar", "16000",
         "-ac", "1",
         "-c:a", "pcm_s16le",
         str(output_audio_path),
     ]
-    logger.info(f"Trích xuất âm thanh chuẩn mốc thời gian: {video_path.name} -> {output_audio_path.name}")
+    logger.info(f"Trích xuất âm thanh chuẩn mốc thời gian & EBU R128 Loudnorm: {video_path.name} -> {output_audio_path.name}")
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         # Nếu video không có stream âm thanh (video câm), tạo file audio im lặng thay vì báo lỗi
@@ -627,11 +627,11 @@ def transcribe_with_remote_or_local(
     model_size: str | None = None,
     initial_prompt: str | None = None,
     vad_filter: bool = True,
-    vad_threshold: float = 0.30,
-    min_speech_duration_ms: int = 100,
-    min_silence_duration_ms: int = 1000,
-    speech_pad_ms: int = 400,
-    beam_size: int = 3,
+    vad_threshold: float = 0.35,
+    min_speech_duration_ms: int = 150,
+    min_silence_duration_ms: int = 500,
+    speech_pad_ms: int = 500,
+    beam_size: int = 5,
     word_timestamps: bool = True,
     task_dir: Path | None = None,
 ) -> tuple[list[dict[str, Any]], str, Path | None]:
@@ -673,7 +673,8 @@ def transcribe_with_remote_or_local(
             compressed_candidate = effective_task_dir / f"compressed_{audio_path.stem}.opus"
             cmd_opus = [
                 "ffmpeg", "-y", "-i", str(audio_path),
-                "-c:a", "libopus", "-b:a", "32k",
+                "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+                "-c:a", "libopus", "-b:a", "96k",
                 "-ar", "16000", "-ac", "1",
                 str(compressed_candidate),
             ]
@@ -685,13 +686,14 @@ def transcribe_with_remote_or_local(
                 orig_kb = round(audio_path.stat().st_size / 1024, 1)
                 comp_kb = round(compressed_candidate.stat().st_size / 1024, 1)
                 reduction = round((1.0 - (comp_kb / max(1.0, orig_kb))) * 100, 1)
-                logger.info(f"🗜️ [Audio Compression] Nén audio thành công: {orig_kb}KB -> {comp_kb}KB (-{reduction}%) [Opus 32kbps mono]")
+                logger.info(f"🗜️ [Audio Compression] Nén audio & Loudnorm thành công: {orig_kb}KB -> {comp_kb}KB (-{reduction}%) [Opus 96kbps mono]")
             else:
-                # Fallback qua MP3 48kbps nếu hệ thống thiếu libopus
+                # Fallback qua MP3 128kbps nếu hệ thống thiếu libopus
                 compressed_mp3 = effective_task_dir / f"compressed_{audio_path.stem}.mp3"
                 cmd_mp3 = [
                     "ffmpeg", "-y", "-i", str(audio_path),
-                    "-c:a", "libmp3lame", "-b:a", "48k",
+                    "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+                    "-c:a", "libmp3lame", "-b:a", "128k",
                     "-ar", "16000", "-ac", "1",
                     str(compressed_mp3),
                 ]
@@ -703,7 +705,7 @@ def transcribe_with_remote_or_local(
                     orig_kb = round(audio_path.stat().st_size / 1024, 1)
                     comp_kb = round(compressed_mp3.stat().st_size / 1024, 1)
                     reduction = round((1.0 - (comp_kb / max(1.0, orig_kb))) * 100, 1)
-                    logger.info(f"🗜️ [Audio Compression] Nén audio thành công: {orig_kb}KB -> {comp_kb}KB (-{reduction}%) [MP3 48kbps mono]")
+                    logger.info(f"🗜️ [Audio Compression] Nén audio & Loudnorm thành công: {orig_kb}KB -> {comp_kb}KB (-{reduction}%) [MP3 128kbps mono]")
         except Exception as comp_err:
             logger.warning(f"⚠️ Nén audio gặp lỗi ({comp_err}), giữ nguyên file gốc để gửi: {audio_path.name}")
             upload_path = audio_path
@@ -818,18 +820,17 @@ def transcribe_with_remote_or_local(
         language=lang_arg,
         initial_prompt=initial_prompt,
         beam_size=beam_size,
-        best_of=beam_size,
-        condition_on_previous_text=False,
-        repetition_penalty=1.2,
+        condition_on_previous_text=False,  # Ngăn chặn hallucination kéo dài giữa các chunk 30s
+        repetition_penalty=1.0,            # BẮT BUỘC 1.0: Không làm biến dạng phân phối âm học (tránh đảo số 10/7 thành 7/10)
         
-        # --- KHẮC PHỤC TRIỆT ĐỂ LỖI MẤT CÂU THOẠI ---
-        # Hạ xuống 0.35 để không bao giờ vứt bỏ câu nói nhỏ hoặc câu dính tạp âm:
-        no_speech_threshold=0.35,
+        # --- VÙNG CÂN BẰNG TỐI ƯU (BẮT TIẾNG THÌ THÀO & CHỐNG TỪ MA) ---
+        # 0.45: Đủ nhạy để bắt tiếng thì thào/hấp hối mà không bị kích hoạt bởi tiếng thở/ngắt nghỉ
+        no_speech_threshold=0.45,
         
-        # Nới lỏng ngưỡng xác thực từ ngữ xuống -1.8 để không xóa câu khi bị nuốt âm:
-        log_prob_threshold=-1.8,
+        # -1.4: Chấp nhận âm lượng nhỏ nhưng vẫn chặn đứng các token đoán mò có xác suất thấp
+        log_prob_threshold=-1.4,
         
-        # Tăng nhẹ ngưỡng nén để tránh bỏ sót câu dài:
+        # 2.4: Ngưỡng zlib tiêu chuẩn phát hiện lặp vô tận
         compression_ratio_threshold=2.4,
         
         temperature=0.0,
@@ -841,7 +842,7 @@ def transcribe_with_remote_or_local(
             speech_pad_ms=speech_pad_ms,
         ) if vad_filter else None,
         word_timestamps=word_timestamps,
-        )
+    )
 
     result_segments = []
     for i, s in enumerate(segments_gen):
@@ -921,9 +922,9 @@ def transcribe_video_audio(
     reference_script: str | None = None,
     vad_threshold: float = 0.35,
     min_speech_duration_ms: int = 150,
-    min_silence_duration_ms: int = 1000,
-    speech_pad_ms: int = 400,
-    beam_size: int = 3,
+    min_silence_duration_ms: int = 500,
+    speech_pad_ms: int = 500,
+    beam_size: int = 5,
 ) -> list[dict[str, Any]]:
     """
     Phân tích âm thanh và trích xuất mốc thời gian chi tiết từng từ (Word-level timestamps).
