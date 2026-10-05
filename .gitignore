@@ -32,5 +32,7 @@ frontend/.env.production
 /*.mp3
 /*.wav
 *.rar
+# ── Installer Output ──────────────────────────────
 *.zip
+installer_output/
 

@@ -1,6 +1,6 @@
 ; Script Inno Setup 7.x - Dong goi VideoTranslate AI (OmniVoice Studio)
 ; Tac gia: Tran Van Kha
-; Phien ban: 3.8.1
+; Phien ban: 3.8.2
 
 #define MyAppName "VideoTranslate AI"
 #define MyAppVersion "3.8.2"
