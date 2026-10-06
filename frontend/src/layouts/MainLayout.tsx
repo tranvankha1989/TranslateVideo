@@ -45,11 +45,47 @@ export function MainLayout() {
 
 
   return (
-    <div className="text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden">
-      {/* Side Navigation (Phong cách Gemini, mượt mà, padding đồng nhất 100%) */}
+    <div className="text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden relative selection:bg-cyan-500/30 selection:text-cyan-200">
+      {/* Windows 11 Official Bloom Wallpaper & Dynamic Luminous Aura */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        {/* Layer 1: Windows 11 Bloom Abstract Petals (Iconic folded fabric flower ribbon) */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1100px] h-[750px] opacity-40 pointer-events-none filter blur-[40px] mix-blend-screen scale-110">
+          <svg viewBox="0 0 1000 700" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M450 150 C320 220 280 420 420 520 C540 600 720 520 750 380 C780 220 580 100 450 150 Z" fill="url(#bloom-grad-1)" />
+            <path d="M520 200 C380 260 360 460 480 540 C600 610 740 480 710 340 C680 200 620 160 520 200 Z" fill="url(#bloom-grad-2)" />
+            <path d="M380 280 C260 350 290 520 420 560 C530 600 640 500 620 390 C600 280 460 220 380 280 Z" fill="url(#bloom-grad-3)" />
+            <defs>
+              <linearGradient id="bloom-grad-1" x1="20%" y1="10%" x2="80%" y2="90%">
+                <stop offset="0%" stopColor="#00d2ff" stopOpacity="0.8" />
+                <stop offset="50%" stopColor="#0066ff" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="#0a0a28" stopOpacity="0.2" />
+              </linearGradient>
+              <linearGradient id="bloom-grad-2" x1="10%" y1="80%" x2="90%" y2="20%">
+                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.9" />
+                <stop offset="40%" stopColor="#1d4ed8" stopOpacity="0.85" />
+                <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.4" />
+              </linearGradient>
+              <linearGradient id="bloom-grad-3" x1="50%" y1="0%" x2="50%" y2="100%">
+                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.85" />
+                <stop offset="60%" stopColor="#1e40af" stopOpacity="0.75" />
+                <stop offset="100%" stopColor="#0284c7" stopOpacity="0.3" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        {/* Layer 2: Floating Ambient Light Orbs */}
+        <div className="absolute -top-24 -left-24 w-[650px] h-[650px] bg-blue-600/35 rounded-full blur-[130px] mix-blend-screen animate-float-slow pointer-events-none" />
+        <div className="absolute top-10 right-0 w-[700px] h-[700px] bg-sky-500/30 rounded-full blur-[150px] mix-blend-screen animate-float-reverse pointer-events-none" />
+        <div className="absolute top-1/3 right-1/4 w-[500px] h-[500px] bg-cyan-400/25 rounded-full blur-[120px] mix-blend-screen animate-pulse-slow pointer-events-none" />
+        <div className="absolute -bottom-40 left-1/4 w-[750px] h-[600px] bg-indigo-600/30 rounded-full blur-[160px] mix-blend-screen animate-float-slow pointer-events-none" />
+        <div className="absolute bottom-0 right-[-10%] w-[550px] h-[550px] bg-blue-700/25 rounded-full blur-[140px] mix-blend-screen animate-float-reverse pointer-events-none" />
+      </div>
+
+      {/* Side Navigation (Windows 11 Acrylic Translucent Mica Style) */}
       <nav
         className={cn(
-          "hidden md:flex fixed left-0 top-0 h-full bg-surface/80 backdrop-blur-2xl border-r border-white/10 flex-col py-5 px-3.5 z-40 transition-all duration-300 ease-in-out select-none",
+          "hidden md:flex fixed left-0 top-0 h-full bg-slate-950/40 backdrop-blur-2xl border-r border-white/12 flex-col py-5 px-3.5 z-40 transition-all duration-300 ease-in-out select-none shadow-[4px_0_35px_0_rgba(0,0,0,0.4)]",
           isCollapsed ? "w-[72px]" : "w-72 2k:w-80",
         )}
       >
@@ -213,18 +249,18 @@ export function MainLayout() {
       </nav>
 
 
-      {/* Top Right Header Action Center */}
+      {/* Top Right Header Action Center (Windows 11 Acrylic Style) */}
       <header className="hidden md:flex fixed top-4 right-6 z-40 items-center gap-2.5">
         {/* GPU Mode Badge */}
         <Link
           to="/settings"
           className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-xl border text-[11px] font-mono transition-all shadow-sm group",
+            "flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-2xl border text-[11px] font-mono transition-all duration-200 shadow-[0_4px_20px_rgba(0,0,0,0.25)] group",
             hardwareConfig?.use_remote_gpu
-              ? "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-300"
+              ? "bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/35 text-amber-300 shadow-amber-500/10"
               : hardwareConfig?.cuda_available
-              ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300"
-              : "bg-surface/70 hover:bg-surface-variant/70 border-white/10 text-on-surface-variant hover:text-on-surface"
+              ? "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/35 text-emerald-300 shadow-emerald-500/10"
+              : "bg-slate-900/50 hover:bg-slate-800/60 border-white/12 text-on-surface-variant hover:text-on-surface"
           )}
           title={
             hardwareConfig?.use_remote_gpu
@@ -258,19 +294,18 @@ export function MainLayout() {
         {syncStatus?.mode === "cloud" && (
           <Link
             to="/settings"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface/70 hover:bg-surface-variant/70 backdrop-blur-xl border border-white/10 text-[11px] font-mono text-on-surface-variant hover:text-on-surface transition-all shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/50 hover:bg-slate-800/60 backdrop-blur-2xl border border-white/12 text-[11px] font-mono text-on-surface-variant hover:text-on-surface transition-all shadow-[0_4px_20px_rgba(0,0,0,0.25)]"
             title="Trạng thái đồng bộ đám mây"
           >
-            <Cloud className="w-3.5 h-3.5 text-accent" />
+            <Cloud className="w-3.5 h-3.5 text-cyan-400" />
             <span>Atlas Cloud</span>
           </Link>
         )}
 
-
         {/* Quick Settings Icon Button */}
         <Link
           to="/settings"
-          className="w-8 h-8 rounded-full bg-surface/70 hover:bg-surface-variant/70 backdrop-blur-xl border border-white/10 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-all shadow-sm"
+          className="w-8 h-8 rounded-full bg-slate-900/50 hover:bg-slate-800/60 backdrop-blur-2xl border border-white/12 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-all shadow-[0_4px_20px_rgba(0,0,0,0.25)] hover:border-cyan-500/30"
           title="Cài đặt hệ thống"
         >
           <SettingsIcon className="w-4 h-4" />

@@ -183,7 +183,7 @@ interface VideoTranslateState {
   setStudioRemuxMessage: (msg: string | null) => void;
 
   setTaskId: (taskId: string | null) => void;
-  setTaskStatus: (status: TranslationProgress | null) => void;
+  setTaskStatus: (status: TranslationProgress | null | ((prev: TranslationProgress | null) => TranslationProgress | null)) => void;
   setElapsedSeconds: (valueOrFn: number | ((prev: number) => number)) => void;
   resetAll: () => void;
   fetchActiveTask: () => Promise<TranslationProgress | null>;
@@ -358,7 +358,10 @@ export const useVideoTranslateStore = create<VideoTranslateState>()(
       setStudioRemuxMessage: (studioRemuxMessage) => set({ studioRemuxMessage }),
 
       setTaskId: (taskId) => set({ taskId }),
-      setTaskStatus: (taskStatus) => set({ taskStatus }),
+      setTaskStatus: (valueOrFn) =>
+        set((state) => ({
+          taskStatus: typeof valueOrFn === "function" ? valueOrFn(state.taskStatus) : valueOrFn,
+        })),
       setElapsedSeconds: (valueOrFn) =>
         set((state) => ({
           elapsedSeconds: typeof valueOrFn === "function" ? valueOrFn(state.elapsedSeconds) : valueOrFn,

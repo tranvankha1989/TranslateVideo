@@ -126,7 +126,8 @@ async function createMainWindow() {
     title: "VideoTranslate AI - OmniVoice Studio",
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     autoHideMenuBar: true,
-    backgroundColor: "#0b0f19",
+    backgroundColor: "#00000000",
+    backgroundMaterial: "mica",
     show: false, // Ẩn cho đến khi sẵn sàng để tránh giật hình
     webPreferences: {
       nodeIntegration: false,

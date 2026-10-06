@@ -346,10 +346,10 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
         <textarea
           ref={textareaRef as any}
           id="script-input"
-          className={`w-full h-56 2k:h-72 bg-surface-dim/80 backdrop-blur border rounded-xl 2k:rounded-2xl p-5 2k:p-6 text-on-surface text-sm 2k:text-base 2k:leading-relaxed focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none placeholder:text-on-surface-variant/50 font-body-md shadow-inner ${
+          className={`w-full h-56 2k:h-72 bg-slate-950/45 backdrop-blur-xl border rounded-xl 2k:rounded-2xl p-5 2k:p-6 text-on-surface text-sm 2k:text-base 2k:leading-relaxed focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 transition-all resize-none placeholder:text-on-surface-variant/50 font-body-md shadow-[inset_0_2px_10px_rgba(0,0,0,0.35)] ${
             isDraggingOver
-              ? "border-primary ring-2 ring-primary/40 bg-primary/5"
-              : "border-white/10"
+              ? "border-cyan-400 ring-2 ring-cyan-400/40 bg-cyan-500/10"
+              : "border-white/10 hover:border-white/20"
           }`}
           placeholder="Nhập nội dung cần chuyển thành giọng nói tại đây... Hoặc kéo thả file kịch bản (.txt, .docx, .md) vào đây để nạp tự động."
           value={text}

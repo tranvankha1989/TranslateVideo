@@ -40,5 +40,5 @@ bin/
 build_staging/
 *.zip
 installer_output/
-
+**/graphify-out/
 

@@ -30,52 +30,111 @@
   }
 
   body {
-    background-color: #09090b;
-    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-    background-size: 20px 20px;
+    background-color: #060913;
+    background-image: 
+      radial-gradient(at 15% 10%, rgba(30, 64, 175, 0.28) 0px, transparent 50%),
+      radial-gradient(at 85% 15%, rgba(14, 116, 224, 0.22) 0px, transparent 45%),
+      radial-gradient(at 50% 60%, rgba(2, 132, 199, 0.12) 0px, transparent 60%),
+      radial-gradient(at 80% 90%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+      radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 24px 24px;
+    background-attachment: fixed;
     min-height: 100vh;
+    color: #e2e8f0;
   }
 
   #root, main {
     scrollbar-gutter: stable;
   }
 
-  /* Custom Scrollbar - Consistent across entire app without layout jump */
+  /* Custom Scrollbar - Windows 11 Acrylic Style */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(245, 158, 11, 0.3) rgba(24, 24, 27, 0.6);
+    scrollbar-color: rgba(56, 189, 248, 0.35) rgba(15, 23, 42, 0.4);
   }
 
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
   }
   ::-webkit-scrollbar-track {
-    background: rgba(24, 24, 27, 0.8);
-    border-radius: 4px;
+    background: rgba(11, 19, 38, 0.6);
+    backdrop-filter: blur(10px);
+    border-radius: 6px;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(245, 158, 11, 0.3);
-    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.3);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(245, 158, 11, 0.6);
+    background: rgba(56, 189, 248, 0.6);
   }
 }
 
 @layer utilities {
+  /* Windows 11 Acrylic / Mica Glassmorphism (True Ultra Translucency) */
   .glass-card {
-    background-color: rgba(24, 24, 27, 0.6);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(8, 16, 32, 0.32) !important;
+    backdrop-filter: blur(20px) saturate(220%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(220%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    box-shadow: 0 10px 32px -4px rgba(0, 0, 0, 0.4), 
+                inset 0 1px 0 0 rgba(255, 255, 255, 0.25) !important;
+  }
+
+  .acrylic-panel {
+    background: rgba(6, 14, 28, 0.38) !important;
+    backdrop-filter: blur(24px) saturate(220%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(220%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    box-shadow: 0 14px 40px -6px rgba(0, 8, 30, 0.5),
+                inset 0 1px 1px 0 rgba(255, 255, 255, 0.3) !important;
+  }
+
+  .acrylic-header {
+    background: rgba(4, 10, 22, 0.35) !important;
+    backdrop-filter: blur(24px) saturate(200%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(200%) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14) !important;
+  }
+
+  .animate-float-slow {
+    animation: float-slow 16s ease-in-out infinite alternate;
+  }
+
+  .animate-float-reverse {
+    animation: float-reverse 20s ease-in-out infinite alternate;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 8s ease-in-out infinite alternate;
+  }
+
+  @keyframes float-slow {
+    0% { transform: translate(0px, 0px) scale(1); }
+    50% { transform: translate(45px, -35px) scale(1.12); }
+    100% { transform: translate(-30px, 25px) scale(0.95); }
+  }
+
+  @keyframes float-reverse {
+    0% { transform: translate(0px, 0px) scale(1); }
+    50% { transform: translate(-50px, 40px) scale(1.15); }
+    100% { transform: translate(35px, -30px) scale(0.92); }
+  }
+
+  @keyframes pulse-slow {
+    0% { opacity: 0.45; transform: scale(0.95); }
+    100% { opacity: 0.85; transform: scale(1.08); }
   }
 
   .glow-button {
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
   
   .glow-button:hover {
-    box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
+    box-shadow: 0 0 25px rgba(56, 189, 248, 0.4), 0 0 10px rgba(245, 158, 11, 0.25);
+    transform: translateY(-1px);
   }
 
   /* Range Slider styling from Stitch */

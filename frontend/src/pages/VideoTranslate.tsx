@@ -1022,6 +1022,15 @@ export default function VideoTranslate() {
     setHasAppliedManualSrt(false);
     setElapsedSeconds(0);
     taskStartTimeRef.current = Date.now();
+    // Chuyển ngay trạng thái sang processing để ẩn ngay card tạm dừng và hiển thị duy nhất 1 card tiến trình lồng tiếng
+    setTaskStatus((prev: any) => ({
+      ...(prev || {}),
+      task_id: currentId,
+      status: "processing",
+      progress: 20,
+      current_step: "dubbing",
+      message: "Đang tiến hành lồng tiếng và render video...",
+    }));
 
     const formData = new FormData();
     formData.append("voice_id", selectedVoice);
@@ -4293,7 +4302,7 @@ export default function VideoTranslate() {
       </div>
 
           {/* Card Trạng Thái Tạm Dừng: Chờ Nạp Phụ Đề Dịch (Manual Workflow Pause State) */}
-          {taskStatus?.status === "waiting_manual_translation" && (
+          {taskStatus?.status === "waiting_manual_translation" && !isProcessing && (
             <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-xl animate-fadeIn">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2.5">
