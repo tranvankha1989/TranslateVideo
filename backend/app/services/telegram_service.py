@@ -64,16 +64,13 @@ class TelegramService:
         clean_contact = html.escape(sender_contact.strip()) if sender_contact and sender_contact.strip() else "Chưa cung cấp"
         clean_msg = html.escape(message.strip())
 
-        os_info = "Windows"
-        gpu_info = "GPU Cục Bộ / Cloud"
+        # Phiên bản luôn lấy từ nguồn gốc duy nhất version.json của backend
         app_ver = APP_VERSION
 
         if system_info:
             os_info = html.escape(str(system_info.get("os", "Windows")))
             raw_gpu = str(system_info.get("gpu_mode", "N/A"))
             gpu_info = html.escape(raw_gpu)
-            if system_info.get("app_version"):
-                app_ver = str(system_info["app_version"]).strip()
 
         text_content = (
             f"<b>[VideoTranslate AI] {label}</b>\n"
