@@ -1,6 +1,6 @@
 {
-  "version": "3.10.5",
+  "version": "3.10.6",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-06",
-  "description": "Nâng cấp V3.10.5: Đồng bộ hóa toàn diện hệ thống Single Source of Truth cho phiên bản ứng dụng; Tự động đồng bộ cấu hình .env; Thiết kế lại giao diện thông báo Telegram phản hồi và báo lỗi chuyên nghiệp."
+  "description": "Nâng cấp V3.10.6: Đóng gói và phát hành trực tiếp bản biên dịch frontend/dist lên GitHub giúp cập nhật OTA 1-Click hiển thị số phiên bản chính xác ngay lập tức cho toàn bộ máy khách hàng."
 }
