@@ -24,12 +24,15 @@ from app.core.config import (
     PRESETS_DIR,
     CUSTOM_VOICES_DIR,
     CUSTOM_VOICES_JSON,
+    USER_CUSTOM_VOICES_JSON,
     logger,
 )
 from model_handler import generate_audio, VoiceClonePrompt, is_remote_gpu_enabled
 
 DUBBING_OUTPUT_DIR = OUTPUTS_DIR / "dubbing"
 DUBBING_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+DUBBING_PREVIEWS_DIR = DUBBING_OUTPUT_DIR / "previews"
+DUBBING_PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def trim_audio_file_silence(file_path: Path | str, silence_threshold: int = -42, margin_ms: int = 35) -> None:
@@ -143,6 +146,7 @@ class DubbingService:
                 with open(voices_json, "r", encoding="utf-8") as f:
                     presets = json.load(f)
                     for p in presets:
+                        url_val = p.get("url") or f"/presets/{p['id']}.wav"
                         studio_voices.append({
                             "id": f"omnivoice:{p['id']}",
                             "name": f"🎙️ {p['name']} ({p.get('description', 'Mẫu sẵn')})",
@@ -151,34 +155,53 @@ class DubbingService:
                             "engine": "omnivoice",
                             "type": "preset",
                             "voice_key": p["id"],
+                            "preview_url": url_val,
                         })
             except Exception as e:
                 logger.warning(f"Không thể đọc presets/voices.json: {e}")
 
+        # Nạp custom voices từ custom_voices.json và custom_voices_user.json
+        loaded_customs = []
         if CUSTOM_VOICES_JSON.exists():
             try:
                 with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
-                    customs = json.load(f)
-                    for c in customs:
-                        v_name = c.get("name", "")
-                        c_lang = "en" if "english" in v_name.lower() or "tiếng anh" in v_name.lower() else (c.get("lang") or "vi")
-                        studio_voices.append({
-                            "id": f"omnivoice:{c['id']}",
-                            "name": f"✨ {c['name']} (Giọng Clone tự tạo)",
-                            "lang": c_lang,
-                            "gender": (c.get("gender") or "all").capitalize(),
-                            "engine": "omnivoice",
-                            "type": "custom",
-                            "voice_key": c["id"],
-                        })
+                    loaded_customs.extend(json.load(f))
             except Exception as e:
                 logger.warning(f"Không thể đọc custom_voices.json: {e}")
+
+        if USER_CUSTOM_VOICES_JSON.exists():
+            try:
+                with open(USER_CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
+                    u_customs = json.load(f)
+                    for uc in u_customs:
+                        if not any(item.get("id") == uc.get("id") for item in loaded_customs):
+                            loaded_customs.append(uc)
+            except Exception as e:
+                logger.warning(f"Không thể đọc custom_voices_user.json: {e}")
+
+        for c in loaded_customs:
+            v_name = c.get("name", "")
+            c_lang = "en" if "english" in v_name.lower() or "tiếng anh" in v_name.lower() else (c.get("lang") or "vi")
+            url_val = c.get("url") or f"/presets/custom/{c['id']}.wav"
+            studio_voices.append({
+                "id": f"omnivoice:{c['id']}",
+                "name": f"✨ {c['name']} (Giọng Clone tự tạo)",
+                "lang": c_lang,
+                "gender": (c.get("gender") or "all").capitalize(),
+                "engine": "omnivoice",
+                "type": "custom",
+                "voice_key": c["id"],
+                "preview_url": url_val,
+            })
 
         # Thêm giọng phòng thu lên đầu
         voices.extend(studio_voices)
 
         # 2. Thêm các giọng Edge-TTS đa ngôn ngữ tuyển chọn
-        voices.extend(CURATED_EDGE_VOICES)
+        for ev in CURATED_EDGE_VOICES:
+            ev_copy = dict(ev)
+            ev_copy["preview_url"] = f"/api/dubbing/preview-voice?voice_id={ev['id']}&lang={ev['lang']}"
+            voices.append(ev_copy)
 
         if lang and lang.lower() != "all":
             clean_lang = lang.lower().split("-")[0]
@@ -189,6 +212,47 @@ class DubbingService:
             ]
 
         return voices
+
+    @classmethod
+    async def get_or_create_preview_audio(cls, voice_id: str, lang: str = "vi") -> Path:
+        """Tạo hoặc lấy file âm thanh nghe thử cho giọng đọc (đặc biệt là Edge-TTS)."""
+        clean_voice = voice_id.replace("omnivoice:", "").strip()
+        out_file = DUBBING_PREVIEWS_DIR / f"preview_{clean_voice}.mp3"
+
+        if out_file.exists() and out_file.stat().st_size > 1000:
+            return out_file
+
+        # Câu thoại mẫu đọc thử tự nhiên theo ngôn ngữ
+        sample_texts = {
+            "vi": "Xin chào! Đây là bản đọc thử nghiệm mẫu giọng của tôi trên ứng dụng.",
+            "en": "Hello! This is a sample preview of my voice for your video.",
+            "zh": "你好！这是我的语音试听样本，声音自然流畅。",
+            "ja": "こんにちは！これは私の音声プレビューサンプルです。",
+            "ko": "안녕하세요! 이것은 제 음성 미리듣기 샘플입니다.",
+            "fr": "Bonjour! Ceci est un aperçu de ma voix pour vos projets.",
+            "de": "Hallo! Dies ist eine Hörprobe meiner Stimme.",
+            "es": "¡Hola! Esta es una vista previa de mi voz.",
+            "ru": "Здравствуйте! Это образец моего голоса для озвучки.",
+            "th": "สวัสดีครับ นี่คือตัวอย่างเสียงของฉันสำหรับการพากย์วิดีโอ",
+        }
+        lang_prefix = lang.lower().split("-")[0]
+        text = sample_texts.get(lang_prefix, sample_texts.get("vi", "Xin chào! Đây là bản đọc thử mẫu giọng."))
+
+        # Kiểm tra nếu là Edge-TTS
+        if "-" in clean_voice and "Neural" in clean_voice:
+            communicate = edge_tts.Communicate(text, clean_voice)
+            await communicate.save(str(out_file))
+            trim_audio_file_silence(out_file)
+            return out_file
+
+        # Nếu là OmniVoice preset/custom nhưng chưa có file thì sinh nhanh
+        await cls.synthesize_single(
+            text=text,
+            voice_id=clean_voice,
+            engine="omnivoice",
+            output_path=out_file,
+        )
+        return out_file
 
     @classmethod
     async def synthesize_single(

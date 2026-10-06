@@ -1,15 +1,19 @@
 import os
 import logging
 from pathlib import Path
-from dotenv import load_dotenv
-
-load_dotenv()
-
-APP_VERSION: str = "3.10.0"
-
-# Đường dẫn thư mục gốc backend (thư mục chứa main.py)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 PROJECT_ROOT = BASE_DIR.parent if (BASE_DIR.parent / "bin").exists() or (BASE_DIR.parent / "frontend").exists() else BASE_DIR
+
+# Tải biến môi trường .env một cách an toàn
+for _cand in [BASE_DIR / ".env", PROJECT_ROOT / ".env", BASE_DIR.parent / ".env"]:
+    if _cand.exists():
+        try:
+            load_dotenv(str(_cand))
+            break
+        except Exception:
+            pass
+
+APP_VERSION: str = "3.10.1"
 
 POSSIBLE_VERSION_FILES = [
     PROJECT_ROOT / "version.json",

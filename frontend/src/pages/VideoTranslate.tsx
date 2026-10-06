@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/constants/api";
 import { APP_VERSION_LABEL } from "@/constants/version";
 import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
+import { VoicePreviewSelector } from "@/components/VoicePreviewSelector";
 
 import {
   useVideoTranslateStore,
@@ -2219,39 +2220,14 @@ export default function VideoTranslate() {
                   {voices.length} giọng sẵn sàng
                 </span>
               </label>
-              <select
-                value={selectedVoice}
-                onChange={(e) => {
-                  setSelectedVoice(e.target.value);
-                  const v = voices.find((item) => item.id === e.target.value);
-                  if (v) setSelectedEngine(v.engine);
+              <VoicePreviewSelector
+                voices={voices}
+                selectedVoice={selectedVoice}
+                onSelectVoice={(vId, eng) => {
+                  setSelectedVoice(vId);
+                  setSelectedEngine(eng);
                 }}
-                className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors"
-              >
-                {/* Nhóm Giọng Phòng Thu Studio (Preset + Clone tự tạo) */}
-                {voices.some((v) => v.engine === "omnivoice") && (
-                  <optgroup label="🎙️ Giọng Phòng Thu (Studio / AI Cloned)">
-                    {voices
-                      .filter((v) => v.engine === "omnivoice")
-                      .map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name}
-                        </option>
-                      ))}
-                  </optgroup>
-                )}
-
-                {/* Nhóm Giọng Đọc Edge-TTS Tuyển Chọn */}
-                <optgroup label="🌐 Giọng Đọc Chuẩn Edge-TTS Đa Quốc Gia">
-                  {voices
-                    .filter((v) => v.engine !== "omnivoice")
-                    .map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} ({v.gender})
-                      </option>
-                    ))}
-                </optgroup>
-              </select>
+              />
             </div>
 
             {/* Tùy chỉnh Phụ Đề & Âm Thanh Nền Nâng Cao (Accordion đồng nhất) */}
@@ -3227,36 +3203,14 @@ export default function VideoTranslate() {
                     <span>Giọng đọc AI lồng tiếng:</span>
                     <span className="text-[11px] text-primary">{voices.length} giọng sẵn sàng</span>
                   </label>
-                  <select
-                    value={selectedVoice}
-                    onChange={(e) => {
-                      setSelectedVoice(e.target.value);
-                      const v = voices.find((item) => item.id === e.target.value);
-                      if (v) setSelectedEngine(v.engine);
+                  <VoicePreviewSelector
+                    voices={voices}
+                    selectedVoice={selectedVoice}
+                    onSelectVoice={(vId, eng) => {
+                      setSelectedVoice(vId);
+                      setSelectedEngine(eng);
                     }}
-                    className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors"
-                  >
-                    {voices.some((v) => v.engine === "omnivoice") && (
-                      <optgroup label="🎙️ Giọng Phòng Thu (Studio / AI Cloned)">
-                        {voices
-                          .filter((v) => v.engine === "omnivoice")
-                          .map((v) => (
-                            <option key={v.id} value={v.id}>
-                              {v.name}
-                            </option>
-                          ))}
-                      </optgroup>
-                    )}
-                    <optgroup label="🌐 Giọng Đọc Chuẩn Edge-TTS">
-                      {voices
-                        .filter((v) => v.engine !== "omnivoice")
-                        .map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.name} ({v.gender})
-                          </option>
-                        ))}
-                    </optgroup>
-                  </select>
+                  />
                 </div>
 
                 {/* Tùy chỉnh Phụ Đề & Âm Thanh Nền Nâng Cao (Accordion đồng nhất) */}

@@ -34,6 +34,27 @@ async def list_voices(lang: str = Query("all", description="Mã ngôn ngữ (all
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+from fastapi.responses import FileResponse
+
+@router.get("/preview-voice", summary="Phát audio nghe thử mẫu giọng đọc")
+async def preview_voice_endpoint(
+    voice_id: str = Query(..., description="ID của giọng đọc"),
+    lang: str = Query("vi", description="Mã ngôn ngữ"),
+):
+    try:
+        audio_path = await DubbingService.get_or_create_preview_audio(voice_id=voice_id, lang=lang)
+        if not audio_path.exists():
+            raise HTTPException(status_code=404, detail="Không tìm thấy file audio preview")
+        return FileResponse(
+            str(audio_path),
+            media_type="audio/mpeg" if audio_path.suffix == ".mp3" else "audio/wav",
+            filename=audio_path.name,
+        )
+    except Exception as e:
+        logger.error(f"[Preview Voice API] Lỗi sinh giọng nghe thử: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Lỗi nghe thử giọng đọc: {str(e)}") from e
+
+
 @router.post("/synthesize-segment", response_model=DubbingSegmentResponse)
 async def synthesize_segment_endpoint(req: DubbingSegmentRequest):
     """Sinh âm thanh lồng tiếng cho một câu thoại đơn lẻ và đo thời lượng thực tế."""

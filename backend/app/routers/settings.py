@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import model_handler
 from app.core.config import (
     BASE_DIR,
+    PROJECT_ROOT,
     LOGS_DIR,
     APP_LOG_FILE,
     APP_VERSION,
@@ -516,7 +517,7 @@ async def perform_update_endpoint():
       đồng thời bảo vệ 100% file .env, thư mục outputs/ và presets/ của người dùng.
     """
     logs: list[str] = []
-    project_root = BASE_DIR.parent
+    project_root = PROJECT_ROOT
 
     # Kiểm tra xem có thư mục .git không
     has_git_repo = (project_root / ".git").exists()

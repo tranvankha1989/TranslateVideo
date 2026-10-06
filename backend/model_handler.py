@@ -31,8 +31,21 @@ import librosa
 from omnivoice import OmniVoice, VoiceClonePrompt
 from audio_processor import enhance_vocal_audio
 
-# Tự động tải biến môi trường từ file .env
-load_dotenv()
+_ENV_PATH = Path(__file__).resolve().parent / ".env"
+_PARENT_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+def _safe_reload_dotenv():
+    """Tải lại biến môi trường .env một cách an toàn mà không làm lỗi AssertionError trong worker threads."""
+    try:
+        if _ENV_PATH.exists():
+            load_dotenv(str(_ENV_PATH), override=True)
+        elif _PARENT_ENV_PATH.exists():
+            load_dotenv(str(_PARENT_ENV_PATH), override=True)
+    except Exception:
+        pass
+
+# Tự động tải biến môi trường ban đầu
+_safe_reload_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +81,7 @@ DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "32"))
 AUDIO_MP3_BACKEND = os.getenv("AUDIO_MP3_BACKEND", "auto").lower().strip()
 
 def is_remote_gpu_enabled() -> bool:
-    load_dotenv(override=True)
+    _safe_reload_dotenv()
     return (
         os.getenv("USE_REMOTE_GPU", "").lower() in ("true", "1", "yes")
         or os.getenv("USE_HUGGINGFACE_GPU", "").lower() in ("true", "1", "yes")
@@ -108,7 +121,7 @@ def normalize_remote_gpu_url(url: str | None) -> str:
 
 
 def get_remote_gpu_url() -> str:
-    load_dotenv(override=True)
+    _safe_reload_dotenv()
     raw = (
         os.getenv("REMOTE_GPU_URL")
         or os.getenv("HUGGINGFACE_GPU_URL")

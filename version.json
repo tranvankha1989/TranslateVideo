@@ -1,7 +1,6 @@
 {
-  "version": "3.10.0",
+  "version": "3.10.1",
   "name": "VideoTranslate AI",
-  "release_date": "2026-10-05",
-  "description": "Nâng cấp V3.10.0: Tích hợp cơ chế chống dịch ngược Backend (Python Bytecode Compiler), chặn DevTools Debug trong Production, bảo mật bộ cài với Mật khẩu động theo ngày và Master Key Aimabiet, nâng cấp Splash Screen chuẩn Apple iOS/macOS."
+  "release_date": "2026-10-06",
+  "description": "Nâng cấp V3.10.1: Tích hợp nút Play nghe thử giọng đọc (Hover-to-Play), Popover kính mờ sương (Ultra Frosted Glass), hệ thống phân tầng bản quyền tính năng PRO với mã dùng thử 30 ngày (demo30) và cập nhật OTA ZIP 1-Click tự động từ GitHub."
 }
-

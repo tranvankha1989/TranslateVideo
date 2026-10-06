@@ -11,6 +11,7 @@ from .translate import router as translate_router
 from .dubbing import router as dubbing_router
 from .alignment import router as alignment_router
 from .video_translate import router as video_translate_router
+from .license import router as license_router
 
 api_router = APIRouter()
 
@@ -25,6 +26,7 @@ api_router.include_router(translate_router)
 api_router.include_router(dubbing_router)
 api_router.include_router(alignment_router)
 api_router.include_router(video_translate_router)
+api_router.include_router(license_router)
 
 __all__ = ["api_router"]
 

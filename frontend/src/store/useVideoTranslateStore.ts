@@ -10,6 +10,9 @@ export interface VoiceOption {
   engine: string;
   type?: string;
   voice_key?: string;
+  preview_url?: string;
+  url?: string;
+  prompt_text?: string;
 }
 
 export interface LanguageOption {
