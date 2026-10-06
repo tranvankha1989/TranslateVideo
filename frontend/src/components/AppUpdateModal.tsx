@@ -14,7 +14,6 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { useTTSStore, type CheckUpdateResult, type PerformUpdateResult } from "@/store/useTTSStore";
 import { APP_VERSION } from "@/constants/version";
 
@@ -337,27 +336,33 @@ export function AppUpdateModal({ isOpen, onClose }: AppUpdateModalProps) {
                 <button
                   type="button"
                   onClick={runCheck}
-                  className="px-3 py-2 rounded-xl text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-white/10 flex items-center gap-1.5 transition-colors"
+                  className="px-3 py-2 rounded-xl text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-white/10 flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Kiểm tra lại</span>
                 </button>
-                <button
-                  type="button"
-                  disabled={!checkResult?.has_update}
-                  onClick={handleStartUpdate}
-                  title={!checkResult?.has_update ? "Bạn đang ở phiên bản mới nhất, không có bản cập nhật mới" : "Bắt đầu cập nhật ứng dụng"}
-                  className={cn(
-                    "px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all",
-                    !checkResult?.has_update
-                      ? "bg-surface-variant/40 text-on-surface-variant/40 border border-white/5 cursor-not-allowed opacity-60"
-                      : "bg-gradient-to-r from-primary to-accent text-on-primary hover:opacity-95 shadow-md shadow-primary/20 cursor-pointer active:scale-95"
-                  )}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{checkResult?.has_update ? "Xác nhận & Cập nhật ngay" : "Đã ở bản mới nhất"}</span>
-                  {checkResult?.has_update && <ArrowRight className="w-3.5 h-3.5" />}
-                </button>
+                {checkResult?.has_update ? (
+                  <button
+                    type="button"
+                    onClick={handleStartUpdate}
+                    title="Bắt đầu cập nhật ứng dụng"
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all bg-gradient-to-r from-primary to-accent text-on-primary hover:opacity-95 shadow-md shadow-primary/20 cursor-pointer active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Xác nhận & Cập nhật ngay</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleStartUpdate}
+                    title="Tải lại toàn bộ mã nguồn và giao diện mới nhất từ GitHub về máy"
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all bg-white/10 hover:bg-white/15 text-on-surface border border-white/10 cursor-pointer active:scale-95"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-primary" />
+                    <span>Cập nhật lại từ GitHub</span>
+                  </button>
+                )}
               </div>
             </>
           )}
