@@ -3,14 +3,84 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
+import re
+import shutil
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 PROJECT_ROOT = BASE_DIR.parent if (BASE_DIR.parent / "bin").exists() or (BASE_DIR.parent / "frontend").exists() else BASE_DIR
 
-# Tải biến môi trường .env một cách an toàn
-for _cand in [BASE_DIR / ".env", PROJECT_ROOT / ".env", BASE_DIR.parent / ".env"]:
-    if _cand.exists():
+def _sync_env_file(env_path: Path, example_path: Path) -> None:
+    """
+    Tự động đồng bộ các biến/cấu hình mới từ .env.example vào file .env của người dùng.
+    - Bảo vệ 100% các giá trị người dùng đã thiết lập.
+    - Tự động bổ sung các biến mới (TELEGRAM_BOT_TOKEN, MONGODB, R2,...) nếu chưa có.
+    """
+    if not example_path.exists():
+        return
+    if not env_path.exists():
         try:
-            load_dotenv(str(_cand), override=True)
+            shutil.copyfile(str(example_path), str(env_path))
+            return
+        except Exception:
+            return
+
+    try:
+        env_content = env_path.read_text(encoding="utf-8")
+    except Exception:
+        try:
+            env_content = env_path.read_text(encoding="latin-1")
+        except Exception:
+            return
+
+    try:
+        example_content = example_path.read_text(encoding="utf-8")
+    except Exception:
+        try:
+            example_content = example_path.read_text(encoding="latin-1")
+        except Exception:
+            return
+
+    existing_keys = set(re.findall(r"^([A-Za-z0-9_]+)=", env_content, re.MULTILINE))
+    example_lines = example_content.splitlines()
+
+    missing_blocks = []
+    current_block = []
+    block_has_missing_key = False
+
+    for line in example_lines:
+        current_block.append(line)
+        key_match = re.match(r"^([A-Za-z0-9_]+)=", line)
+        if key_match:
+            k = key_match.group(1)
+            if k not in existing_keys:
+                block_has_missing_key = True
+
+        if not line.strip():
+            if block_has_missing_key:
+                missing_blocks.extend(current_block)
+            current_block = []
+            block_has_missing_key = False
+
+    if block_has_missing_key and current_block:
+        missing_blocks.extend(current_block)
+
+    if missing_blocks:
+        new_append = "\n" + "\n".join(missing_blocks) + "\n"
+        try:
+            updated_content = env_content.rstrip() + "\n" + new_append.lstrip()
+            env_path.write_text(updated_content, encoding="utf-8")
+        except Exception:
+            pass
+
+# Tự động đồng bộ và nạp biến môi trường .env một cách an toàn
+for _b in [BASE_DIR, PROJECT_ROOT, BASE_DIR.parent]:
+    _env_f = _b / ".env"
+    _ex_f = _b / ".env.example"
+    if _ex_f.exists():
+        _sync_env_file(_env_f, _ex_f)
+    if _env_f.exists():
+        try:
+            load_dotenv(str(_env_f), override=True)
             break
         except Exception:
             pass

@@ -20,6 +20,7 @@ from app.core.config import (
     APP_LOG_FILE,
     APP_VERSION,
     POSSIBLE_VERSION_FILES,
+    _sync_env_file,
     logger,
     is_verbose_logging,
     set_verbose_logging,
@@ -626,8 +627,17 @@ async def perform_update_endpoint():
         except Exception as pe:
             logs.append(f"⚠️ Bỏ qua cập nhật pip: {pe}")
 
-    # 3. Đọc lại version mới
-    new_ver = "3.4.2"
+    # 3. Tự động đồng bộ các biến/cấu hình mới vào file .env (bảo vệ 100% dữ liệu cũ)
+    for _b in [BASE_DIR, PROJECT_ROOT, BASE_DIR.parent]:
+        _env_f = _b / ".env"
+        _ex_f = _b / ".env.example"
+        if _ex_f.exists():
+            _sync_env_file(_env_f, _ex_f)
+    load_dotenv(ENV_FILE, override=True)
+    logs.append("⚙️ Đã tự động đồng bộ và bổ sung các biến cấu hình mới trong .env.")
+
+    # 4. Đọc lại version mới
+    new_ver = "3.10.2"
     if VERSION_FILE.exists():
         try:
             import json
@@ -636,7 +646,7 @@ async def perform_update_endpoint():
         except Exception:
             pass
 
-    logs.append(f"🎉 [3/3] Nâng cấp hoàn tất thành công! Phiên bản hiện tại: v{new_ver}")
+    logs.append(f"🎉 [4/4] Nâng cấp hoàn tất thành công! Phiên bản hiện tại: v{new_ver}")
 
     return PerformUpdateResponse(
         ok=True,
