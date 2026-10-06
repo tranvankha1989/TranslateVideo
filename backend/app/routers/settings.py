@@ -442,18 +442,36 @@ async def check_update_endpoint():
     remote_ver = None
     remote_desc = None
 
-    # 1. Kiểm tra qua GitHub HTTP (Không cần Git) với cache-busting timestamp
+    # 1. Kiểm tra trực tiếp qua GitHub REST API (Real-time, không bị dính CDN cache)
     try:
-        import time
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            raw_url = f"https://raw.githubusercontent.com/tranvankha1989/TranslateVideo/main/version.json?t={int(time.time())}"
-            resp = await client.get(raw_url)
+        import base64
+        headers = {
+            "User-Agent": "VideoTranslate-AI/1.0",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            api_url = "https://api.github.com/repos/tranvankha1989/TranslateVideo/contents/version.json"
+            resp = await client.get(api_url, headers=headers)
             if resp.status_code == 200:
-                data = resp.json()
-                remote_ver = data.get("version")
-                remote_desc = data.get("description")
+                api_data = resp.json()
+                content_b64 = api_data.get("content", "")
+                if content_b64:
+                    raw_text = base64.b64decode(content_b64).decode("utf-8")
+                    data = json.loads(raw_text)
+                    remote_ver = data.get("version")
+                    remote_desc = data.get("description")
+            
+            # Nếu GitHub API bị rate limit hoặc không lấy được, fallback sang raw URL
+            if not remote_ver:
+                import time
+                raw_url = f"https://raw.githubusercontent.com/tranvankha1989/TranslateVideo/main/version.json?t={int(time.time())}"
+                resp_raw = await client.get(raw_url, headers=headers)
+                if resp_raw.status_code == 200:
+                    data = resp_raw.json()
+                    remote_ver = data.get("version")
+                    remote_desc = data.get("description")
     except Exception as e:
-        logger.warning(f"Không thể kiểm tra version qua HTTP: {e}")
+        logger.warning(f"Không thể kiểm tra version qua GitHub: {e}")
 
     # So sánh phiên bản nếu lấy được từ HTTP
     if remote_ver and remote_ver != cur_ver:
