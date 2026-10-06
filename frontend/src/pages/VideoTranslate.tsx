@@ -44,7 +44,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/constants/api";
-import { APP_VERSION_LABEL } from "@/constants/version";
+import { APP_VERSION } from "@/constants/version";
+import { useTTSStore } from "@/store/useTTSStore";
 import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
 import { VoicePreviewSelector } from "@/components/VoicePreviewSelector";
 
@@ -218,6 +219,8 @@ export default function VideoTranslate() {
     resetAll,
     fetchActiveTask,
   } = useVideoTranslateStore();
+
+  const appVersionInfo = useTTSStore((state) => state.appVersionInfo);
 
   const switchManualStep = (targetStep: number) => {
     if (targetStep === manualActiveStep || isStepTransitioning) return;
@@ -1544,7 +1547,7 @@ export default function VideoTranslate() {
               Dịch & Lồng Tiếng Video
             </h1>
             <span className="text-xs font-medium text-on-surface-variant font-mono tracking-wide select-none">
-              {APP_VERSION_LABEL}
+              Version: {appVersionInfo?.version || APP_VERSION}
             </span>
           </div>
           <p className="text-on-surface-variant text-sm 2k:text-base mt-0.5">

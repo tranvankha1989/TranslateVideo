@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTTSStore } from "@/store/useTTSStore";
-import { APP_VERSION_LABEL } from "@/constants/version";
+import { APP_VERSION } from "@/constants/version";
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },
@@ -20,12 +20,15 @@ export function MainLayout() {
   const hardwareConfig = useTTSStore((state) => state.hardwareConfig);
   const fetchHardwareSettings = useTTSStore((state) => state.fetchHardwareSettings);
   const syncStatus = useTTSStore((state) => state.syncStatus);
+  const appVersionInfo = useTTSStore((state) => state.appVersionInfo);
+  const fetchAppVersion = useTTSStore((state) => state.fetchAppVersion);
 
-  // Tự động kiểm tra trạng thái lưu trữ đám mây & cấu hình phần cứng khi khởi động
+  // Tự động kiểm tra trạng thái lưu trữ đám mây, cấu hình phần cứng & version khi khởi động
   useEffect(() => {
     checkStorageStatus().catch(() => {});
     fetchHardwareSettings().catch(() => {});
-  }, [checkStorageStatus, fetchHardwareSettings]);
+    fetchAppVersion().catch(() => {});
+  }, [checkStorageStatus, fetchHardwareSettings, fetchAppVersion]);
 
   // Lưu trạng thái thu nhỏ sidebar vào localStorage để giữ trải nghiệm người dùng
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -93,7 +96,7 @@ export function MainLayout() {
                     VideoTranslate AI
                   </h2>
                   <p className="text-xs text-on-surface-variant font-mono font-medium tracking-wide mt-0.5 select-none">
-                    {APP_VERSION_LABEL}
+                    Version: {appVersionInfo?.version || APP_VERSION}
                   </p>
                 </div>
               </Link>
