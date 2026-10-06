@@ -1,6 +1,6 @@
 {
-  "version": "3.10.9",
+  "version": "3.11.0",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-06",
-  "description": "Nâng cấp V3.10.9: Thêm tính năng Cập nhật lại từ GitHub và tối ưu kiểm tra cập nhật OTA."
+  "description": "Nâng cấp V3.11.0: Tối ưu toàn diện hệ thống cập nhật trực tuyến OTA và đồng bộ phiên bản Telegram."
 }
