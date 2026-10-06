@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import httpx
 from dotenv import load_dotenv
-from app.core.config import APP_LOG_FILE, APP_VERSION, BASE_DIR, PROJECT_ROOT
+from app.core.config import APP_LOG_FILE, APP_VERSION, BASE_DIR, PROJECT_ROOT, _resolve_app_version
 
 logger = logging.getLogger("telegram_service")
 
@@ -65,7 +65,7 @@ class TelegramService:
         clean_msg = html.escape(message.strip())
 
         # Phiên bản luôn lấy từ nguồn gốc duy nhất version.json của backend
-        app_ver = APP_VERSION
+        app_ver = (system_info and system_info.get("app_version")) or _resolve_app_version()
 
         if system_info:
             os_info = html.escape(str(system_info.get("os", "Windows")))
