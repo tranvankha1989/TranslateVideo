@@ -2,9 +2,13 @@ import os
 import logging
 from pathlib import Path
 import httpx
-from app.core.config import APP_LOG_FILE, APP_VERSION
+from dotenv import load_dotenv
+from app.core.config import APP_LOG_FILE, APP_VERSION, BASE_DIR, PROJECT_ROOT
 
 logger = logging.getLogger("telegram_service")
+
+DEFAULT_TELEGRAM_BOT_TOKEN = "8637750224:AAHev518siDN1yzTTi5h-Hxd8-eCVbiBp20"
+DEFAULT_TELEGRAM_CHAT_ID = "7691076251"
 
 
 class TelegramService:
@@ -12,6 +16,16 @@ class TelegramService:
     def get_credentials():
         token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        if not token or not chat_id:
+            for cand in [BASE_DIR / ".env", PROJECT_ROOT / ".env", BASE_DIR.parent / ".env"]:
+                if cand.exists():
+                    try:
+                        load_dotenv(str(cand), override=True)
+                        break
+                    except Exception:
+                        pass
+            token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or DEFAULT_TELEGRAM_BOT_TOKEN
+            chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip() or DEFAULT_TELEGRAM_CHAT_ID
         return token, chat_id
 
     @classmethod

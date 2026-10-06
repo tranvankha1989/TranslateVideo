@@ -1,6 +1,8 @@
 import os
 import logging
 from pathlib import Path
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 PROJECT_ROOT = BASE_DIR.parent if (BASE_DIR.parent / "bin").exists() or (BASE_DIR.parent / "frontend").exists() else BASE_DIR
 
@@ -8,12 +10,12 @@ PROJECT_ROOT = BASE_DIR.parent if (BASE_DIR.parent / "bin").exists() or (BASE_DI
 for _cand in [BASE_DIR / ".env", PROJECT_ROOT / ".env", BASE_DIR.parent / ".env"]:
     if _cand.exists():
         try:
-            load_dotenv(str(_cand))
+            load_dotenv(str(_cand), override=True)
             break
         except Exception:
             pass
 
-APP_VERSION: str = "3.10.1"
+APP_VERSION: str = "3.10.2"
 
 POSSIBLE_VERSION_FILES = [
     PROJECT_ROOT / "version.json",
