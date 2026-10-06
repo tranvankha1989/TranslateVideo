@@ -15,13 +15,26 @@ for _cand in [BASE_DIR / ".env", PROJECT_ROOT / ".env", BASE_DIR.parent / ".env"
         except Exception:
             pass
 
-APP_VERSION: str = "3.10.2"
-
 POSSIBLE_VERSION_FILES = [
     PROJECT_ROOT / "version.json",
     BASE_DIR / "version.json",
     BASE_DIR.parent / "version.json",
 ]
+
+def _resolve_app_version() -> str:
+    for _v_path in POSSIBLE_VERSION_FILES:
+        if _v_path.exists():
+            try:
+                import json
+                with open(_v_path, "r", encoding="utf-8") as _f:
+                    _d = json.load(_f)
+                    if _d.get("version"):
+                        return str(_d["version"]).strip()
+            except Exception:
+                pass
+    return "3.10.2"
+
+APP_VERSION: str = _resolve_app_version()
 
 # 1. Tự động liên kết FFmpeg trong thư mục nội bộ bin/
 BIN_DIR = PROJECT_ROOT / "bin"
