@@ -22,7 +22,7 @@ interface FeedbackModalProps {
 }
 
 export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
-  const { sendFeedback, hardwareConfig } = useTTSStore();
+  const { sendFeedback, hardwareConfig, appVersionInfo } = useTTSStore();
 
   const [feedbackType, setFeedbackType] = useState<"bug" | "feature" | "question" | "other">("bug");
   const [senderName, setSenderName] = useState("");
@@ -58,7 +58,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
       system_info: {
         os: navigator.userAgent.includes("Windows") ? "Windows" : navigator.platform,
         gpu_mode: gpuMode,
-        app_version: APP_VERSION,
+        app_version: appVersionInfo?.version || APP_VERSION,
         screen_resolution: `${window.screen.width}x${window.screen.height}`,
       },
     };

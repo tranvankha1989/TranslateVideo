@@ -47,41 +47,59 @@ class TelegramService:
                 "error": "Vui lòng cấu hình TELEGRAM_BOT_TOKEN và TELEGRAM_CHAT_ID trong file .env của backend.",
             }
 
+        import html
+        from datetime import datetime
+
         # Biểu tượng theo loại phản hồi
         type_labels = {
-            "bug": "🐞 BÁO CÁO LỖI HỆ THỐNG",
-            "feature": "✨ ĐÓNG GÓP Ý TƯỞNG / TÍNH NĂNG",
-            "question": "❓ CẦN HỖ TRỢ KỸ THUẬT",
-            "other": "💬 PHẢN HỒI Ý KIẾN",
+            "bug": "BÁO CÁO LỖI HỆ THỐNG",
+            "feature": "ĐÓNG GÓP Ý TƯỞNG / TÍNH NĂNG",
+            "question": "CẦN HỖ TRỢ KỸ THUẬT",
+            "other": "PHẢN HỒI Ý KIẾN",
         }
-        label = type_labels.get(feedback_type, "💬 PHẢN HỒI")
+        label = type_labels.get(feedback_type, "PHẢN HỒI Ý KIẾN")
 
-        sys_str = ""
+        now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        clean_name = html.escape(sender_name.strip()) if sender_name and sender_name.strip() else "Khách hàng ẩn danh"
+        clean_contact = html.escape(sender_contact.strip()) if sender_contact and sender_contact.strip() else "Chưa cung cấp"
+        clean_msg = html.escape(message.strip())
+
+        os_info = "Windows"
+        gpu_info = "GPU Cục Bộ / Cloud"
+        app_ver = APP_VERSION
+
         if system_info:
-            os_name = system_info.get("os", "Windows")
-            gpu_mode = system_info.get("gpu_mode", "N/A")
-            app_ver = system_info.get("app_version", APP_VERSION)
-            sys_str = f"\n💻 <b>Cấu hình:</b> {os_name} | {gpu_mode} | App v{app_ver}"
-
-        sender_info = f"👤 <b>Khách hàng:</b> {sender_name or 'Ẩn danh'}"
-        if sender_contact:
-            sender_info += f"\n📞 <b>Liên hệ:</b> <code>{sender_contact}</code>"
+            os_info = html.escape(str(system_info.get("os", "Windows")))
+            raw_gpu = str(system_info.get("gpu_mode", "N/A"))
+            gpu_info = html.escape(raw_gpu)
+            if system_info.get("app_version"):
+                app_ver = str(system_info["app_version"]).strip()
 
         text_content = (
-            f"🔔 <b>[VideoTranslate AI] {label}</b>\n\n"
-            f"{sender_info}"
-            f"{sys_str}\n\n"
+            f"<b>[VideoTranslate AI] {label}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Người gửi:</b> {clean_name}\n"
+            f"📞 <b>Liên hệ:</b> <code>{clean_contact}</code>\n"
+            f"💻 <b>Hệ điều hành:</b> {os_info}\n"
+            f"⚡ <b>Bộ xử lý:</b> {gpu_info}\n"
+            f"📦 <b>Phiên bản:</b> <code>v{app_ver}</code>\n"
+            f"🕒 <b>Thời gian:</b> {now_str}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📝 <b>Nội dung phản hồi:</b>\n"
-            f"<i>{message}</i>"
+            f"<blockquote>{clean_msg}</blockquote>"
         )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # 1. Gửi tin nhắn Text
+            # 1. Gửi tin nhắn Text (Tắt hoàn toàn Web Page Preview lớn)
             send_msg_url = f"https://api.telegram.org/bot{token}/sendMessage"
             payload = {
                 "chat_id": chat_id,
                 "text": text_content,
                 "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "link_preview_options": {
+                    "is_disabled": True,
+                },
             }
             try:
                 resp = await client.post(send_msg_url, json=payload)
