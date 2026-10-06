@@ -602,7 +602,18 @@ async def perform_update_endpoint():
                         with z.open(member) as source, open(dest_path, "wb") as target:
                             target.write(source.read())
 
-            logs.append("✅ Giải nén và cập nhật mã nguồn thành công.")
+            # Đồng bộ toàn bộ frontend/dist sang dist nếu ứng dụng đang chạy thư mục dist gốc
+            frontend_dist = project_root / "frontend" / "dist"
+            root_dist = project_root / "dist"
+            if frontend_dist.is_dir():
+                try:
+                    import shutil
+                    root_dist.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(str(frontend_dist), str(root_dist), dirs_exist_ok=True)
+                except Exception:
+                    pass
+
+            logs.append("✅ Giải nén và cập nhật mã nguồn & giao diện thành công.")
             pull_success = True
         except Exception as ze:
             logger.error(f"Lỗi khi cập nhật bằng file ZIP: {ze}")
