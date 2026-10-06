@@ -1,6 +1,6 @@
 {
-  "version": "3.10.2",
+  "version": "3.10.3",
   "name": "VideoTranslate AI",
   "release_date": "2026-10-06",
-  "description": "Nâng cấp V3.10.2: Sửa lỗi tự động nạp cấu hình Telegram Bot và biến môi trường .env; Tích hợp sẵn Telegram Bot Token và Chat ID mặc định phục vụ gửi báo cáo lỗi & phản hồi kèm file log trực tiếp; Tối ưu hóa kiểm tra cập nhật OTA."
+  "description": "Nâng cấp V3.10.3: Chuẩn hóa kiến trúc Single Source of Truth cho toàn bộ hệ thống; Tự động đồng bộ và bổ sung biến cấu hình mới trong .env khi cập nhật bản mới; Tự động cấu hình Telegram Bot Token & Chat ID mặc định."
 }

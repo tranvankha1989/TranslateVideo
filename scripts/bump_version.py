@@ -14,6 +14,13 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 def bump_version(new_version: str, description: str = ""):
