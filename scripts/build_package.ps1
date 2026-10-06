@@ -129,10 +129,19 @@ if (Test-Path "$Root\build_staging") {
     Remove-Item "$Root\build_staging" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$vName = "3.10.4"
+$vJsonFile = "$Root\version.json"
+if (Test-Path $vJsonFile) {
+    try {
+        $vObj = Get-Content $vJsonFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($vObj.version) { $vName = $vObj.version }
+    } catch {}
+}
+
 Write-Host ""
 Write-Host "====================================================================" -ForegroundColor Green
 Write-Host "[HOAN TAT XUAT SAC] Bo cai dat da san sang tai:" -ForegroundColor Green
-Write-Host "$Root\installer_output\VideoTranslateAI_v3.10.0_Setup.exe" -ForegroundColor White
+Write-Host "$Root\installer_output\VideoTranslateAI_v$($vName)_Setup.exe" -ForegroundColor White
 Write-Host ""
 Write-Host "- CHONG DICH NGUOC: 100% backend da duoc bien dich sang bytecode .pyc" -ForegroundColor Cyan
 Write-Host "- UPDATE HYBRID: Ho tro cap nhat OTA truc tiep tu GitHub ZIP" -ForegroundColor Cyan

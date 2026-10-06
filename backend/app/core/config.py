@@ -102,7 +102,7 @@ def _resolve_app_version() -> str:
                         return str(_d["version"]).strip()
             except Exception:
                 pass
-    return "3.10.2"
+    return "3.10.4"
 
 APP_VERSION: str = _resolve_app_version()
 

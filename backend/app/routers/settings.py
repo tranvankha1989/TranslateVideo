@@ -636,8 +636,8 @@ async def perform_update_endpoint():
     load_dotenv(ENV_FILE, override=True)
     logs.append("⚙️ Đã tự động đồng bộ và bổ sung các biến cấu hình mới trong .env.")
 
-    # 4. Đọc lại version mới
-    new_ver = "3.10.2"
+    # 4. Đọc lại version mới từ version.json
+    new_ver = APP_VERSION
     if VERSION_FILE.exists():
         try:
             import json

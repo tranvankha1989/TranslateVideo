@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 // Tự động đọc phiên bản từ nguồn duy nhất version.json tại thư mục gốc
-let appVersion = "3.10.2";
+let appVersion = "3.10.4";
 const possibleVersionPaths = [
   path.resolve(import.meta.dirname, "../version.json"),
   path.resolve(import.meta.dirname, "./version.json"),
