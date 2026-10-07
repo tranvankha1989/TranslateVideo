@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud, Settings as SettingsIcon } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTTSStore } from "@/store/useTTSStore";
 import { APP_VERSION } from "@/constants/version";
@@ -18,7 +18,9 @@ export function MainLayout() {
   const location = useLocation();
   const checkStorageStatus = useTTSStore((state) => state.checkStorageStatus);
   const hardwareConfig = useTTSStore((state) => state.hardwareConfig);
-  const fetchHardwareSettings = useTTSStore((state) => state.fetchHardwareSettings);
+  const fetchHardwareSettings = useTTSStore(
+    (state) => state.fetchHardwareSettings,
+  );
   const syncStatus = useTTSStore((state) => state.syncStatus);
   const appVersionInfo = useTTSStore((state) => state.appVersionInfo);
   const fetchAppVersion = useTTSStore((state) => state.fetchAppVersion);
@@ -43,7 +45,6 @@ export function MainLayout() {
     });
   };
 
-
   return (
     <div className="text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden bg-[#090d16]">
       {/* Side Navigation (Phong cách Studio Dark hiện đại, sắc nét) */}
@@ -65,7 +66,7 @@ export function MainLayout() {
               {/* Trạng thái bình thường: Logo VoiceSync AI */}
               <div className="w-11 h-11 rounded-2xl bg-surface-variant flex items-center justify-center text-primary border border-white/10 shadow-sm transition-all duration-200 group-hover:opacity-0 group-hover:scale-90 absolute inset-0">
                 <span className="material-symbols-outlined text-2xl text-primary">
-                    diamond
+                  diamond
                 </span>
               </div>
 
@@ -88,16 +89,13 @@ export function MainLayout() {
               >
                 <div className="w-11 h-11 rounded-2xl bg-surface-variant flex items-center justify-center border border-white/10 shadow-sm text-primary transition-transform duration-200 group-hover:border-primary/40 group-hover:scale-105 shrink-0">
                   <span className="material-symbols-outlined text-2xl text-primary">
-                      diamond
+                    diamond
                   </span>
                 </div>
                 <div className="flex flex-col min-w-0">
                   <h2 className="text-lg font-bold text-on-surface leading-tight tracking-tight truncate">
                     VideoTranslate AI
                   </h2>
-                  <p className="text-xs text-on-surface-variant font-mono font-medium tracking-wide mt-0.5 select-none">
-                    Version: {appVersionInfo?.version || APP_VERSION}
-                  </p>
                 </div>
               </Link>
 
@@ -170,7 +168,112 @@ export function MainLayout() {
         </ul>
 
         {/* Hardware Status & Settings Footer */}
-        <div className="mt-auto pt-3 border-t border-white/10 w-full space-y-2">
+        <div className="mt-auto space-y-2">
+          {/* Subtle System Status (Phần thông báo trạng thái tinh tế) */}
+          <Link
+            to="/settings"
+            className={cn(
+              "group relative block transition-all duration-200 cursor-pointer overflow-hidden",
+              isCollapsed
+                ? "w-11 h-11 mx-auto rounded-xl bg-surface-variant/30 hover:bg-surface-variant/60 border border-white/5 hover:border-white/15 flex items-center justify-center"
+                : "p-2.5 rounded-xl bg-surface-variant/30 hover:bg-surface-variant/60 border border-white/5 hover:border-white/15",
+            )}
+            title="Xem chi tiết cấu hình phần cứng và đồng bộ"
+          >
+            {isCollapsed ? (
+              <>
+                <Cpu className="w-5 h-5 text-on-surface-variant group-hover:text-primary transition-colors" />
+                <span
+                  className={cn(
+                    "w-2 h-2 rounded-full absolute top-2 right-2",
+                    hardwareConfig?.use_remote_gpu
+                      ? "bg-amber-400 animate-pulse shadow-sm shadow-amber-400"
+                      : hardwareConfig?.cuda_available
+                        ? "bg-emerald-400 shadow-sm shadow-emerald-400"
+                        : "bg-blue-400",
+                  )}
+                />
+                {/* Tooltip đen chuẩn Gemini khi sidebar đóng */}
+                <div className="absolute left-full ml-3 px-3 py-2 bg-black/95 text-white text-xs rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 whitespace-nowrap z-50 border border-white/10">
+                  <div className="font-semibold text-primary flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5" />
+                    <span>
+                      {hardwareConfig?.use_remote_gpu
+                        ? "Cloud GPU"
+                        : hardwareConfig?.cuda_device_name
+                          ? `Local GPU (${hardwareConfig.cuda_device_name.replace("NVIDIA GeForce ", "")})`
+                          : "CPU Mode"}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-gray-300 mt-0.5 flex items-center gap-1.5">
+                    <Cloud className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>
+                      {syncStatus?.mode === "cloud"
+                        ? "Atlas Cloud"
+                        : "Lưu trữ cục bộ"}
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1.5">
+                {/* Dòng 1: Trạng thái GPU */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={cn(
+                        "w-2 h-2 rounded-full shrink-0",
+                        hardwareConfig?.use_remote_gpu
+                          ? "bg-amber-400 animate-pulse shadow-sm shadow-amber-400"
+                          : hardwareConfig?.cuda_available
+                            ? "bg-emerald-400 shadow-sm shadow-emerald-400"
+                            : "bg-blue-400",
+                      )}
+                    />
+                    <span className="text-[11px] font-mono font-medium text-on-surface truncate group-hover:text-primary transition-colors">
+                      {hardwareConfig?.use_remote_gpu
+                        ? "Cloud GPU"
+                        : hardwareConfig?.cuda_device_name
+                          ? `Local GPU (${hardwareConfig.cuda_device_name.replace("NVIDIA GeForce ", "")})`
+                          : "CPU Processing"}
+                    </span>
+                  </div>
+                  <Cpu className="w-3.5 h-3.5 text-on-surface-variant/60 group-hover:text-primary transition-colors shrink-0" />
+                </div>
+
+                {/* Dòng 2: Trạng thái Lưu trữ / Đồng bộ */}
+                <div className="flex items-center justify-between text-[10px] font-mono text-on-surface-variant/70 pt-1.5 border-t border-white/5">
+                  <span className="flex items-center gap-1.5 truncate">
+                    <Cloud
+                      className={cn(
+                        "w-3 h-3 shrink-0",
+                        syncStatus?.mode === "cloud"
+                          ? "text-cyan-400"
+                          : "text-on-surface-variant/40",
+                      )}
+                    />
+                    <span>
+                      {syncStatus?.mode === "cloud"
+                        ? "Atlas Cloud"
+                        : "Lưu trữ cục bộ"}
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "text-[9px] px-1.5 py-0.5 rounded border leading-none font-medium",
+                      syncStatus?.mode === "cloud"
+                        ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-300"
+                        : "bg-white/5 border-white/10 text-on-surface-variant/60",
+                    )}
+                  >
+                    {syncStatus?.mode === "cloud" ? "Online" : "Local"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </Link>
+          <div className="border-t border-white/10 w-full"></div>
+
           {/* Nút Cài đặt & GPU */}
           <Link
             to="/settings"
@@ -212,70 +315,6 @@ export function MainLayout() {
         </div>
       </nav>
 
-
-      {/* Top Right Header Action Center (Windows 11 Acrylic Style) */}
-      <header className="hidden md:flex fixed top-4 right-6 z-40 items-center gap-2.5">
-        {/* GPU Mode Badge */}
-        <Link
-          to="/settings"
-          className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-2xl border text-[11px] font-mono transition-all duration-200 shadow-[0_4px_20px_rgba(0,0,0,0.25)] group",
-            hardwareConfig?.use_remote_gpu
-              ? "bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/35 text-amber-300 shadow-amber-500/10"
-              : hardwareConfig?.cuda_available
-              ? "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/35 text-emerald-300 shadow-emerald-500/10"
-              : "bg-slate-900/50 hover:bg-slate-800/60 border-white/12 text-on-surface-variant hover:text-on-surface"
-          )}
-          title={
-            hardwareConfig?.use_remote_gpu
-              ? `Đang chạy qua Cloud GPU: ${hardwareConfig.remote_gpu_url || "Chưa gán URL"}`
-              : hardwareConfig?.cuda_available
-              ? `Đang chạy qua GPU máy cục bộ: ${hardwareConfig.cuda_device_name}`
-              : "Đang chạy qua CPU máy tính"
-          }
-        >
-          <span
-            className={cn(
-              "w-2 h-2 rounded-full",
-              hardwareConfig?.use_remote_gpu
-                ? "bg-amber-400 animate-pulse shadow-sm shadow-amber-400"
-                : hardwareConfig?.cuda_available
-                ? "bg-emerald-400 shadow-sm shadow-emerald-400"
-                : "bg-blue-400"
-            )}
-          />
-          <Cpu className="w-3.5 h-3.5" />
-          <span className="font-semibold">
-            {hardwareConfig?.use_remote_gpu
-              ? "Cloud GPU (Colab T4)"
-              : hardwareConfig?.cuda_device_name
-              ? `Local GPU (${hardwareConfig.cuda_device_name.replace("NVIDIA GeForce ", "")})`
-              : "CPU Mode"}
-          </span>
-        </Link>
-
-        {/* Cloud Sync Status */}
-        {syncStatus?.mode === "cloud" && (
-          <Link
-            to="/settings"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/50 hover:bg-slate-800/60 backdrop-blur-2xl border border-white/12 text-[11px] font-mono text-on-surface-variant hover:text-on-surface transition-all shadow-[0_4px_20px_rgba(0,0,0,0.25)]"
-            title="Trạng thái đồng bộ đám mây"
-          >
-            <Cloud className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Atlas Cloud</span>
-          </Link>
-        )}
-
-        {/* Quick Settings Icon Button */}
-        <Link
-          to="/settings"
-          className="w-8 h-8 rounded-full bg-slate-900/50 hover:bg-slate-800/60 backdrop-blur-2xl border border-white/12 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-all shadow-[0_4px_20px_rgba(0,0,0,0.25)] hover:border-cyan-500/30"
-          title="Cài đặt hệ thống"
-        >
-          <SettingsIcon className="w-4 h-4" />
-        </Link>
-      </header>
-
       {/* Main Content Area (Tự động mở rộng vùng làm việc theo trạng thái sidebar) */}
       <main
         className={cn(
@@ -288,12 +327,13 @@ export function MainLayout() {
             : "md:ml-72 2k:ml-80 md:w-[calc(100%-288px)] 2k:w-[calc(100%-320px)]",
         )}
       >
-        <div key={location.pathname} className="w-full flex justify-center items-start animate-fadeIn">
+        <div
+          key={location.pathname}
+          className="w-full flex justify-center items-start animate-fadeIn"
+        >
           <Outlet />
         </div>
       </main>
-
-
 
       {/* Mobile Navigation (Bottom) */}
       <nav className="md:hidden fixed bottom-0 w-full bg-surface-container-lowest/90 backdrop-blur-md border-t border-white/5 z-50 pb-safe">

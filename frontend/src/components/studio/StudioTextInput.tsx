@@ -267,69 +267,84 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
         </div>
       )}
 
-      {/* ── Input Header & Toolbar ─────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <label
-            className="font-label-caps text-label-caps 2k:text-sm text-on-surface-variant flex items-center gap-2"
-            htmlFor="script-input"
-          >
-            <span className="material-symbols-outlined text-[18px] 2k:text-[20px]">
+      {/* ── Input Header & Actions ─────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-7 h-7 2k:w-8 2k:h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+            <span className="material-symbols-outlined text-[17px] 2k:text-[19px]">
               edit_document
             </span>
-            Văn bản đầu vào
-          </label>
-
-          {/* Hidden File Input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".txt,.docx,.md"
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                handleProcessFile(e.target.files[0]);
-              }
-            }}
-            className="hidden"
-          />
-
-          {/* Nút Nạp Kịch Bản (.txt, .docx, .md) */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isParsingFile}
-            className="px-2.5 py-1 rounded-lg text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 group"
-            title="Nạp file kịch bản (.txt, .docx, .md) từ máy tính"
-          >
-            {isParsingFile ? (
-              <span className="material-symbols-outlined text-[14px] animate-spin text-primary">
-                sync
-              </span>
-            ) : (
-              <FileUp className="w-3.5 h-3.5 text-primary group-hover:scale-110 transition-transform" />
-            )}
-            <span>Nạp file kịch bản</span>
-          </button>
+          </div>
+          <div className="flex items-center gap-2 min-w-0">
+            <label
+              htmlFor="script-input"
+              className="font-label-caps text-xs 2k:text-sm font-bold uppercase tracking-wider text-on-surface whitespace-nowrap cursor-pointer"
+            >
+              Văn bản đầu vào
+            </label>
+            <span className="hidden sm:inline-block text-[11px] text-on-surface-variant/60 truncate">
+              • Nhập trực tiếp hoặc kéo thả file
+            </span>
+          </div>
         </div>
 
-        {/* Non-verbal symbols toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] 2k:text-xs font-label-caps text-on-surface-variant/70 mr-0.5 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[14px] 2k:text-[16px] text-primary">
-              sentiment_satisfied
+        {/* Hidden File Input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".txt,.docx,.md"
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) {
+              handleProcessFile(e.target.files[0]);
+            }
+          }}
+          className="hidden"
+        />
+
+        {/* Nút Nạp Kịch Bản (.txt, .docx, .md) */}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isParsingFile}
+          className="px-3 py-1.5 rounded-lg text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 whitespace-nowrap group cursor-pointer"
+          title="Nạp file kịch bản (.txt, .docx, .md) từ máy tính"
+        >
+          {isParsingFile ? (
+            <span className="material-symbols-outlined text-[14px] animate-spin text-primary">
+              sync
             </span>
-            Biểu cảm:
+          ) : (
+            <FileUp className="w-3.5 h-3.5 text-primary group-hover:-translate-y-0.5 transition-transform" />
+          )}
+          <span className="font-medium">Nạp file kịch bản</span>
+        </button>
+      </div>
+
+      {/* ── Non-verbal symbols & Emotion Toolbar ─────────────────────────────── */}
+      <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-surface-dim/60 border border-white/8 backdrop-blur-sm shadow-sm overflow-hidden">
+        <div className="flex items-center gap-1.5 text-xs font-label-caps text-on-surface-variant shrink-0">
+          <span className="material-symbols-outlined text-[16px] 2k:text-[18px] text-amber-400">
+            sentiment_satisfied
           </span>
+          <span className="font-semibold text-on-surface-variant text-[11px] 2k:text-xs uppercase tracking-wider whitespace-nowrap">
+            Thẻ biểu cảm:
+          </span>
+        </div>
+
+        {/* Dải nút biểu cảm cảm xúc (vừa vặn, cuộn ngang mượt mà nếu màn hình cực hẹp) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar py-0.5 min-w-0">
           {NON_VERBAL_SYMBOLS.map((s, idx) => (
             <button
               key={idx}
               type="button"
               onClick={() => handleInsertSymbol(s.tag)}
-              className="px-2 2k:px-3 py-0.5 2k:py-1 rounded-md 2k:rounded-lg text-[11px] 2k:text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1 shadow-sm active:scale-95"
-              title={`Chèn thẻ ${s.tag}`}
+              className="px-2 2k:px-2.5 py-0.5 2k:py-1 rounded-lg text-[11px] 2k:text-xs font-label-caps bg-surface-container/70 hover:bg-primary/20 text-on-surface hover:text-primary border border-white/5 hover:border-primary/30 transition-all flex items-center gap-1 shadow-sm active:scale-95 whitespace-nowrap shrink-0 group cursor-pointer"
+              title={`Chèn thẻ ${s.tag} vào vị trí con trỏ`}
             >
-              <span>{s.emoji}</span>
-              <span>{s.label}</span>
+              <span className="text-[12px] 2k:text-[13px] group-hover:scale-110 transition-transform">
+                {s.emoji}
+              </span>
+              <span className="font-medium">{s.label}</span>
             </button>
           ))}
         </div>

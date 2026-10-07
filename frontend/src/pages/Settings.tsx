@@ -15,8 +15,6 @@ import {
   Cloud,
   RefreshCw,
   BookOpen,
-  Sliders,
-  FileCode,
   Download,
   FolderOpen,
   Copy,
@@ -32,10 +30,15 @@ import {
   ArrowDownUp,
   Play,
   Pause,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+  Database,
+  Radio,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useTTSStore, type TestGpuResult } from "@/store/useTTSStore";
+import { useTTSStore, type TestGpuResult, type CheckUpdateResult } from "@/store/useTTSStore";
 import { APP_VERSION } from "@/constants/version";
 import { AppUpdateModal } from "@/components/AppUpdateModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -47,27 +50,79 @@ export default function Settings() {
     fetchHardwareSettings,
     updateHardwareSettings,
     testRemoteGpuConnection,
-    openEnvFile,
-    reloadBackend,
     isLoadingHardware,
     syncStatus,
     checkStorageStatus,
     isSyncing,
+    syncAllToCloud,
+    fetchFromCloud,
     appVersionInfo,
     fetchAppVersion,
+    checkAppUpdate,
   } = useTTSStore();
 
-  const [activeTab, setActiveTab] = useState<"hardware" | "guide" | "sync" | "studio" | "filter" | "logs">("hardware");
+  const [activeTab, setActiveTab] = useState<
+    "hardware" | "filter" | "logs" | "guide"
+  >("hardware");
   const [useRemoteGpu, setUseRemoteGpu] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [concurrency, setConcurrency] = useState(2);
+
+  // ── State Quản Lý Lưu Trữ & Đồng Bộ Đám Mây (Cloud Sync) ─────────────────────
+  // Mặc định là tắt (Local Mode)
+  const [isCloudSyncEnabled, setIsCloudSyncEnabled] = useState(false);
+  const [mongoUri, setMongoUri] = useState("");
+  const [mongoDbName, setMongoDbName] = useState("omnivoice");
+  const [showMongoUriPassword, setShowMongoUriPassword] = useState(false);
+
+  // Cấu hình Cloudflare R2 (Lưu trữ Audio Online - Tùy chọn)
+  const [r2AccountId, setR2AccountId] = useState("");
+  const [r2AccessKeyId, setR2AccessKeyId] = useState("");
+  const [r2SecretAccessKey, setR2SecretAccessKey] = useState("");
+  const [showR2Secret, setShowR2Secret] = useState(false);
+  const [r2BucketName, setR2BucketName] = useState("");
+  const [r2PublicUrl, setR2PublicUrl] = useState("");
+
+  const [isTestingCloud, setIsTestingCloud] = useState(false);
+  const [cloudTestResult, setCloudTestResult] = useState<{
+    mongo_ok: boolean;
+    mongo_message: string;
+    r2_ok: boolean;
+    r2_message: string;
+  } | null>(null);
+  const [isActionSyncLoading, setIsActionSyncLoading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestGpuResult | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isOpeningEnv, setIsOpeningEnv] = useState(false);
-  const [isReloadingBackend, setIsReloadingBackend] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [updateCheckResult, setUpdateCheckResult] = useState<CheckUpdateResult | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+
+  const handleCheckUpdate = async (showToast = false) => {
+    setIsCheckingUpdate(true);
+    try {
+      const res = await checkAppUpdate();
+      setUpdateCheckResult(res);
+      if (showToast) {
+        if (res.has_update) {
+          toast.info(
+            `Có bản cập nhật mới (${res.commits_behind || 1} cập nhật mới). Sẵn sàng nâng cấp!`,
+          );
+        } else if (res.ok) {
+          toast.success("Hệ thống đang hoạt động trên phiên bản mới nhất!");
+        } else {
+          toast.error(res.error || "Không thể kiểm tra bản cập nhật.");
+        }
+      }
+    } catch (err: any) {
+      if (showToast) {
+        toast.error("Lỗi khi kiểm tra cập nhật: " + (err.message || ""));
+      }
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   // ── State Quản Lý Bộ Lọc Quảng Cáo & Dạy AI (Ad Filter) ────────────────────
   const [adRules, setAdRules] = useState<string[]>([]);
@@ -79,7 +134,9 @@ export default function Settings() {
   const fetchAdRules = async () => {
     setIsLoadingAdRules(true);
     try {
-      const res = await fetch("http://localhost:8000/api/settings/ad-filter-rules");
+      const res = await fetch(
+        "http://localhost:8000/api/settings/ad-filter-rules",
+      );
       if (res.ok) {
         const data = await res.json();
         setAdRules(data.rules || []);
@@ -99,11 +156,14 @@ export default function Settings() {
     }
     setIsAddingAdRule(true);
     try {
-      const res = await fetch("http://localhost:8000/api/settings/ad-filter-rules/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phrase: p }),
-      });
+      const res = await fetch(
+        "http://localhost:8000/api/settings/ad-filter-rules/add",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phrase: p }),
+        },
+      );
       if (res.ok) {
         const data = await res.json();
         setAdRules(data.rules || []);
@@ -122,11 +182,14 @@ export default function Settings() {
 
   const handleDeleteAdRule = async (phraseToDelete: string) => {
     try {
-      const res = await fetch("http://localhost:8000/api/settings/ad-filter-rules/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phrase: phraseToDelete }),
-      });
+      const res = await fetch(
+        "http://localhost:8000/api/settings/ad-filter-rules/delete",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phrase: phraseToDelete }),
+        },
+      );
       if (res.ok) {
         const data = await res.json();
         setAdRules(data.rules || []);
@@ -144,7 +207,11 @@ export default function Settings() {
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [logSearch, setLogSearch] = useState("");
   const [logLinesCount, setLogLinesCount] = useState(300);
-  const [logStats, setLogStats] = useState<{ total_lines: number; file_size_kb: number; log_path: string } | null>(null);
+  const [logStats, setLogStats] = useState<{
+    total_lines: number;
+    file_size_kb: number;
+    log_path: string;
+  } | null>(null);
 
   // Tự động làm mới Logs: mặc định là Play (đang chạy), chu kỳ 1s - 10s (lưu vào localStorage, mặc định 1s)
   const [isLogAutoRefresh, setIsLogAutoRefresh] = useState(true);
@@ -167,7 +234,9 @@ export default function Settings() {
 
   const fetchVerboseStatus = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/settings/logs/verbose");
+      const res = await fetch(
+        "http://localhost:8000/api/settings/logs/verbose",
+      );
       if (res.ok) {
         const data = await res.json();
         setVerboseLogging(Boolean(data.enabled));
@@ -181,11 +250,14 @@ export default function Settings() {
     const nextVal = !verboseLogging;
     setIsTogglingVerbose(true);
     try {
-      const res = await fetch("http://localhost:8000/api/settings/logs/verbose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: nextVal }),
-      });
+      const res = await fetch(
+        "http://localhost:8000/api/settings/logs/verbose",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: nextVal }),
+        },
+      );
       if (res.ok) {
         const data = await res.json();
         setVerboseLogging(nextVal);
@@ -193,7 +265,7 @@ export default function Settings() {
           data.message ||
             (nextVal
               ? "Đã BẬT chế độ ghi log chi tiết từng bước để debug lỗi!"
-              : "Đã TẮT chế độ ghi log chi tiết. Quay về ghi log tiêu chuẩn.")
+              : "Đã TẮT chế độ ghi log chi tiết. Quay về ghi log tiêu chuẩn."),
         );
         fetchLogContent();
       } else {
@@ -209,10 +281,16 @@ export default function Settings() {
   // Thứ tự hiển thị log: mặc định 'desc' (dòng mới nhất ở trên cùng)
   const [logOrder, setLogOrder] = useState<"desc" | "asc">("desc");
 
-  const fetchLogContent = async (lines = logLinesCount, order = logOrder, showSpinner = true) => {
+  const fetchLogContent = async (
+    lines = logLinesCount,
+    order = logOrder,
+    showSpinner = true,
+  ) => {
     if (showSpinner) setIsLoadingLogs(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/settings/logs/content?lines=${lines}&order=${order}`);
+      const res = await fetch(
+        `http://localhost:8000/api/settings/logs/content?lines=${lines}&order=${order}`,
+      );
       if (res.ok) {
         const data = await res.json();
         setLogContent(data.content || "");
@@ -243,13 +321,23 @@ export default function Settings() {
     }, logRefreshInterval * 1000);
 
     return () => clearInterval(interval);
-  }, [activeTab, logLinesCount, logOrder, isLogAutoRefresh, logRefreshInterval]);
+  }, [
+    activeTab,
+    logLinesCount,
+    logOrder,
+    isLogAutoRefresh,
+    logRefreshInterval,
+  ]);
 
   const handleToggleLogOrder = () => {
     const nextOrder = logOrder === "desc" ? "asc" : "desc";
     setLogOrder(nextOrder);
     fetchLogContent(logLinesCount, nextOrder, true);
-    toast.info(nextOrder === "desc" ? "Đã chuyển sắp xếp: Mới nhất trên cùng ⬇" : "Đã chuyển sắp xếp: Cũ nhất trên cùng ⬆");
+    toast.info(
+      nextOrder === "desc"
+        ? "Đã chuyển sắp xếp: Mới nhất trên cùng ⬇"
+        : "Đã chuyển sắp xếp: Cũ nhất trên cùng ⬆",
+    );
   };
 
   const handleDownloadLog = () => {
@@ -259,7 +347,10 @@ export default function Settings() {
 
   const handleOpenLogsFolder = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/settings/logs/open-folder", { method: "POST" });
+      const res = await fetch(
+        "http://localhost:8000/api/settings/logs/open-folder",
+        { method: "POST" },
+      );
       const data = await res.json();
       if (res.ok) {
         toast.success(data.message || "Đã mở thư mục logs.");
@@ -281,9 +372,14 @@ export default function Settings() {
   };
 
   const handleClearLogs = async () => {
-    if (!confirm("Bạn có chắc chắn muốn xóa toàn bộ nội dung nhật ký cũ không?")) return;
+    if (
+      !confirm("Bạn có chắc chắn muốn xóa toàn bộ nội dung nhật ký cũ không?")
+    )
+      return;
     try {
-      const res = await fetch("http://localhost:8000/api/settings/logs/clear", { method: "POST" });
+      const res = await fetch("http://localhost:8000/api/settings/logs/clear", {
+        method: "POST",
+      });
       if (res.ok) {
         toast.success("Đã xóa sạch nội dung nhật ký cũ.");
         await fetchLogContent();
@@ -293,61 +389,32 @@ export default function Settings() {
     }
   };
 
-
-
-  const handleOpenEnv = async () => {
-    setIsOpeningEnv(true);
+  const fetchCloudSyncSettings = async () => {
     try {
-      const res = await openEnvFile();
+      const res = await fetch("http://localhost:8000/api/settings/cloud-sync");
       if (res.ok) {
-        toast.success(res.message || "Đã mở file .env bằng Notepad.");
-        toast.info("Sau khi chỉnh sửa xong và nhấn Ctrl+S lưu lại, hãy bấm nút 'Làm mới Backend' để áp dụng!");
-      } else {
-        toast.error(res.message || "Không thể mở file .env.");
+        const data = await res.json();
+        setIsCloudSyncEnabled(Boolean(data.enabled));
+        setMongoUri(data.mongodb_uri || "");
+        setMongoDbName(data.mongodb_db_name || "omnivoice");
+        setR2AccountId(data.r2_account_id || "");
+        setR2AccessKeyId(data.r2_access_key_id || "");
+        setR2SecretAccessKey(data.r2_secret_access_key || "");
+        setR2BucketName(data.r2_bucket_name || "");
+        setR2PublicUrl(data.r2_public_url || "");
       }
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi khi gọi mở file .env.");
-    } finally {
-      setIsOpeningEnv(false);
+    } catch (e) {
+      console.warn("Lỗi khi tải cấu hình cloud sync:", e);
     }
   };
-
-  const handleReloadBackend = async () => {
-    setIsReloadingBackend(true);
-    try {
-      const res = await reloadBackend();
-      if (res.ok) {
-        toast.success(res.message || "Đã làm mới Backend và cập nhật cấu hình .env thành công!");
-        await fetchHardwareSettings();
-        await checkStorageStatus();
-      } else {
-        toast.error(res.message || "Làm mới Backend thất bại.");
-      }
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi khi làm mới Backend.");
-    } finally {
-      setIsReloadingBackend(false);
-    }
-  };
-
-  // Default studio model params stored in localStorage
-  const [defaultCfg, setDefaultCfg] = useState(() => {
-    try {
-      const cur = JSON.parse(localStorage.getItem("tts_model_config") || "{}");
-      return cur.cfg_value || 2.0;
-    } catch {
-      return 2.0;
-    }
-  });
-  const [defaultFormat, setDefaultFormat] = useState<"mp3" | "wav">(() => {
-    return (localStorage.getItem("tts_audio_format") as "mp3" | "wav") || "mp3";
-  });
 
   useEffect(() => {
     fetchHardwareSettings();
     checkStorageStatus();
     fetchAppVersion();
     fetchVerboseStatus();
+    fetchCloudSyncSettings();
+    handleCheckUpdate(false);
   }, [fetchHardwareSettings, checkStorageStatus, fetchAppVersion]);
 
   useEffect(() => {
@@ -372,7 +439,7 @@ export default function Settings() {
       setTestResult(res);
       if (res.ok) {
         toast.success(
-          `Kết nối thành công tới ${res.provider || "Cloud GPU"} (${res.gpu_name})!`
+          `Kết nối thành công tới ${res.provider || "Cloud GPU"} (${res.gpu_name})!`,
         );
       } else {
         toast.error(res.error || "Không thể kết nối tới Cloud GPU.");
@@ -385,26 +452,122 @@ export default function Settings() {
     }
   };
 
+  const handleTestCloudSync = async () => {
+    if (isCloudSyncEnabled && !mongoUri.trim()) {
+      toast.error(
+        "Vui lòng nhập chuỗi kết nối MongoDB URI trước khi kiểm tra!",
+      );
+      return;
+    }
+    setIsTestingCloud(true);
+    setCloudTestResult(null);
+    try {
+      const res = await fetch(
+        "http://localhost:8000/api/settings/cloud-sync/test",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mongodb_uri: mongoUri.trim(),
+            mongodb_db_name: mongoDbName.trim() || "omnivoice",
+            r2_account_id: r2AccountId.trim(),
+            r2_access_key_id: r2AccessKeyId.trim(),
+            r2_secret_access_key: r2SecretAccessKey.trim(),
+            r2_bucket_name: r2BucketName.trim(),
+          }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setCloudTestResult(data);
+        if (data.mongo_ok) {
+          toast.success(data.mongo_message);
+        } else {
+          toast.error(data.mongo_message);
+        }
+      } else {
+        toast.error("Không thể kết nối máy chủ để kiểm tra Cloud Sync.");
+      }
+    } catch (e: any) {
+      toast.error(`Lỗi kiểm tra kết nối: ${e.message}`);
+    } finally {
+      setIsTestingCloud(false);
+    }
+  };
+
+  const handlePushAllData = async () => {
+    setIsActionSyncLoading(true);
+    try {
+      await syncAllToCloud();
+      toast.success(
+        "Đã đồng bộ toàn bộ dự án, lịch sử và từ điển lên Cloud thành công!",
+      );
+    } catch {
+      toast.error("Gặp sự cố khi đồng bộ lên Cloud.");
+    } finally {
+      setIsActionSyncLoading(false);
+    }
+  };
+
+  const handlePullAllData = async () => {
+    setIsActionSyncLoading(true);
+    try {
+      await fetchFromCloud();
+      toast.success("Đã tải dữ liệu mới nhất từ Cloud về máy!");
+    } catch {
+      toast.error("Không thể tải dữ liệu từ Cloud.");
+    } finally {
+      setIsActionSyncLoading(false);
+    }
+  };
+
   const handleSaveHardware = async () => {
     if (useRemoteGpu && !remoteUrl.trim()) {
       toast.error("Vui lòng nhập đường dẫn URL của Cloud GPU Worker!");
       return;
     }
+    if (isCloudSyncEnabled && !mongoUri.trim()) {
+      toast.error(
+        "Vui lòng nhập chuỗi kết nối MongoDB URI khi bật lưu dữ liệu lên cloud!",
+      );
+      return;
+    }
 
     setIsSaving(true);
     try {
-      const success = await updateHardwareSettings({
+      const hwSuccess = await updateHardwareSettings({
         use_remote_gpu: useRemoteGpu,
         remote_gpu_url: remoteUrl.trim(),
         remote_concurrency: concurrency,
       });
 
-      if (success) {
+      const syncRes = await fetch(
+        "http://localhost:8000/api/settings/cloud-sync",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            enabled: isCloudSyncEnabled,
+            mongodb_uri: mongoUri.trim(),
+            mongodb_db_name: mongoDbName.trim() || "omnivoice",
+            r2_account_id: r2AccountId.trim(),
+            r2_access_key_id: r2AccessKeyId.trim(),
+            r2_secret_access_key: r2SecretAccessKey.trim(),
+            r2_bucket_name: r2BucketName.trim(),
+            r2_public_url: r2PublicUrl.trim(),
+          }),
+        },
+      );
+
+      if (hwSuccess && syncRes.ok) {
+        await checkStorageStatus();
         toast.success(
-          useRemoteGpu
-            ? "Đã lưu và kích hoạt chế độ Cloud GPU (Tesla T4)!"
-            : "Đã lưu và kích hoạt chế độ GPU Cục Bộ (GTX 1650)!"
+          isCloudSyncEnabled
+            ? "Đã lưu cấu hình GPU & Bật đồng bộ Đám mây (MongoDB Atlas)!"
+            : "Đã lưu cấu hình GPU & Chế độ Cục bộ (Local Mode)!",
         );
+      } else if (hwSuccess) {
+        toast.success("Đã lưu cấu hình GPU, nhưng chưa lưu được Cloud Sync.");
       } else {
         toast.error("Không thể lưu cấu hình vào file .env.");
       }
@@ -412,20 +575,6 @@ export default function Settings() {
       toast.error(`Lỗi: ${err.message}`);
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleSaveStudioDefaults = () => {
-    try {
-      const config = {
-        cfg_value: defaultCfg,
-        speed: 1.0,
-      };
-      localStorage.setItem("tts_model_config", JSON.stringify(config));
-      localStorage.setItem("tts_audio_format", defaultFormat);
-      toast.success("Đã lưu thiết lập phòng thu mặc định!");
-    } catch (err: any) {
-      toast.error(`Lỗi: ${err.message}`);
     }
   };
 
@@ -439,7 +588,8 @@ export default function Settings() {
             Cài Đặt Hệ Thống & Bộ Xử Lý GPU
           </h1>
           <p className="text-sm text-on-surface-variant mt-1">
-            Quản lý phần cứng tính toán AI, chuyển đổi linh hoạt giữa GPU máy tính và GPU đám mây.
+            Quản lý phần cứng tính toán AI, chuyển đổi linh hoạt giữa GPU máy
+            tính và GPU đám mây.
           </p>
         </div>
 
@@ -456,38 +606,78 @@ export default function Settings() {
             <span>Góp ý & Báo lỗi</span>
           </button>
 
-          {/* Nút Cập Nhật Phiên Bản Mới (Top-Right Action) */}
-          <button
-            type="button"
-            onClick={() => setIsUpdateModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 hover:border-primary/50 text-xs font-semibold transition-all shadow-sm shadow-primary/10 group cursor-pointer"
-            title="Kiểm tra & Cập nhật phiên bản mới nhất"
-          >
-            <Sparkles className="w-3.5 h-3.5 transition-transform group-hover:rotate-12 group-hover:scale-110" />
-            <span>Cập nhật ứng dụng</span>
-            <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary font-normal">
-              v{appVersionInfo?.version || APP_VERSION}
-            </span>
-          </button>
-
-          {/* Status Badge */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-variant/40 border border-white/10 text-xs text-on-surface font-mono w-fit">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                hardwareConfig.use_remote_gpu
-                  ? "bg-amber-400 animate-pulse"
-                  : "bg-emerald-400"
-              }`}
-            />
-            {hardwareConfig.use_remote_gpu ? (
-              <span>Cloud GPU: {hardwareConfig.remote_gpu_url || "Chưa nhập URL"}</span>
-            ) : (
-              <span>
-                Local GPU:{" "}
-                {hardwareConfig.cuda_device_name || "NVIDIA GTX 1650 (4GB)"}
+          {/* Trạng thái phiên bản & Nút Cập Nhật Phiên Bản Mới (Top-Right Action) */}
+          {isCheckingUpdate && !updateCheckResult ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-on-surface-variant font-medium">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+              <span>Kiểm tra phiên bản...</span>
+            </div>
+          ) : updateCheckResult?.has_update ? (
+            /* Khi KHÔNG PHẢI phiên bản mới nhất: Hiện nút Cập nhật ứng dụng nổi bật */
+            <button
+              type="button"
+              onClick={() => setIsUpdateModalOpen(true)}
+              className="relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-primary/20 hover:from-amber-500/30 hover:to-primary/30 text-amber-300 border border-amber-500/40 hover:border-amber-400 text-xs font-semibold transition-all shadow-md shadow-amber-500/10 group cursor-pointer animate-pulse"
+              title={`Có bản cập nhật mới (${updateCheckResult.commits_behind || 1} cập nhật mới). Bấm để cập nhật ngay!`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110" />
+              <span>Cập nhật ứng dụng</span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/30 text-amber-200 font-bold">
+                +{updateCheckResult.commits_behind || "Mới"}
               </span>
-            )}
-          </div>
+            </button>
+          ) : updateCheckResult?.ok && !updateCheckResult?.has_update ? (
+            /* Khi LÀ phiên bản mới nhất: Chỉ hiện thông báo trạng thái tinh tế */
+            <div
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 text-xs font-medium shadow-sm transition-all"
+              title="Hệ thống đang hoạt động trên phiên bản mới nhất. Bấm nút xoay để kiểm tra lại."
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Phiên bản mới nhất</span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold">
+                v{appVersionInfo?.version || APP_VERSION}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleCheckUpdate(true)}
+                disabled={isCheckingUpdate}
+                className="ml-0.5 p-0.5 hover:text-white transition-colors cursor-pointer rounded-full hover:bg-emerald-500/20"
+                title="Kiểm tra lại bản cập nhật"
+              >
+                <RefreshCw
+                  className={cn(
+                    "w-3 h-3 text-emerald-400 hover:text-emerald-200",
+                    isCheckingUpdate && "animate-spin"
+                  )}
+                />
+              </button>
+            </div>
+          ) : (
+            /* Fallback khi chưa kiểm tra hoặc có lỗi mạng */
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 text-on-surface-variant border border-white/10 text-xs font-medium transition-all"
+              title="Phiên bản ứng dụng hiện tại"
+            >
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-on-surface font-semibold">
+                v{appVersionInfo?.version || APP_VERSION}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleCheckUpdate(true)}
+                disabled={isCheckingUpdate}
+                className="flex items-center gap-1 text-[11px] hover:text-primary transition-colors cursor-pointer ml-0.5"
+                title="Bấm để kiểm tra bản cập nhật mới nhất"
+              >
+                <RefreshCw
+                  className={cn(
+                    "w-3 h-3",
+                    isCheckingUpdate && "animate-spin text-primary"
+                  )}
+                />
+                <span>Kiểm tra cập nhật</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -503,42 +693,6 @@ export default function Settings() {
         >
           <Cpu className="w-4 h-4" />
           Bộ Xử Lý & GPU
-        </button>
-
-        <button
-          onClick={() => setActiveTab("guide")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-xs md:text-sm transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === "guide"
-              ? "bg-primary text-black font-semibold shadow-md shadow-primary/20"
-              : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-          }`}
-        >
-          <BookOpen className="w-4 h-4" />
-          Hướng Dẫn Google Colab & Cloud
-        </button>
-
-        <button
-          onClick={() => setActiveTab("sync")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-xs md:text-sm transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === "sync"
-              ? "bg-primary text-black font-semibold shadow-md shadow-primary/20"
-              : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-          }`}
-        >
-          <Cloud className="w-4 h-4" />
-          Đồng Bộ Đám Mây & Dữ Liệu
-        </button>
-
-        <button
-          onClick={() => setActiveTab("studio")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-xs md:text-sm transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === "studio"
-              ? "bg-primary text-black font-semibold shadow-md shadow-primary/20"
-              : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-          }`}
-        >
-          <Sliders className="w-4 h-4" />
-          Mặc Định Phòng Thu
         </button>
 
         <button
@@ -570,8 +724,19 @@ export default function Settings() {
           <FileText className="w-4 h-4" />
           Nhật Ký & Báo Lỗi (Logs)
         </button>
-      </div>
 
+        <button
+          onClick={() => setActiveTab("guide")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-xs md:text-sm transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === "guide"
+              ? "bg-primary text-black font-semibold shadow-md shadow-primary/20"
+              : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
+          Tài Liệu Hướng Dẫn & Cấu Hình Cloud
+        </button>
+      </div>
 
       {/* Tab 1: Bộ Xử Lý & GPU */}
       {activeTab === "hardware" && (
@@ -607,7 +772,8 @@ export default function Settings() {
                         </span>
                       </h3>
                       <p className="text-xs text-on-surface-variant">
-                        {hardwareConfig.cuda_device_name || "NVIDIA GeForce GTX 1650 (4GB)"}
+                        {hardwareConfig.cuda_device_name ||
+                          "NVIDIA GeForce GTX 1650 (4GB)"}
                       </p>
                     </div>
                   </div>
@@ -627,7 +793,7 @@ export default function Settings() {
                   </li>
                   <li className="flex items-center gap-2">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    Sử dụng card rời NVIDIA GTX 1650 4GB VRAM.
+                    Sử dụng VGA rời NVIDIA.
                   </li>
                 </ul>
               </div>
@@ -698,7 +864,9 @@ export default function Settings() {
 
               <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-on-surface-variant">
                 <span>Yêu cầu:</span>
-                <span className="font-mono text-primary">Cần mạng & Bật Colab</span>
+                <span className="font-mono text-primary">
+                  Cần mạng & Bật Colab
+                </span>
               </div>
             </div>
           </div>
@@ -712,7 +880,8 @@ export default function Settings() {
                   Cấu Hình Đường Dẫn Cloud GPU Worker (Public URL)
                 </h3>
                 <p className="text-xs text-on-surface-variant mt-0.5">
-                  Nhập đường link Ngrok Static Domain, Cloudflare Tunnel hoặc Hugging Face Space của bạn.
+                  Nhập đường link Ngrok Static Domain, Cloudflare Tunnel hoặc
+                  Hugging Face Space của bạn.
                 </p>
               </div>
 
@@ -758,7 +927,8 @@ export default function Settings() {
                 </a>
 
                 <span className="text-[11px] text-on-surface-variant">
-                  💡 Nhớ bấm <strong>Play (Run)</strong> trên Google Colab trước khi kiểm tra
+                  💡 Nhớ bấm <strong>Play (Run)</strong> trên Google Colab trước
+                  khi kiểm tra
                 </span>
               </div>
 
@@ -778,7 +948,11 @@ export default function Settings() {
                   )}
                   <div className="flex-1 space-y-1">
                     <div className="font-bold flex items-center justify-between">
-                      <span>{testResult.ok ? "🎉 Máy chủ Cloud GPU đang trực tuyến & sẵn sàng!" : "❌ Không thể kết nối tới máy chủ"}</span>
+                      <span>
+                        {testResult.ok
+                          ? "🎉 Máy chủ Cloud GPU đang trực tuyến & sẵn sàng!"
+                          : "❌ Không thể kết nối tới máy chủ"}
+                      </span>
                       {testResult.ping_ms && (
                         <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-white/10">
                           Ping: {testResult.ping_ms} ms
@@ -787,7 +961,8 @@ export default function Settings() {
                     </div>
                     {testResult.ok ? (
                       <p className="text-xs opacity-90 font-mono">
-                        {testResult.provider} — Card: {testResult.gpu_name} ({testResult.vram_total_gb} GB VRAM)
+                        {testResult.provider} — Card: {testResult.gpu_name} (
+                        {testResult.vram_total_gb} GB VRAM)
                       </p>
                     ) : (
                       <p className="text-xs opacity-90">{testResult.error}</p>
@@ -804,7 +979,8 @@ export default function Settings() {
                     Số luồng tổng hợp song song (Concurrency):
                   </span>
                   <p className="text-[11px] text-on-surface-variant mt-0.5">
-                    Số đoạn câu gửi đồng thời lên GPU T4 (mặc định 2 luồng là tối ưu nhất).
+                    Số đoạn câu gửi đồng thời lên GPU T4 (mặc định 2 luồng là
+                    tối ưu nhất).
                   </p>
                 </div>
 
@@ -828,51 +1004,457 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Card Quản lý trực tiếp file .env & Làm mới Backend */}
-          <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-4">
+          {/* ── Section 2: Đồng Bộ Đám Mây & Dữ Liệu (Cloud Database & Storage Sync) ── */}
+          <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
-                  <FileCode className="w-4 h-4 text-primary" />
-                  Chỉnh Sửa File Cấu Hình Trực Tiếp (.env)
+                <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
+                  <Cloud className="w-5 h-5 text-primary" />
+                  Đồng Bộ Đám Mây & Cơ Sở Dữ Liệu (Cloud Sync)
                 </h3>
-                <p className="text-xs text-on-surface-variant mt-1">
-                  Mở file <code className="font-mono text-primary px-1.5 py-0.5 rounded bg-white/5 border border-white/10">backend/.env</code> bằng ứng dụng Notepad để tùy biến cấu hình chi tiết (GPU, R2, MongoDB, Port...).
+                <p className="text-xs text-on-surface-variant mt-0.5">
+                  Đồng bộ lịch sử âm thanh, dự án và từ điển phát âm giữa nhiều
+                  máy tính qua MongoDB Atlas & Cloudflare R2.
                 </p>
               </div>
 
-              <div className="flex items-center gap-3 shrink-0 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handleOpenEnv}
-                  disabled={isOpeningEnv}
-                  className="px-4 py-2.5 rounded-2xl bg-surface-variant hover:bg-surface-variant/80 border border-white/10 hover:border-white/20 text-on-surface text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-[1.02] disabled:opacity-50"
-                >
-                  {isOpeningEnv ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                  ) : (
-                    <ExternalLink className="w-4 h-4 text-primary" />
+              {/* Status Badge */}
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "text-xs px-3 py-1 rounded-full border font-mono font-medium flex items-center gap-1.5",
+                    isCloudSyncEnabled && syncStatus.mongo_connected
+                      ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
+                      : isCloudSyncEnabled
+                        ? "bg-amber-500/15 border-amber-500/30 text-amber-300"
+                        : "bg-white/5 border-white/10 text-on-surface-variant",
                   )}
-                  Mở file .env (Notepad)
-                </button>
+                >
+                  <span
+                    className={cn(
+                      "w-2 h-2 rounded-full",
+                      isCloudSyncEnabled && syncStatus.mongo_connected
+                        ? "bg-emerald-400 animate-pulse"
+                        : isCloudSyncEnabled
+                          ? "bg-amber-400"
+                          : "bg-slate-400",
+                    )}
+                  />
+                  {isCloudSyncEnabled
+                    ? syncStatus.mongo_connected
+                      ? "Cloud Sync Đang Bật"
+                      : "Chờ Kết Nối Cloud"
+                    : "Lưu Cục Bộ (Tắt Cloud)"}
+                </span>
 
                 <button
                   type="button"
-                  onClick={handleReloadBackend}
-                  disabled={isReloadingBackend || isLoadingHardware}
-                  className="px-4 py-2.5 rounded-2xl bg-primary/20 hover:bg-primary/30 border border-primary/40 text-primary text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => checkStorageStatus()}
+                  disabled={isSyncing}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+                  title="Kiểm tra lại trạng thái kết nối"
                 >
-                  <RefreshCw className={cn("w-4 h-4", (isReloadingBackend || isLoadingHardware) && "animate-spin")} />
-                  Làm mới Backend
+                  <RefreshCw
+                    className={cn("w-3.5 h-3.5", isSyncing && "animate-spin")}
+                  />
                 </button>
               </div>
             </div>
-          </div>
 
-          {/* Action Bar Lưu Thay Đổi */}
+            {/* ── 2 Tùy chọn Bật/Tắt Lưu Dữ Liệu Lên Cloud ── */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              {/* Option 1: Tắt Cloud - Chế độ Cục Bộ (Mặc định) */}
+              <div
+                onClick={() => setIsCloudSyncEnabled(false)}
+                className={cn(
+                  "p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between",
+                  !isCloudSyncEnabled
+                    ? "bg-primary/10 border-primary/50 shadow-md shadow-primary/5 ring-1 ring-primary/25"
+                    : "bg-surface-variant/20 hover:bg-surface-variant/40 border-white/5 opacity-70 hover:opacity-100",
+                )}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={cn(
+                          "w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold",
+                          !isCloudSyncEnabled
+                            ? "bg-primary text-black"
+                            : "bg-white/10 text-on-surface",
+                        )}
+                      >
+                        <HardDrive className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-on-surface flex items-center gap-2">
+                          Lưu Cục Bộ (Tắt Cloud)
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            Mặc định
+                          </span>
+                        </h4>
+                      </div>
+                    </div>
+                    {!isCloudSyncEnabled && (
+                      <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
+                    )}
+                  </div>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    Dữ liệu dự án, kịch bản lưu trong LocalStorage trình duyệt.
+                    File âm thanh lưu tại thư mục{" "}
+                    <code className="text-primary font-mono text-[11px]">
+                      /outputs
+                    </code>{" "}
+                    trên máy tính. Không cần tài khoản hay kết nối Internet.
+                  </p>
+                </div>
+              </div>
+
+              {/* Option 2: Bật Cloud - Đồng Bộ Đa Thiết Bị */}
+              <div
+                onClick={() => setIsCloudSyncEnabled(true)}
+                className={cn(
+                  "p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between",
+                  isCloudSyncEnabled
+                    ? "bg-primary/10 border-primary/50 shadow-md shadow-primary/5 ring-1 ring-primary/25"
+                    : "bg-surface-variant/20 hover:bg-surface-variant/40 border-white/5 opacity-70 hover:opacity-100",
+                )}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={cn(
+                          "w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold",
+                          isCloudSyncEnabled
+                            ? "bg-primary text-black"
+                            : "bg-white/10 text-on-surface",
+                        )}
+                      >
+                        <Cloud className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-on-surface flex items-center gap-2">
+                          Đồng Bộ Đám Mây (Bật Cloud)
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
+                            Đa Thiết Bị
+                          </span>
+                        </h4>
+                      </div>
+                    </div>
+                    {isCloudSyncEnabled && (
+                      <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
+                    )}
+                  </div>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    Lưu trữ dữ liệu lên MongoDB Atlas và âm thanh lên Cloudflare
+                    R2. Tự động đồng bộ lịch sử, dự án khi chuyển đổi giữa
+                    laptop và PC.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Các ô input Setup cần thiết khi BẬT Cloud Sync ── */}
+            {isCloudSyncEnabled ? (
+              <div className="space-y-4 pt-3 border-t border-white/10 animate-fadeIn">
+                {/* 1. Cấu hình MongoDB Atlas */}
+                <div className="p-4 rounded-2xl bg-surface-container-lowest/60 border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-on-surface flex items-center gap-2">
+                      <Database className="w-4 h-4 text-emerald-400" />
+                      Cơ Sở Dữ Liệu MongoDB Atlas (Bắt buộc cho Kịch bản, Dự án,
+                      Từ điển):
+                    </span>
+                    <a
+                      href="https://www.mongodb.com/cloud/atlas"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-primary hover:underline flex items-center gap-1"
+                    >
+                      Đăng ký MongoDB Free (512MB){" "}
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[11px] text-on-surface-variant block">
+                      Chuỗi Kết Nối MongoDB URI (Connection String):
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showMongoUriPassword ? "text" : "password"}
+                        value={mongoUri}
+                        onChange={(e) => setMongoUri(e.target.value)}
+                        placeholder="mongodb+srv://username:password@cluster0.mongodb.net/?retryWrites=true&w=majority"
+                        className="w-full bg-surface-container-lowest/90 border border-white/10 rounded-xl px-3.5 py-2.5 pr-20 text-xs font-mono text-on-surface placeholder:text-white/20 focus:outline-none focus:border-primary/50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowMongoUriPassword(!showMongoUriPassword)
+                        }
+                        className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg hover:bg-white/10 text-on-surface-variant hover:text-on-surface text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        {showMongoUriPassword ? (
+                          <EyeOff className="w-3.5 h-3.5" />
+                        ) : (
+                          <Eye className="w-3.5 h-3.5" />
+                        )}
+                        <span>{showMongoUriPassword ? "Ẩn" : "Hiện"}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="text-[11px] text-on-surface-variant block mb-1">
+                        Tên Cơ Sở Dữ Liệu (Database Name):
+                      </label>
+                      <input
+                        type="text"
+                        value={mongoDbName}
+                        onChange={(e) => setMongoDbName(e.target.value)}
+                        placeholder="omnivoice"
+                        className="w-full bg-surface-container-lowest/90 border border-white/10 rounded-xl px-3.5 py-2 text-xs font-mono text-on-surface placeholder:text-white/20 focus:outline-none focus:border-primary/50"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <div className="w-full p-2.5 rounded-xl bg-black/20 border border-white/5 flex items-center justify-between text-xs">
+                        <span className="text-on-surface-variant text-[11px]">
+                          Trạng thái MongoDB Atlas:
+                        </span>
+                        {syncStatus.mongo_connected ? (
+                          <span className="text-emerald-400 font-medium flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Đã kết nối
+                            Cloud
+                          </span>
+                        ) : (
+                          <span className="text-amber-400 font-medium flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5" /> Chưa kết
+                            nối
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Cấu hình Cloudflare R2 (Lưu trữ file âm thanh online - Tùy chọn) */}
+                <div className="p-4 rounded-2xl bg-surface-container-lowest/60 border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-on-surface flex items-center gap-2">
+                        <Radio className="w-4 h-4 text-cyan-400" />
+                        Lưu Trữ Âm Thanh Đám Mây - Cloudflare R2 (Tùy chọn):
+                      </span>
+                      <p className="text-[11px] text-on-surface-variant mt-0.5">
+                        Miễn phí 10GB lưu trữ & 0đ phí tải xuống (Egress free).
+                        Lưu audio online để phát trên mọi máy.
+                      </p>
+                    </div>
+                    <a
+                      href="https://dash.cloudflare.com"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-primary hover:underline flex items-center gap-1"
+                    >
+                      Cloudflare R2 <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="text-[11px] text-on-surface-variant block mb-1">
+                        R2 Account ID:
+                      </label>
+                      <input
+                        type="text"
+                        value={r2AccountId}
+                        onChange={(e) => setR2AccountId(e.target.value)}
+                        placeholder="Ví dụ: a1b2c3d4e5f6..."
+                        className="w-full bg-surface-container-lowest/90 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-on-surface placeholder:text-white/20 focus:outline-none focus:border-primary/50"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-on-surface-variant block mb-1">
+                        R2 Bucket Name:
+                      </label>
+                      <input
+                        type="text"
+                        value={r2BucketName}
+                        onChange={(e) => setR2BucketName(e.target.value)}
+                        placeholder="Ví dụ: omnivoice-audio"
+                        className="w-full bg-surface-container-lowest/90 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-on-surface placeholder:text-white/20 focus:outline-none focus:border-primary/50"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-on-surface-variant block mb-1">
+                        R2 Access Key ID:
+                      </label>
+                      <input
+                        type="text"
+                        value={r2AccessKeyId}
+                        onChange={(e) => setR2AccessKeyId(e.target.value)}
+                        placeholder="Access Key ID"
+                        className="w-full bg-surface-container-lowest/90 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-on-surface placeholder:text-white/20 focus:outline-none focus:border-primary/50"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-on-surface-variant block mb-1">
+                        R2 Secret Access Key:
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showR2Secret ? "text" : "password"}
+                          value={r2SecretAccessKey}
+                          onChange={(e) => setR2SecretAccessKey(e.target.value)}
+                          placeholder="Secret Access Key"
+                          className="w-full bg-surface-container-lowest/90 border border-white/10 rounded-xl px-3 py-2 pr-16 text-xs font-mono text-on-surface placeholder:text-white/20 focus:outline-none focus:border-primary/50"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowR2Secret(!showR2Secret)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded hover:bg-white/10 text-on-surface-variant hover:text-on-surface text-[10px] cursor-pointer"
+                        >
+                          {showR2Secret ? "Ẩn" : "Hiện"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="text-[11px] text-on-surface-variant block mb-1">
+                        R2 Public Domain / URL (Tùy chọn):
+                      </label>
+                      <input
+                        type="text"
+                        value={r2PublicUrl}
+                        onChange={(e) => setR2PublicUrl(e.target.value)}
+                        placeholder="https://pub-xxxx.r2.dev hoặc để trống"
+                        className="w-full bg-surface-container-lowest/90 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-on-surface placeholder:text-white/20 focus:outline-none focus:border-primary/50"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Kiểm tra kết nối & Thao tác đồng bộ */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleTestCloudSync}
+                      disabled={isTestingCloud}
+                      className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-on-surface flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isTestingCloud ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                          Đang kiểm tra kết nối...
+                        </>
+                      ) : (
+                        <>
+                          <Wifi className="w-3.5 h-3.5 text-primary" />
+                          Kiểm Tra Kết Nối Cloud
+                        </>
+                      )}
+                    </button>
+
+                    {syncStatus.mongo_connected && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isActionSyncLoading || isSyncing}
+                          onClick={handlePushAllData}
+                          className="px-3.5 py-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                          title="Đẩy dữ liệu hiện tại lên MongoDB Atlas"
+                        >
+                          <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                          Đẩy lên Cloud
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isActionSyncLoading || isSyncing}
+                          onClick={handlePullAllData}
+                          className="px-3.5 py-2.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                          title="Tải dữ liệu mới nhất từ MongoDB Atlas về máy"
+                        >
+                          <RefreshCw
+                            className={cn(
+                              "w-3.5 h-3.5 text-cyan-400",
+                              isSyncing && "animate-spin",
+                            )}
+                          />
+                          Tải về máy
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <span className="text-[11px] text-on-surface-variant font-mono">
+                    💡 Nhấn "Lưu & Áp Dụng Thay Đổi" bên dưới để kích hoạt kết
+                    nối.
+                  </span>
+                </div>
+
+                {/* Kết quả kiểm tra Test Cloud (nếu có) */}
+                {cloudTestResult && (
+                  <div className="p-3.5 rounded-2xl bg-black/40 border border-white/10 space-y-1.5 text-xs animate-fadeIn">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-on-surface">
+                        MongoDB Atlas:
+                      </span>
+                      {cloudTestResult.mongo_ok ? (
+                        <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" />{" "}
+                          {cloudTestResult.mongo_message}
+                        </span>
+                      ) : (
+                        <span className="text-rose-400 flex items-center gap-1 font-medium">
+                          <AlertTriangle className="w-3.5 h-3.5" />{" "}
+                          {cloudTestResult.mongo_message}
+                        </span>
+                      )}
+                    </div>
+                    {cloudTestResult.r2_message && (
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="font-semibold text-on-surface">
+                          Cloudflare R2:
+                        </span>
+                        <span
+                          className={
+                            cloudTestResult.r2_ok
+                              ? "text-emerald-400"
+                              : "text-on-surface-variant"
+                          }
+                        >
+                          {cloudTestResult.r2_message}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Khi TẮT Lưu Cloud - Hiển thị card xác nhận chế độ cục bộ */
+              <div className="p-3.5 rounded-2xl bg-black/20 border border-white/5 flex items-center gap-2.5 text-xs text-on-surface-variant animate-fadeIn">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  Chế độ Cục Bộ đang bật: Toàn bộ dữ liệu dự án, kịch bản và âm
+                  thanh lưu an toàn tuyệt đối trên máy tính của bạn, không gửi
+                  lên bất kỳ máy chủ đám mây nào.
+                </span>
+              </div>
+            )}
+          </div>
           <div className="flex items-center justify-between pt-4 border-t border-white/10">
             <span className="text-xs text-on-surface-variant font-mono">
-              {isLoadingHardware ? "Đang đồng bộ..." : "Tự động cập nhật file backend/.env khi lưu"}
+              {isLoadingHardware
+                ? "Đang đồng bộ..."
+                : "Tự động cập nhật file backend/.env khi lưu"}
             </span>
 
             <button
@@ -913,12 +1495,16 @@ export default function Settings() {
             </div>
 
             <p className="text-xs sm:text-sm text-on-surface-variant leading-relaxed">
-              Giải pháp tối ưu nhất cho Google Colab: Đăng ký miễn phí 1 tên miền cố định từ Ngrok để không bao giờ phải sửa lại đường link nữa!
+              Giải pháp tối ưu nhất cho Google Colab: Đăng ký miễn phí 1 tên
+              miền cố định từ Ngrok để không bao giờ phải sửa lại đường link
+              nữa!
             </p>
 
             <div className="space-y-3 text-xs sm:text-sm">
               <div className="p-3.5 rounded-2xl bg-black/30 border border-white/5 space-y-1">
-                <span className="font-semibold text-primary block">Bước 1: Đăng ký tài khoản Ngrok miễn phí</span>
+                <span className="font-semibold text-primary block">
+                  Bước 1: Đăng ký tài khoản Ngrok miễn phí
+                </span>
                 <p className="text-on-surface-variant text-xs">
                   Truy cập{" "}
                   <a
@@ -928,29 +1514,51 @@ export default function Settings() {
                     className="text-primary underline inline-flex items-center gap-1"
                   >
                     dashboard.ngrok.com <ExternalLink className="w-3 h-3" />
-                  </a>
-                  {" "}đăng nhập bằng Google trong 10 giây.
+                  </a>{" "}
+                  đăng nhập bằng Google trong 10 giây.
                 </p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-black/30 border border-white/5 space-y-1">
-                <span className="font-semibold text-primary block">Bước 2: Lấy Authtoken & Tên miền tĩnh</span>
+                <span className="font-semibold text-primary block">
+                  Bước 2: Lấy Authtoken & Tên miền tĩnh
+                </span>
                 <p className="text-on-surface-variant text-xs">
-                  Vào mục <strong>Your Authtoken</strong> copy mã token. Sau đó vào mục <strong>Cloud Edge ➔ Domains</strong> bấm nhận 1 domain tĩnh miễn phí (ví dụ: <code className="text-primary font-mono">tipper-semantic-dropper.ngrok-free.dev</code>).
+                  Vào mục <strong>Your Authtoken</strong> copy mã token. Sau đó
+                  vào mục <strong>Cloud Edge ➔ Domains</strong> bấm nhận 1
+                  domain tĩnh miễn phí (ví dụ:{" "}
+                  <code className="text-primary font-mono">
+                    tipper-semantic-dropper.ngrok-free.dev
+                  </code>
+                  ).
                 </p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-black/30 border border-white/5 space-y-1">
-                <span className="font-semibold text-primary block">Bước 3: Chạy Notebook trên Google Colab</span>
+                <span className="font-semibold text-primary block">
+                  Bước 3: Chạy Notebook trên Google Colab
+                </span>
                 <p className="text-on-surface-variant text-xs">
-                  Mở file notebook <code className="text-primary font-mono">notebooks/OmniVoice_Colab_T4.ipynb</code> trên Google Colab. Nhập Authtoken và Static Domain rồi bấm <strong>Play (▶️)</strong>.
+                  Mở file notebook{" "}
+                  <code className="text-primary font-mono">
+                    notebooks/OmniVoice_Colab_T4.ipynb
+                  </code>{" "}
+                  trên Google Colab. Nhập Authtoken và Static Domain rồi bấm{" "}
+                  <strong>Play (▶️)</strong>.
                 </p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-black/30 border border-white/5 space-y-1">
-                <span className="font-semibold text-primary block">Bước 4: Điền vào ô Cloud GPU URL ở Tab 1</span>
+                <span className="font-semibold text-primary block">
+                  Bước 4: Điền vào ô Cloud GPU URL ở Tab 1
+                </span>
                 <p className="text-on-surface-variant text-xs">
-                  Dán link domain Ngrok của bạn (ví dụ: <code className="text-primary font-mono">https://tipper-semantic-dropper.ngrok-free.dev</code>) vào ô URL ở Tab 1 và bấm <strong>Lưu & Áp Dụng</strong>. Từ nay về sau mỗi lần dùng chỉ việc mở Colab bấm Play!
+                  Dán link domain Ngrok của bạn (ví dụ:{" "}
+                  <code className="text-primary font-mono">
+                    https://tipper-semantic-dropper.ngrok-free.dev
+                  </code>
+                  ) vào ô URL ở Tab 1 và bấm <strong>Lưu & Áp Dụng</strong>. Từ
+                  nay về sau mỗi lần dùng chỉ việc mở Colab bấm Play!
                 </p>
               </div>
             </div>
@@ -961,7 +1569,8 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
                 <Cloud className="w-5 h-5 text-emerald-400" />
-                Cách 2: Hugging Face Spaces (ZeroGPU A100) — Chạy 24/7 Không Cần Treo Tab
+                Cách 2: Hugging Face Spaces (ZeroGPU A100) — Chạy 24/7 Không Cần
+                Treo Tab
               </h3>
               <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium">
                 Chạy 24/7
@@ -969,152 +1578,12 @@ export default function Settings() {
             </div>
 
             <p className="text-xs sm:text-sm text-on-surface-variant leading-relaxed">
-              Tạo một Space miễn phí trên Hugging Face bằng các file có sẵn trong thư mục <code className="text-primary font-mono">hf_space/</code> của dự án.
-              Khi Space chạy, bạn copy đường link Space dán vào ô URL để dùng mọi lúc mọi nơi mà không cần treo máy.
+              Tạo một Space miễn phí trên Hugging Face bằng các file có sẵn
+              trong thư mục{" "}
+              <code className="text-primary font-mono">hf_space/</code> của dự
+              án. Khi Space chạy, bạn copy đường link Space dán vào ô URL để
+              dùng mọi lúc mọi nơi mà không cần treo máy.
             </p>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 3: Đồng Bộ & Dữ Liệu */}
-      {activeTab === "sync" && (
-        <div className="space-y-6 animate-fadeIn">
-          <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
-                  <Cloud className="w-5 h-5 text-primary" />
-                  Trạng Thái Đồng Bộ Đám Mây (Cloud Sync)
-                </h3>
-                <p className="text-xs text-on-surface-variant mt-0.5">
-                  Đồng bộ lịch sử âm thanh, dự án và từ điển phát âm giữa nhiều máy tính qua MongoDB Atlas & Cloudflare R2.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => checkStorageStatus()}
-                disabled={isSyncing}
-                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
-                Kiểm tra lại
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-              <div className="p-4 rounded-2xl bg-black/20 border border-white/5 space-y-1">
-                <span className="text-xs text-on-surface-variant">Cơ sở dữ liệu (MongoDB Atlas):</span>
-                <div className="flex items-center gap-2 font-bold text-sm">
-                  {syncStatus.mongo_connected ? (
-                    <span className="text-emerald-400 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4" /> Đã kết nối MongoDB Cloud
-                    </span>
-                  ) : (
-                    <span className="text-on-surface-variant flex items-center gap-1.5">
-                      <HardDrive className="w-4 h-4" /> Chế độ Cục Bộ (LocalStorage)
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-black/20 border border-white/5 space-y-1">
-                <span className="text-xs text-on-surface-variant">Lưu trữ Audio (Cloudflare R2):</span>
-                <div className="flex items-center gap-2 font-bold text-sm">
-                  {syncStatus.r2_connected ? (
-                    <span className="text-emerald-400 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4" /> Đã kết nối Cloudflare R2
-                    </span>
-                  ) : (
-                    <span className="text-on-surface-variant flex items-center gap-1.5">
-                      <HardDrive className="w-4 h-4" /> Lưu cục bộ trong /outputs
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <p className="text-xs text-on-surface-variant pt-2 border-t border-white/5">
-              💡 Để bật đồng bộ đám mây, chỉ cần điền <code className="text-primary font-mono">MONGODB_URI</code> và thông tin Cloudflare R2 vào file <code className="text-primary font-mono">backend/.env</code>.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 4: Mặc Định Phòng Thu */}
-      {activeTab === "studio" && (
-        <div className="space-y-6 animate-fadeIn">
-          <div className="p-6 rounded-3xl bg-surface-variant/20 border border-white/10 space-y-4">
-            <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
-              <Sliders className="w-5 h-5 text-primary" />
-              Thiết Lập Mặc Định Khi Khởi Tạo Studio
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-on-surface">
-                  Độ Bám Văn Bản Mặc Định (CFG Guidance):
-                </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min="1.0"
-                    max="5.0"
-                    step="0.1"
-                    value={defaultCfg}
-                    onChange={(e) => setDefaultCfg(parseFloat(e.target.value))}
-                    className="flex-1 accent-primary cursor-pointer"
-                  />
-                  <span className="text-xs font-mono font-bold w-10 text-right text-primary">
-                    {defaultCfg.toFixed(1)}
-                  </span>
-                </div>
-                <p className="text-[11px] text-on-surface-variant">
-                  Mặc định 2.0 cho giọng nói tự nhiên, truyền cảm nhất.
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-on-surface">
-                  Định Dạng Âm Thanh Xuất Mặc Định:
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDefaultFormat("mp3")}
-                    className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                      defaultFormat === "mp3"
-                        ? "bg-primary text-black shadow-md shadow-primary/20"
-                        : "bg-surface-container-lowest/80 text-on-surface-variant hover:text-on-surface border border-white/5"
-                    }`}
-                  >
-                    MP3 (Nén nhẹ, tải nhanh)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDefaultFormat("wav")}
-                    className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                      defaultFormat === "wav"
-                        ? "bg-primary text-black shadow-md shadow-primary/20"
-                        : "bg-surface-container-lowest/80 text-on-surface-variant hover:text-on-surface border border-white/5"
-                    }`}
-                  >
-                    WAV (Chuẩn Studio 24kHz nguyên bản)
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-white/10 flex justify-end">
-              <button
-                type="button"
-                onClick={handleSaveStudioDefaults}
-                className="px-6 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-black font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-primary/20 transition-all cursor-pointer"
-              >
-                <Save className="w-4 h-4" />
-                Lưu Thiết Lập Phòng Thu
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -1134,7 +1603,10 @@ export default function Settings() {
                   Lọc Câu Quảng Cáo & Từ Khóa Cần Bỏ Qua
                 </h2>
                 <p className="text-xs sm:text-sm text-on-surface-variant max-w-2xl leading-relaxed">
-                  Khi bóc tách phụ đề và dịch video tự động, AI sẽ tự động phát hiện và <strong>bỏ qua không đọc các câu quảng cáo</strong>, kêu gọi like/share hoặc giới thiệu nguồn ngoài mà người khác chèn vào.
+                  Khi bóc tách phụ đề và dịch video tự động, AI sẽ tự động phát
+                  hiện và <strong>bỏ qua không đọc các câu quảng cáo</strong>,
+                  kêu gọi like/share hoặc giới thiệu nguồn ngoài mà người khác
+                  chèn vào.
                 </p>
               </div>
 
@@ -1144,7 +1616,12 @@ export default function Settings() {
                 disabled={isLoadingAdRules}
                 className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface text-xs font-medium border border-white/10 flex items-center gap-2 transition-all cursor-pointer w-fit shrink-0"
               >
-                <RefreshCw className={cn("w-3.5 h-3.5", isLoadingAdRules && "animate-spin text-primary")} />
+                <RefreshCw
+                  className={cn(
+                    "w-3.5 h-3.5",
+                    isLoadingAdRules && "animate-spin text-primary",
+                  )}
+                />
                 <span>Tải lại</span>
               </button>
             </div>
@@ -1175,7 +1652,11 @@ export default function Settings() {
                   disabled={isAddingAdRule || !newAdPhrase.trim()}
                   className="w-full sm:w-auto px-6 py-3 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-50 text-black font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md shadow-primary/20 shrink-0 cursor-pointer"
                 >
-                  {isAddingAdRule ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  {isAddingAdRule ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
                   <span>Dạy cho AI</span>
                 </button>
               </div>
@@ -1237,13 +1718,22 @@ export default function Settings() {
                 </div>
               ) : adRules.length === 0 ? (
                 <div className="p-8 text-center rounded-2xl bg-black/20 border border-dashed border-white/10 text-on-surface-variant text-xs space-y-1">
-                  <p className="font-semibold text-on-surface">Chưa có quy tắc lọc nào được lưu.</p>
-                  <p>Hãy nhập câu văn hoặc từ khóa quảng cáo ở trên để dạy cho AI bỏ qua.</p>
+                  <p className="font-semibold text-on-surface">
+                    Chưa có quy tắc lọc nào được lưu.
+                  </p>
+                  <p>
+                    Hãy nhập câu văn hoặc từ khóa quảng cáo ở trên để dạy cho AI
+                    bỏ qua.
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[380px] overflow-y-auto pr-1">
                   {adRules
-                    .filter((r) => !adRuleSearch || r.toLowerCase().includes(adRuleSearch.toLowerCase()))
+                    .filter(
+                      (r) =>
+                        !adRuleSearch ||
+                        r.toLowerCase().includes(adRuleSearch.toLowerCase()),
+                    )
                     .map((rule, idx) => (
                       <div
                         key={idx}
@@ -1253,7 +1743,10 @@ export default function Settings() {
                           <span className="w-5 h-5 rounded-md bg-white/5 text-on-surface-variant text-[11px] font-mono flex items-center justify-center shrink-0">
                             {idx + 1}
                           </span>
-                          <span className="text-xs font-medium text-on-surface truncate" title={rule}>
+                          <span
+                            className="text-xs font-medium text-on-surface truncate"
+                            title={rule}
+                          >
                             {rule}
                           </span>
                         </div>
@@ -1290,7 +1783,9 @@ export default function Settings() {
                   </h2>
                 </div>
                 <p className="text-xs text-on-surface-variant max-w-2xl">
-                  Ghi lại toàn bộ tiến trình của AI, GPU, kết nối mạng và lỗi chi tiết. Khi cần hỗ trợ kỹ thuật, bạn chỉ cần bấm nút tải file hoặc sao chép nhật ký gửi cho người phát triển.
+                  Ghi lại toàn bộ tiến trình của AI, GPU, kết nối mạng và lỗi
+                  chi tiết. Khi cần hỗ trợ kỹ thuật, bạn chỉ cần bấm nút tải
+                  file hoặc sao chép nhật ký gửi cho người phát triển.
                 </p>
               </div>
 
@@ -1302,7 +1797,7 @@ export default function Settings() {
                       "flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all",
                       isLogAutoRefresh
                         ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-300"
-                        : "bg-amber-500/10 border-amber-500/25 text-amber-300"
+                        : "bg-amber-500/10 border-amber-500/25 text-amber-300",
                     )}
                   >
                     {/* Nút Play / Stop (Mặc định là Play - đang chạy) */}
@@ -1314,14 +1809,14 @@ export default function Settings() {
                         toast.info(
                           next
                             ? `▶️ Đã BẬT tự động làm mới logs (${logRefreshInterval}s)`
-                            : "⏸️ Đã TẠM DỪNG tự động làm mới để bạn dễ dàng xem logs"
+                            : "⏸️ Đã TẠM DỪNG tự động làm mới để bạn dễ dàng xem logs",
                         );
                       }}
                       className={cn(
                         "w-6 h-6 rounded-lg flex items-center justify-center transition-all cursor-pointer shadow-xs",
                         isLogAutoRefresh
                           ? "bg-emerald-500 text-black hover:bg-emerald-400"
-                          : "bg-amber-500 text-black hover:bg-amber-400"
+                          : "bg-amber-500 text-black hover:bg-amber-400",
                       )}
                       title={
                         isLogAutoRefresh
@@ -1355,7 +1850,10 @@ export default function Settings() {
                         const val = Number(e.target.value);
                         setLogRefreshInterval(val);
                         try {
-                          localStorage.setItem("log_refresh_interval", String(val));
+                          localStorage.setItem(
+                            "log_refresh_interval",
+                            String(val),
+                          );
                         } catch {
                           // ignore
                         }
@@ -1373,10 +1871,16 @@ export default function Settings() {
                   </div>
 
                   <span className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-on-surface">
-                    📊 Dung lượng: <strong className="text-primary">{logStats.file_size_kb} KB</strong>
+                    📊 Dung lượng:{" "}
+                    <strong className="text-primary">
+                      {logStats.file_size_kb} KB
+                    </strong>
                   </span>
                   <span className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-on-surface">
-                    📝 Tổng: <strong className="text-primary">{logStats.total_lines} dòng</strong>
+                    📝 Tổng:{" "}
+                    <strong className="text-primary">
+                      {logStats.total_lines} dòng
+                    </strong>
                   </span>
                 </div>
               )}
@@ -1419,7 +1923,12 @@ export default function Settings() {
                   disabled={isLoadingLogs}
                   className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface text-xs flex items-center gap-2 border border-white/10 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <RefreshCw className={cn("w-3.5 h-3.5", isLoadingLogs && "animate-spin text-primary")} />
+                  <RefreshCw
+                    className={cn(
+                      "w-3.5 h-3.5",
+                      isLoadingLogs && "animate-spin text-primary",
+                    )}
+                  />
                   <span>Làm Mới</span>
                 </button>
 
@@ -1454,22 +1963,26 @@ export default function Settings() {
                       "w-9 h-9 rounded-xl flex items-center justify-center transition-all",
                       verboseLogging
                         ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-md shadow-amber-500/10"
-                        : "bg-white/5 text-on-surface-variant border border-white/10"
+                        : "bg-white/5 text-on-surface-variant border border-white/10",
                     )}
                   >
                     <Bug className="w-5 h-5" />
                   </div>
                   <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
-                    <span>Chế Độ Ghi Nhật Ký Chi Tiết Từng Bước (Debug Step Logs)</span>
+                    <span>
+                      Chế Độ Ghi Nhật Ký Chi Tiết Từng Bước (Debug Step Logs)
+                    </span>
                     <span
                       className={cn(
                         "text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border",
                         verboseLogging
                           ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                          : "bg-white/10 text-on-surface-variant border-white/15"
+                          : "bg-white/10 text-on-surface-variant border-white/15",
                       )}
                     >
-                      {verboseLogging ? "ĐANG BẬT (VERBOSE DEBUG)" : "TIÊU CHUẨN (NORMAL)"}
+                      {verboseLogging
+                        ? "ĐANG BẬT (VERBOSE DEBUG)"
+                        : "TIÊU CHUẨN (NORMAL)"}
                     </span>
                   </h3>
                 </div>
@@ -1489,7 +2002,7 @@ export default function Settings() {
                   "px-5 py-3 rounded-2xl font-bold text-xs flex items-center gap-2.5 transition-all shadow-lg cursor-pointer shrink-0 disabled:opacity-50",
                   verboseLogging
                     ? "bg-amber-400 hover:bg-amber-300 text-black shadow-amber-500/25"
-                    : "bg-white/10 hover:bg-white/15 text-on-surface border border-white/15"
+                    : "bg-white/10 hover:bg-white/15 text-on-surface border border-white/15",
                 )}
               >
                 {isTogglingVerbose ? (
@@ -1498,7 +2011,9 @@ export default function Settings() {
                   <Activity className="w-4 h-4" />
                 )}
                 <span>
-                  {verboseLogging ? "Tắt Chế Độ Ghi Chi Tiết" : "Bật Ghi Chi Tiết Từng Bước"}
+                  {verboseLogging
+                    ? "Tắt Chế Độ Ghi Chi Tiết"
+                    : "Bật Ghi Chi Tiết Từng Bước"}
                 </span>
               </button>
             </div>
@@ -1520,12 +2035,14 @@ export default function Settings() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setLogSearch(logSearch === "DEBUG-STEP" ? "" : "DEBUG-STEP")}
+                  onClick={() =>
+                    setLogSearch(logSearch === "DEBUG-STEP" ? "" : "DEBUG-STEP")
+                  }
                   className={cn(
                     "px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer shrink-0",
                     logSearch === "DEBUG-STEP"
                       ? "bg-cyan-500/20 text-cyan-300 border-cyan-400"
-                      : "bg-white/5 text-on-surface-variant hover:text-on-surface border-white/10"
+                      : "bg-white/5 text-on-surface-variant hover:text-on-surface border-white/10",
                   )}
                 >
                   🔍 Debug Steps
@@ -1540,11 +2057,17 @@ export default function Settings() {
                   title="Thay đổi thứ tự hiển thị dòng log"
                 >
                   <ArrowDownUp className="w-3.5 h-3.5 text-primary" />
-                  <span>{logOrder === "desc" ? "Mới nhất trên cùng ⬇" : "Cũ nhất trên cùng ⬆"}</span>
+                  <span>
+                    {logOrder === "desc"
+                      ? "Mới nhất trên cùng ⬇"
+                      : "Cũ nhất trên cùng ⬆"}
+                  </span>
                 </button>
 
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-on-surface-variant">Hiển thị:</span>
+                  <span className="text-xs text-on-surface-variant">
+                    Hiển thị:
+                  </span>
                   <select
                     value={logLinesCount}
                     onChange={(e) => {
@@ -1572,30 +2095,58 @@ export default function Settings() {
                 </div>
               ) : !logContent ? (
                 <div className="py-12 text-center text-on-surface-variant/60">
-                  Chưa có dữ liệu nhật ký nào. Hãy tạo thử giọng hoặc dịch video để ghi nhận hoạt động.
+                  Chưa có dữ liệu nhật ký nào. Hãy tạo thử giọng hoặc dịch video
+                  để ghi nhận hoạt động.
                 </div>
               ) : (
                 <div className="space-y-0.5">
                   {logContent
                     .split("\n")
                     .filter((line) => line.trim().length > 0)
-                    .filter((line) => !logSearch.trim() || line.toLowerCase().includes(logSearch.toLowerCase()))
+                    .filter(
+                      (line) =>
+                        !logSearch.trim() ||
+                        line.toLowerCase().includes(logSearch.toLowerCase()),
+                    )
                     .map((line, idx) => {
-                      const isError = line.includes("[ERROR]") || line.includes("Exception") || line.includes("Traceback") || line.includes("Error:") || line.includes("❌");
-                      const isWarn = line.includes("[WARNING]") || line.includes("[WARN]") || line.includes("⚠️");
-                      const isSuccess = line.includes("✅") || line.includes("🚀") || line.includes("SUCCESS") || line.includes("thành công");
-                      const isStep = line.includes("[DEBUG-STEP]") || line.includes("🔍") || line.includes("[DEBUG-MODE]");
+                      const isError =
+                        line.includes("[ERROR]") ||
+                        line.includes("Exception") ||
+                        line.includes("Traceback") ||
+                        line.includes("Error:") ||
+                        line.includes("❌");
+                      const isWarn =
+                        line.includes("[WARNING]") ||
+                        line.includes("[WARN]") ||
+                        line.includes("⚠️");
+                      const isSuccess =
+                        line.includes("✅") ||
+                        line.includes("🚀") ||
+                        line.includes("SUCCESS") ||
+                        line.includes("thành công");
+                      const isStep =
+                        line.includes("[DEBUG-STEP]") ||
+                        line.includes("🔍") ||
+                        line.includes("[DEBUG-MODE]");
 
                       return (
                         <div
                           key={idx}
                           className={cn(
                             "py-0.5 px-1.5 rounded transition-colors whitespace-pre-wrap break-all",
-                            isError && "bg-rose-500/15 text-rose-300 font-semibold border-l-2 border-rose-500",
-                            isWarn && "bg-amber-500/10 text-amber-300 border-l-2 border-amber-500",
+                            isError &&
+                              "bg-rose-500/15 text-rose-300 font-semibold border-l-2 border-rose-500",
+                            isWarn &&
+                              "bg-amber-500/10 text-amber-300 border-l-2 border-amber-500",
                             isSuccess && "text-emerald-300",
-                            isStep && !isError && "bg-cyan-500/10 text-cyan-300 font-medium border-l-2 border-cyan-400",
-                            !isError && !isWarn && !isSuccess && !isStep && "text-slate-300 hover:bg-white/5"
+                            isStep &&
+                              !isError &&
+                              "bg-cyan-500/10 text-cyan-300 font-medium border-l-2 border-cyan-400",
+                            !isError &&
+                              !isWarn &&
+                              !isSuccess &&
+                              !isStep &&
+                              "text-slate-300 hover:bg-white/5",
                           )}
                         >
                           {line}
@@ -1612,7 +2163,11 @@ export default function Settings() {
       {/* Modal Cập Nhật Tích Hợp Xác Nhận */}
       <AppUpdateModal
         isOpen={isUpdateModalOpen}
-        onClose={() => setIsUpdateModalOpen(false)}
+        onClose={() => {
+          setIsUpdateModalOpen(false);
+          handleCheckUpdate(false);
+          fetchAppVersion();
+        }}
       />
 
       {/* Modal Góp Ý & Báo Lỗi Cho Admin */}
@@ -1623,4 +2178,3 @@ export default function Settings() {
     </div>
   );
 }
-
