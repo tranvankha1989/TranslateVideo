@@ -25,15 +25,23 @@ _is_r2_ready = False
 
 
 def is_r2_configured() -> bool:
-    """Kiểm tra xem các thông tin Cloudflare R2 đã được cấu hình đầy đủ chưa."""
-    return bool(
-        _HAS_BOTO3
-        and R2_ACCOUNT_ID
-        and R2_ACCESS_KEY_ID
-        and R2_SECRET_ACCESS_KEY
-        and R2_BUCKET_NAME
-    )
+    """Kiểm tra xem các thông tin Cloudflare R2 đã được cấu hình đầy đủ chưa và Cloud Sync có đang bật không."""
+    enable_cloud = os.getenv("ENABLE_CLOUD_SYNC", "false").lower() in ("true", "1", "yes")
+    if not enable_cloud:
+        return False
 
+    acc_id = os.getenv("R2_ACCOUNT_ID", "").strip()
+    key_id = os.getenv("R2_ACCESS_KEY_ID", "").strip()
+    secret = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
+    bucket = os.getenv("R2_BUCKET_NAME", "").strip()
+    return bool(_HAS_BOTO3 and acc_id and key_id and secret and bucket)
+
+
+def reset_r2_client():
+    """Làm mới S3 client khi thông tin cấu hình R2 thay đổi."""
+    global _s3_client, _is_r2_ready
+    _s3_client = None
+    _is_r2_ready = False
 
 
 def get_r2_client():
@@ -41,23 +49,30 @@ def get_r2_client():
     global _s3_client, _is_r2_ready
 
     if not is_r2_configured():
+        _s3_client = None
+        _is_r2_ready = False
         return None
 
     if _s3_client is not None:
         return _s3_client
 
+    acc_id = os.getenv("R2_ACCOUNT_ID", "").strip()
+    key_id = os.getenv("R2_ACCESS_KEY_ID", "").strip()
+    secret = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
+    bucket = os.getenv("R2_BUCKET_NAME", "").strip()
+
     try:
-        endpoint_url = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        endpoint_url = f"https://{acc_id}.r2.cloudflarestorage.com"
         _s3_client = boto3.client(
             service_name="s3",
             endpoint_url=endpoint_url,
-            aws_access_key_id=R2_ACCESS_KEY_ID,
-            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            aws_access_key_id=key_id,
+            aws_secret_access_key=secret,
             region_name="auto",
             config=Config(signature_version="s3v4", retries={"max_attempts": 3, "mode": "standard"}),
         )
         _is_r2_ready = True
-        logger.info(f"✅ Đã cấu hình Cloudflare R2 Storage (Bucket: '{R2_BUCKET_NAME}').")
+        logger.info(f"✅ Đã cấu hình Cloudflare R2 Storage (Bucket: '{bucket}').")
         return _s3_client
     except Exception as e:
         logger.warning(f"⚠️ Lỗi khởi tạo Cloudflare R2 client: {e}. Hệ thống sẽ lưu trữ âm thanh cục bộ.")

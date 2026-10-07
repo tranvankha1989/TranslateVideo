@@ -52,7 +52,8 @@ export function AudioRecordItem({
   onDeleteRequest: (record: AudioRecord) => void;
 }) {
   const navigate = useNavigate();
-  const { projects, updateRecordProject, setPendingVoiceForVideo } = useTTSStore();
+  const { projects, updateRecordProject, setPendingVoiceForVideo } =
+    useTTSStore();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleEditVideo = () => {
@@ -310,14 +311,16 @@ function VideoProjectCard({
             <div>
               <div className="flex items-center gap-2">
                 <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-bold font-mono">
-                  {project.source_lang?.toUpperCase() || "AUTO"} ➔ {project.target_lang?.toUpperCase() || "VI"}
+                  {project.source_lang?.toUpperCase() || "AUTO"} ➔{" "}
+                  {project.target_lang?.toUpperCase() || "VI"}
                 </span>
                 <span className="text-xs font-mono text-on-surface-variant">
                   #{project.task_id.substring(0, 10)}
                 </span>
               </div>
               <h3 className="text-sm font-semibold text-on-surface mt-1">
-                {project.video_filename || `Dự án Dịch Video ${project.task_id.substring(0, 8)}`}
+                {project.video_filename ||
+                  `Dự án Dịch Video ${project.task_id.substring(0, 8)}`}
               </h3>
             </div>
 
@@ -332,23 +335,37 @@ function VideoProjectCard({
           <div className="flex flex-wrap gap-2 text-[11px] pt-1">
             <span className="px-2 py-0.5 rounded-lg bg-surface-variant border border-white/5 text-on-surface-variant flex items-center gap-1">
               <Languages className="w-3 h-3 text-cyan-400" />
-              Engine: <strong className="text-on-surface font-mono">{project.translation_engine || "Google"}</strong>
+              Engine:{" "}
+              <strong className="text-on-surface font-mono">
+                {project.translation_engine || "Google"}
+              </strong>
             </span>
             <span className="px-2 py-0.5 rounded-lg bg-surface-variant border border-white/5 text-on-surface-variant flex items-center gap-1">
               <Volume2 className="w-3 h-3 text-amber-400" />
-              Voice: <strong className="text-on-surface font-mono">{project.voice_id || "Mặc định"}</strong>
+              Voice:{" "}
+              <strong className="text-on-surface font-mono">
+                {project.voice_id || "Mặc định"}
+              </strong>
             </span>
-            {project.video_duration !== undefined && project.video_duration > 0 && (
-              <span className="px-2 py-0.5 rounded-lg bg-surface-variant border border-white/5 text-on-surface-variant flex items-center gap-1">
-                ⏱️ Thời lượng: <strong className="text-on-surface font-mono">{formatDuration(project.video_duration)}</strong>
-              </span>
-            )}
-            {project.video_size_mb !== undefined && project.video_size_mb > 0 && (
-              <span className="px-2 py-0.5 rounded-lg bg-surface-variant border border-white/5 text-on-surface-variant flex items-center gap-1">
-                <HardDrive className="w-3 h-3 text-emerald-400" />
-                Dung lượng: <strong className="text-on-surface font-mono">{project.video_size_mb.toFixed(1)} MB</strong>
-              </span>
-            )}
+            {project.video_duration !== undefined &&
+              project.video_duration > 0 && (
+                <span className="px-2 py-0.5 rounded-lg bg-surface-variant border border-white/5 text-on-surface-variant flex items-center gap-1">
+                  ⏱️ Thời lượng:{" "}
+                  <strong className="text-on-surface font-mono">
+                    {formatDuration(project.video_duration)}
+                  </strong>
+                </span>
+              )}
+            {project.video_size_mb !== undefined &&
+              project.video_size_mb > 0 && (
+                <span className="px-2 py-0.5 rounded-lg bg-surface-variant border border-white/5 text-on-surface-variant flex items-center gap-1">
+                  <HardDrive className="w-3 h-3 text-emerald-400" />
+                  Dung lượng:{" "}
+                  <strong className="text-on-surface font-mono">
+                    {project.video_size_mb.toFixed(1)} MB
+                  </strong>
+                </span>
+              )}
           </div>
         </div>
 
@@ -447,7 +464,9 @@ export default function Library() {
   const fetchVideoProjects = useCallback(async () => {
     setIsLoadingProjects(true);
     try {
-      const res = await fetch("http://localhost:8000/api/video-translate/tasks");
+      const res = await fetch(
+        "http://localhost:8000/api/video-translate/tasks",
+      );
       if (!res.ok) throw new Error("Không thể tải danh sách dự án video");
       const data = await res.json();
       setVideoProjects(data.tasks || []);
@@ -470,7 +489,7 @@ export default function Library() {
         // 1. Dọn dẹp video projects cũ trên backend
         const res = await fetch(
           `http://localhost:8000/api/video-translate/cleanup-expired?days=${days}`,
-          { method: "POST" }
+          { method: "POST" },
         );
         if (res.ok) {
           const data = await res.json();
@@ -491,7 +510,7 @@ export default function Library() {
         if (deletedVideos > 0 || deletedAudios > 0) {
           fetchVideoProjects();
           toast.success(
-            `🧹 Đã tự động dọn dẹp ${deletedVideos} dự án video và ${deletedAudios} bản thu âm cũ hơn ${days} ngày (giải phóng ${totalFreedMb.toFixed(1)} MB)!`
+            `🧹 Đã tự động dọn dẹp ${deletedVideos} dự án video và ${deletedAudios} bản thu âm cũ hơn ${days} ngày (giải phóng ${totalFreedMb.toFixed(1)} MB)!`,
           );
         } else if (notifyUser) {
           toast.info(`Không có dữ liệu nào cũ hơn ${days} ngày cần dọn dẹp.`);
@@ -500,7 +519,7 @@ export default function Library() {
         if (notifyUser) toast.error(`Lỗi khi dọn dẹp tự động: ${e.message}`);
       }
     },
-    [history, removeHistory, fetchVideoProjects]
+    [history, removeHistory, fetchVideoProjects],
   );
 
   const handleRetentionDaysChange = (days: number) => {
@@ -508,7 +527,7 @@ export default function Library() {
     localStorage.setItem("library_retention_days", String(days));
     if (days > 0) {
       toast.success(
-        `Đã lưu cấu hình: Tự động xóa dữ liệu sau ${days} ngày để giải phóng dung lượng.`
+        `Đã lưu cấu hình: Tự động xóa dữ liệu sau ${days} ngày để giải phóng dung lượng.`,
       );
       runAutoCleanup(days, true);
     } else {
@@ -536,7 +555,7 @@ export default function Library() {
       try {
         const res = await fetch(
           `http://localhost:8000/api/video-translate/tasks/${taskId}`,
-          { method: "DELETE" }
+          { method: "DELETE" },
         );
         if (!res.ok) throw new Error("Lỗi khi xóa dự án");
         toast.success("Đã xóa vĩnh viễn dự án video thành công!");
@@ -544,7 +563,10 @@ export default function Library() {
       } catch (e: any) {
         toast.error(e.message || "Không thể xóa dự án video");
       }
-    } else if (deleteTarget.type === "audio_single" && deleteTarget.audioRecord) {
+    } else if (
+      deleteTarget.type === "audio_single" &&
+      deleteTarget.audioRecord
+    ) {
       const recordId = deleteTarget.audioRecord.id;
       setDeleteTarget(null);
       try {
@@ -565,7 +587,7 @@ export default function Library() {
     const toastId = toast.loading(
       activeTab === "video"
         ? "Đang xóa toàn bộ lịch sử video và giải phóng ổ đĩa..."
-        : "Đang xóa toàn bộ lịch sử phòng thu và file âm thanh..."
+        : "Đang xóa toàn bộ lịch sử phòng thu và file âm thanh...",
     );
 
     try {
@@ -573,13 +595,19 @@ export default function Library() {
 
       if (activeTab === "video") {
         // 1. Xóa toàn bộ dự án video trên backend
-        const resVt = await fetch("http://localhost:8000/api/video-translate/tasks", { method: "DELETE" });
+        const resVt = await fetch(
+          "http://localhost:8000/api/video-translate/tasks",
+          { method: "DELETE" },
+        );
         if (resVt.ok) {
           const dataVt = await resVt.json();
           totalFreed += Number(dataVt.freed_mb || 0);
         }
         // Dọn thêm cache alignment & captions tạm của video
-        const resCleanup = await fetch("http://localhost:8000/api/video-translate/cleanup-cache", { method: "POST" });
+        const resCleanup = await fetch(
+          "http://localhost:8000/api/video-translate/cleanup-cache",
+          { method: "POST" },
+        );
         if (resCleanup.ok) {
           const dataCleanup = await resCleanup.json();
           totalFreed += Number(dataCleanup.freed_mb || 0);
@@ -587,7 +615,7 @@ export default function Library() {
         setVideoProjects([]);
         toast.success(
           `Đã xóa toàn bộ lịch sử Dịch Video và giải phóng ${totalFreed.toFixed(1)} MB dung lượng!`,
-          { id: toastId }
+          { id: toastId },
         );
       } else {
         // 2. Xóa toàn bộ bản thu âm phòng thu
@@ -600,7 +628,7 @@ export default function Library() {
         }
         toast.success(
           `Đã xóa toàn bộ lịch sử Phòng Thu và giải phóng ${totalFreed.toFixed(1)} MB dung lượng!`,
-          { id: toastId }
+          { id: toastId },
         );
       }
 
@@ -639,7 +667,8 @@ export default function Library() {
                 Thư Viện Đa Phương Tiện
               </h1>
               <p className="text-xs text-on-surface-variant mt-0.5">
-                Quản lý lịch sử dự án dịch thuật video và các bản thu âm giọng đọc phòng thu
+                Quản lý lịch sử dự án dịch thuật video và các bản thu âm giọng
+                đọc phòng thu
               </p>
             </div>
           </div>
@@ -649,11 +678,15 @@ export default function Library() {
             {/* Bộ chọn thời gian lưu trữ dữ liệu (Retention Policy) */}
             <div className="flex items-center gap-2 bg-surface-dim/90 border border-white/10 px-3 py-2 rounded-xl text-xs shadow-xs">
               <Clock className="w-4 h-4 text-primary shrink-0" />
-              <span className="text-on-surface-variant font-medium hidden sm:inline">Lưu trữ tối đa:</span>
+              <span className="text-on-surface-variant font-medium hidden sm:inline">
+                Lưu trữ tối đa:
+              </span>
               <select
                 value={retentionDays}
-                onChange={(e) => handleRetentionDaysChange(Number(e.target.value))}
-                className="bg-surface-variant text-on-surface font-semibold text-xs px-2.5 py-1 rounded-lg border border-white/10 focus:outline-none focus:border-primary cursor-pointer hover:bg-white/10 transition-colors"
+                onChange={(e) =>
+                  handleRetentionDaysChange(Number(e.target.value))
+                }
+                className="bg-surface-variant text-on-surface font-semibold text-xs px-2.5 py-1 rounded-lg border border-white/10 focus:outline-none focus:border-primary cursor-pointer  transition-colors"
                 title="Dữ liệu cũ hơn thời gian này sẽ tự động được xóa để giải phóng dung lượng đĩa"
               >
                 <option value={3}>3 ngày</option>
@@ -671,7 +704,9 @@ export default function Library() {
                   className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-40"
                   title="Dọn dẹp ngay các tệp cũ hơn thời hạn"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isCleaning ? "animate-spin" : ""}`} />
+                  <RefreshCw
+                    className={`w-3 h-3 ${isCleaning ? "animate-spin" : ""}`}
+                  />
                   <span className="hidden md:inline">Dọn ngay</span>
                 </button>
               )}
@@ -681,7 +716,12 @@ export default function Library() {
             <button
               type="button"
               onClick={() => setDeleteTarget({ type: "clear_active_tab" })}
-              disabled={isCleaning || (activeTab === "video" ? videoProjects.length === 0 : history.length === 0)}
+              disabled={
+                isCleaning ||
+                (activeTab === "video"
+                  ? videoProjects.length === 0
+                  : history.length === 0)
+              }
               className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
               title={
                 activeTab === "video"
@@ -691,7 +731,9 @@ export default function Library() {
             >
               <Trash2 className="w-4 h-4 text-rose-400" />
               <span>
-                {activeTab === "video" ? "Xóa Bộ Nhớ Video" : "Xóa Bộ Nhớ Phòng Thu"}
+                {activeTab === "video"
+                  ? "Xóa Bộ Nhớ Video"
+                  : "Xóa Bộ Nhớ Phòng Thu"}
               </span>
             </button>
           </div>
@@ -751,7 +793,9 @@ export default function Library() {
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-variant hover:bg-white/10 text-on-surface border border-white/10 text-xs font-semibold transition-all cursor-pointer"
                 title="Làm mới danh sách dự án"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingProjects ? "animate-spin text-primary" : ""}`} />
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${isLoadingProjects ? "animate-spin text-primary" : ""}`}
+                />
                 Làm mới
               </button>
             </div>
@@ -760,13 +804,17 @@ export default function Library() {
           {isLoadingProjects ? (
             <div className="py-16 flex flex-col items-center justify-center gap-3 text-on-surface-variant">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              <span className="text-xs font-medium">Đang tải danh sách dự án dịch video...</span>
+              <span className="text-xs font-medium">
+                Đang tải danh sách dự án dịch video...
+              </span>
             </div>
           ) : filteredVideoProjects.length === 0 ? (
             <div className="p-12 text-center text-on-surface-variant font-mono-data text-mono-data border border-dashed border-white/10 rounded-2xl bg-surface-dim flex flex-col items-center gap-3">
               <Film className="w-10 h-10 text-on-surface-variant/40" />
               <p className="text-sm text-on-surface">
-                {searchQuery ? "Không tìm thấy dự án video phù hợp với từ khóa." : "Chưa có dự án dịch video nào được lưu lại."}
+                {searchQuery
+                  ? "Không tìm thấy dự án video phù hợp với từ khóa."
+                  : "Chưa có dự án dịch video nào được lưu lại."}
               </p>
               {!searchQuery && (
                 <button
@@ -800,7 +848,8 @@ export default function Library() {
         <div className="flex flex-col gap-6 animate-fadeIn">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <span className="text-xs font-medium text-on-surface-variant">
-              Hiển thị các bản thu âm và chuyển văn bản thành giọng nói đã tạo từ Voice Studio Pro
+              Hiển thị các bản thu âm và chuyển văn bản thành giọng nói đã tạo
+              từ Voice Studio Pro
             </span>
 
             <div className="flex items-center gap-3">
@@ -846,8 +895,11 @@ export default function Library() {
                     Trang trước
                   </button>
                   <div className="font-mono-data text-xs text-on-surface-variant">
-                    Trang <span className="text-primary font-bold">{currentPage}</span> /{" "}
-                    {totalPages}
+                    Trang{" "}
+                    <span className="text-primary font-bold">
+                      {currentPage}
+                    </span>{" "}
+                    / {totalPages}
                   </div>
                   <button
                     onClick={() =>
@@ -913,19 +965,23 @@ export default function Library() {
                     {deleteTarget.type === "video_single"
                       ? "Xác Nhận Xóa Dự Án Video"
                       : deleteTarget.type === "audio_single"
-                      ? "Xác Nhận Xóa Bản Thu Âm"
-                      : activeTab === "video"
-                      ? "Xác Nhận Xóa Toàn Bộ Lịch Sử Video"
-                      : "Xác Nhận Xóa Toàn Bộ Lịch Sử Phòng Thu"}
+                        ? "Xác Nhận Xóa Bản Thu Âm"
+                        : activeTab === "video"
+                          ? "Xác Nhận Xóa Toàn Bộ Lịch Sử Video"
+                          : "Xác Nhận Xóa Toàn Bộ Lịch Sử Phòng Thu"}
                   </h3>
                   <div className="text-xs text-on-surface-variant leading-relaxed">
                     {deleteTarget.type === "video_single" && (
                       <>
                         Bạn có chắc chắn muốn xóa vĩnh viễn dự án video{" "}
                         <strong className="text-on-surface font-semibold">
-                          "{deleteTarget.videoProject?.video_filename || deleteTarget.videoProject?.task_id}"
+                          "
+                          {deleteTarget.videoProject?.video_filename ||
+                            deleteTarget.videoProject?.task_id}
+                          "
                         </strong>
-                        ? Toàn bộ file video thành phẩm MP4, file phụ đề SRT và tài nguyên tạm sẽ bị xóa để giải phóng dung lượng đĩa.
+                        ? Toàn bộ file video thành phẩm MP4, file phụ đề SRT và
+                        tài nguyên tạm sẽ bị xóa để giải phóng dung lượng đĩa.
                       </>
                     )}
                     {deleteTarget.type === "audio_single" && (
@@ -933,23 +989,27 @@ export default function Library() {
                         Bạn có chắc muốn xóa bản thu âm{" "}
                         <span className="italic text-on-surface font-semibold">
                           "{deleteTarget.audioRecord?.text?.slice(0, 80)}
-                          {(deleteTarget.audioRecord?.text?.length || 0) > 80 ? "..." : ""}"
+                          {(deleteTarget.audioRecord?.text?.length || 0) > 80
+                            ? "..."
+                            : ""}
+                          "
                         </span>
                         ? File âm thanh này sẽ bị xóa hoàn toàn khỏi hệ thống.
                       </>
                     )}
-                    {deleteTarget.type === "clear_active_tab" && (
-                      activeTab === "video"
+                    {deleteTarget.type === "clear_active_tab" &&
+                      (activeTab === "video"
                         ? `Bạn có chắc chắn muốn xóa toàn bộ ${videoProjects.length} dự án dịch video và tất cả các file video đã render, file phụ đề để giải phóng dung lượng ổ cứng?`
-                        : `Bạn có chắc chắn muốn xóa toàn bộ ${history.length} bản thu âm giọng đọc và các file âm thanh đã lưu để giải phóng dung lượng ổ cứng?`
-                    )}
+                        : `Bạn có chắc chắn muốn xóa toàn bộ ${history.length} bản thu âm giọng đọc và các file âm thanh đã lưu để giải phóng dung lượng ổ cứng?`)}
                   </div>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
-                <span>Hành động này không thể hoàn tác sau khi đã thực hiện.</span>
+                <span>
+                  Hành động này không thể hoàn tác sau khi đã thực hiện.
+                </span>
               </div>
 
               {/* Action Buttons */}
@@ -968,7 +1028,11 @@ export default function Library() {
                   disabled={isCleaning}
                   className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  {isCleaning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  {isCleaning ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
                   <span>
                     {deleteTarget.type === "clear_active_tab"
                       ? activeTab === "video"
@@ -980,7 +1044,7 @@ export default function Library() {
               </div>
             </div>
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );

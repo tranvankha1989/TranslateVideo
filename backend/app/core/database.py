@@ -19,7 +19,7 @@ _is_connected: bool = False
 async def connect_db() -> bool:
     """
     Khởi tạo kết nối tới MongoDB Atlas.
-    Tự động fallback về Local Mode nếu không có URI hoặc mất kết nối.
+    Tự động fallback về Local Mode nếu không có URI, chưa bật Cloud Sync hoặc mất kết nối.
     """
     global _client, _db, _is_connected
 
@@ -29,25 +29,42 @@ async def connect_db() -> bool:
         _db = None
         return False
 
-    if not MONGODB_URI:
-        logger.info("ℹ️ Không tìm thấy MONGODB_URI trong .env. Hệ thống chạy ở chế độ CỤC BỘ (Local Mode - LocalStorage).")
-        _is_connected = False
-        _db = None
-        return False
+    import os
+    enable_cloud = os.getenv("ENABLE_CLOUD_SYNC", "false").lower() in ("true", "1", "yes")
+    uri = os.getenv("MONGODB_URI", "").strip()
+    db_name = os.getenv("MONGODB_DB_NAME", "omnivoice").strip()
 
+    if not enable_cloud or not uri:
+        logger.info("ℹ️ Chức năng Cloud Sync đang TẮT hoặc chưa cấu hình MONGODB_URI. Hệ thống chạy ở chế độ CỤC BỘ (Local Mode).")
+        if _client:
+            try:
+                _client.close()
+            except Exception:
+                pass
+            _client = None
+        _db = None
+        _is_connected = False
+        return False
 
     try:
         logger.info("🔄 Đang kiểm tra kết nối tới MongoDB Atlas Cloud...")
+        if _client:
+            try:
+                _client.close()
+            except Exception:
+                pass
+            _client = None
+
         _client = AsyncIOMotorClient(
-            MONGODB_URI,
-            serverSelectionTimeoutMS=3000,
-            connectTimeoutMS=3000,
+            uri,
+            serverSelectionTimeoutMS=3500,
+            connectTimeoutMS=3500,
         )
         # Ping để kiểm tra thực tế
         await _client.admin.command("ping")
-        _db = _client[MONGODB_DB_NAME]
+        _db = _client[db_name]
         _is_connected = True
-        logger.info(f"✅ Kết nối MongoDB Atlas Cloud thành công! Database: '{MONGODB_DB_NAME}'.")
+        logger.info(f"✅ Kết nối MongoDB Atlas Cloud thành công! Database: '{db_name}'.")
         return True
     except Exception as e:
         logger.warning(
@@ -56,7 +73,10 @@ async def connect_db() -> bool:
         _is_connected = False
         _db = None
         if _client:
-            _client.close()
+            try:
+                _client.close()
+            except Exception:
+                pass
             _client = None
         return False
 
