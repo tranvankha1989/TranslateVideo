@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn, execSync } = require("child_process");
@@ -19,6 +19,7 @@ function getProjectPaths() {
   } else {
     // Khi đóng gói (Production)
     const possibleRoots = [
+      path.resolve(process.resourcesPath, "../../.."), // Khi test trực tiếp trong frontend/release/win-unpacked
       path.resolve(process.resourcesPath, ".."),
       path.resolve(process.resourcesPath, "app.asar.unpacked"),
       path.resolve(app.getAppPath(), ".."),
@@ -138,9 +139,15 @@ async function createMainWindow() {
     }
   });
 
-  // Chặn mở DevTools và phím tắt Debug (F12, Ctrl+Shift+I, Ctrl+U) trong bản Production
-  if (app.isPackaged) {
-    mainWindow.webContents.on("before-input-event", (event, input) => {
+  // Cho phép phím F5 / Ctrl+R để reload giao diện (bỏ qua cache)
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.key === "F5" || (input.control && input.key.toLowerCase() === "r")) {
+      mainWindow.webContents.reloadIgnoringCache();
+      event.preventDefault();
+      return;
+    }
+    // Chặn mở DevTools và phím tắt Debug (F12, Ctrl+Shift+I, Ctrl+U) trong bản Production
+    if (app.isPackaged) {
       if (
         (input.control && input.shift && (input.key.toLowerCase() === "i" || input.key.toLowerCase() === "j")) ||
         input.key === "F12" ||
@@ -148,8 +155,8 @@ async function createMainWindow() {
       ) {
         event.preventDefault();
       }
-    });
-  }
+    }
+  });
 
   // Mở các link target=_blank bên ngoài bằng trình duyệt mặc định của hệ điều hành
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -261,10 +268,18 @@ async function createMainWindow() {
 
   // Chờ Backend sẵn sàng rồi chuyển sang URL chính
   const isReady = await checkHealth();
-  if (isReady && mainWindow) {
-    mainWindow.loadURL("http://127.0.0.1:8000");
-  } else if (mainWindow) {
-    mainWindow.loadURL("http://127.0.0.1:8000");
+  try {
+    if (mainWindow && mainWindow.webContents && mainWindow.webContents.session) {
+      await mainWindow.webContents.session.clearCache();
+    }
+  } catch (e) {}
+
+  const loadOptions = {
+    extraHeaders: "pragma: no-cache\ncache-control: no-cache\n"
+  };
+
+  if (mainWindow) {
+    mainWindow.loadURL("http://127.0.0.1:8000", loadOptions);
   }
 
   mainWindow.on("closed", () => {

@@ -1,6 +1,6 @@
 {
-  "version": "3.11.3",
+  "version": "3.12.0",
   "name": "VideoTranslate AI",
-  "release_date": "2026-10-06",
-  "description": "Nâng cấp V3.11.3: Hoàn thiện hiệu ứng Frosted Backdrop Blur đa tầng sắc nét."
+  "release_date": "2026-10-07",
+  "description": "Nâng cấp V3.12.0: Thêm tính năng lưu trữ dữ liệu qua MongoDB và Cloudflare R2. Tối ưu hoá UI"
 }

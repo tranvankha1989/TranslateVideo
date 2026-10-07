@@ -1,9 +1,9 @@
 ; Script Inno Setup 7.x - Dong goi VideoTranslate AI Desktop App (Electron + Standalone AI Runtime)
 ; Tac gia: Tran Van Kha
-; Phien ban: 3.11.0
+; Phien ban: 3.12.0
 
 #define MyAppName "VideoTranslate AI"
-#define MyAppVersion "3.11.0"
+#define MyAppVersion "3.12.0"
 #define MyAppPublisher "Tran Van Kha"
 #define MyAppURL "https://github.com/tranvankha1989/TranslateVideo"
 #define MyAppExeName "VideoTranslate AI.exe"
