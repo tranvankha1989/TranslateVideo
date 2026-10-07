@@ -65,26 +65,45 @@ class TestRemoteGpuResponse(BaseModel):
 
 def _update_env_file(updates: dict[str, str]) -> None:
     """Cập nhật các biến trong file .env an toàn mà không làm mất comment hay cấu trúc khác."""
-    env_path = ENV_FILE
-    content = ""
-    if env_path.exists():
-        try:
-            content = env_path.read_text(encoding="utf-8")
-        except Exception:
-            content = env_path.read_text(encoding="latin-1")
-
+    # Cập nhật ngay vào os.environ để có hiệu lực tức thì trong runtime hiện tại
     for key, val in updates.items():
-        pattern = rf"^{re.escape(key)}=.*$"
-        replacement = f"{key}={val}"
-        if re.search(pattern, content, flags=re.MULTILINE):
-            content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
-        else:
-            if content and not content.endswith("\n"):
-                content += "\n"
-            content += f"{replacement}\n"
+        os.environ[key] = str(val)
 
-    env_path.write_text(content, encoding="utf-8")
-    load_dotenv(env_path, override=True)
+    # Tìm tất cả file .env cần đồng bộ
+    target_paths = []
+    for candidate_dir in [BASE_DIR, PROJECT_ROOT, BASE_DIR.parent]:
+        p = candidate_dir / ".env"
+        if p.exists() or candidate_dir == BASE_DIR:
+            if p not in target_paths:
+                target_paths.append(p)
+
+    for env_path in target_paths:
+        content = ""
+        if env_path.exists():
+            try:
+                content = env_path.read_text(encoding="utf-8")
+            except Exception:
+                try:
+                    content = env_path.read_text(encoding="latin-1")
+                except Exception:
+                    content = ""
+
+        for key, val in updates.items():
+            pattern = rf"^{re.escape(key)}=.*$"
+            replacement = f"{key}={val}"
+            if re.search(pattern, content, flags=re.MULTILINE):
+                content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+            else:
+                if content and not content.endswith("\n"):
+                    content += "\n"
+                content += f"{replacement}\n"
+
+        try:
+            env_path.write_text(content, encoding="utf-8")
+            load_dotenv(env_path, override=True)
+        except Exception as e:
+            logger.warning(f"Không thể ghi file .env tại {env_path}: {e}")
+
 
 
 @router.get("/hardware", response_model=HardwareSettingsResponse, summary="Lấy cấu hình phần cứng hiện tại")

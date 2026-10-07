@@ -70,6 +70,12 @@ Source: "..\build_staging\backend\*"; DestDir: "{app}\backend"; Flags: ignorever
 Source: "..\version.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\version.json"; DestDir: "{app}\backend"; Flags: ignoreversion
 
+[InstallDelete]
+; Tu dong don dep cac file ma nguon .py cu tranh viec Python uu tien import file .py cu thay vi bytecode .pyc moi nhat
+Type: files; Name: "{app}\backend\*.py"
+Type: filesandordirs; Name: "{app}\backend\app"
+
+
 [Dirs]
 ; Tao san cac thu muc luu tru trong %LocalAppData% de ung dung tu do doc ghi khong bi loi permission
 Name: "{app}\backend\outputs"
