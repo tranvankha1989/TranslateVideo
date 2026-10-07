@@ -560,14 +560,28 @@ export default function Settings() {
       );
 
       if (hwSuccess && syncRes.ok) {
+        const syncData = await syncRes.json().catch(() => ({}));
         await checkStorageStatus();
-        toast.success(
-          isCloudSyncEnabled
-            ? "Đã lưu cấu hình GPU & Bật đồng bộ Đám mây (MongoDB Atlas)!"
-            : "Đã lưu cấu hình GPU & Chế độ Cục bộ (Local Mode)!",
+        if (isCloudSyncEnabled) {
+          if (syncData.mongo_connected) {
+            toast.success(
+              "Đã lưu cấu hình & Bật đồng bộ Đám mây (MongoDB Atlas) thành công!",
+            );
+            // Tự động đồng bộ các dữ liệu hiện có trong LocalStorage lên Cloud
+            syncAllToCloud().catch(() => {});
+          } else {
+            toast.warning(
+              "Đã lưu cấu hình, nhưng chưa thể kết nối MongoDB Atlas. Vui lòng kiểm tra lại chuỗi URI!",
+            );
+          }
+        } else {
+          toast.success("Đã lưu cấu hình GPU & Chế độ Cục bộ (Local Mode)!");
+        }
+      } else if (!syncRes.ok) {
+        const errJson = await syncRes.json().catch(() => null);
+        toast.error(
+          `Không thể lưu Cloud Sync: ${errJson?.detail || "Lỗi máy chủ " + syncRes.status}`,
         );
-      } else if (hwSuccess) {
-        toast.success("Đã lưu cấu hình GPU, nhưng chưa lưu được Cloud Sync.");
       } else {
         toast.error("Không thể lưu cấu hình vào file .env.");
       }
