@@ -3,7 +3,6 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTTSStore } from "@/store/useTTSStore";
-import { APP_VERSION } from "@/constants/version";
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },
@@ -22,7 +21,6 @@ export function MainLayout() {
     (state) => state.fetchHardwareSettings,
   );
   const syncStatus = useTTSStore((state) => state.syncStatus);
-  const appVersionInfo = useTTSStore((state) => state.appVersionInfo);
   const fetchAppVersion = useTTSStore((state) => state.fetchAppVersion);
 
   // Tự động kiểm tra trạng thái lưu trữ đám mây, cấu hình phần cứng & version khi khởi động

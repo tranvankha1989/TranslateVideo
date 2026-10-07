@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$Root = "d:\Program File\AI\Video_Translate\self-tts"
+$Root = if ($PSScriptRoot) { (Resolve-Path "$PSScriptRoot\..").Path } else { (Get-Location).Path }
 Set-Location $Root
 
 Write-Host "====================================================================" -ForegroundColor Cyan
