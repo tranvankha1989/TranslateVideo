@@ -14,6 +14,8 @@ import {
   RotateCcw,
   ArrowDownToLine,
   Clock,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CaptionSegment, WordTiming } from "@/utils/silenceDetector";
@@ -83,17 +85,19 @@ export function TranscriptDocEditor({
       return;
     }
 
+    const lowerWord = cleanText.toLowerCase();
+
     const nextSegments = segments.map((seg) => {
       if (seg.id !== segId) return seg;
       const updatedWords = [...seg.words];
       if (updatedWords[wordIdx]) {
         updatedWords[wordIdx] = {
           ...updatedWords[wordIdx],
-          word: cleanText,
+          word: lowerWord,
         };
       }
       // Đồng bộ lại text của toàn bộ segment
-      const newFullText = updatedWords.map((w) => w.word).join(" ");
+      const newFullText = updatedWords.map((w) => w.word.toLowerCase()).join(" ");
       return {
         ...seg,
         text: newFullText,
@@ -113,7 +117,7 @@ export function TranscriptDocEditor({
   };
 
   const handleSaveSeg = (segId: number) => {
-    const cleanText = editingSegText.trim();
+    const cleanText = editingSegText.trim().toLowerCase();
     if (!cleanText) {
       setEditingSegId(null);
       return;
@@ -141,6 +145,8 @@ export function TranscriptDocEditor({
 
       return {
         ...seg,
+        start: recomputedWords.length > 0 ? recomputedWords[0].start : seg.start,
+        end: recomputedWords.length > 0 ? recomputedWords[recomputedWords.length - 1].end : seg.end,
         text: cleanText,
         words: recomputedWords,
       };
@@ -222,6 +228,93 @@ export function TranscriptDocEditor({
     const next = segments.filter((s) => s.id !== segId);
     onUpdateSegments(next);
     toast.info("Đã xóa câu thoại");
+  };
+
+  // ─── Shift Word to Prev / Next Segment (Tự động co giãn timeline) ──────────
+  const handleShiftWordToPrev = (segIdx: number) => {
+    if (segIdx <= 0 || segIdx >= segments.length) return;
+    const curSeg = segments[segIdx];
+    const prevSeg = segments[segIdx - 1];
+
+    if (!curSeg.words || curSeg.words.length === 0) return;
+
+    // Lấy từ đầu tiên của câu hiện tại
+    const wordToShift = curSeg.words[0];
+    const remainingCurWords = curSeg.words.slice(1);
+    const newPrevWords = [...(prevSeg.words || []), wordToShift];
+
+    // Cập nhật câu trước
+    const updatedPrevSeg: CaptionSegment = {
+      ...prevSeg,
+      words: newPrevWords,
+      start: newPrevWords[0].start,
+      end: newPrevWords[newPrevWords.length - 1].end,
+      text: newPrevWords.map((w) => w.word).join(" "),
+    };
+
+    const nextSegments = [...segments];
+    nextSegments[segIdx - 1] = updatedPrevSeg;
+
+    // Nếu câu hiện tại hết từ, xóa câu hiện tại; nếu còn từ thì cập nhật
+    if (remainingCurWords.length === 0) {
+      nextSegments.splice(segIdx, 1);
+      toast.success(`Đã chuyển từ "${wordToShift.word}" lên câu trước và gộp câu!`);
+    } else {
+      const updatedCurSeg: CaptionSegment = {
+        ...curSeg,
+        words: remainingCurWords,
+        start: remainingCurWords[0].start,
+        end: remainingCurWords[remainingCurWords.length - 1].end,
+        text: remainingCurWords.map((w) => w.word).join(" "),
+      };
+      nextSegments[segIdx] = updatedCurSeg;
+      toast.success(`Đã chuyển từ "${wordToShift.word}" lên câu trước (Timeline tự khớp)!`);
+    }
+
+    onUpdateSegments(nextSegments);
+  };
+
+  const handleShiftWordToNext = (segIdx: number) => {
+    if (segIdx < 0 || segIdx >= segments.length - 1) return;
+    const curSeg = segments[segIdx];
+    const nextSeg = segments[segIdx + 1];
+
+    if (!curSeg.words || curSeg.words.length === 0) return;
+
+    // Lấy từ cuối cùng của câu hiện tại
+    const wordToShift = curSeg.words[curSeg.words.length - 1];
+    const remainingCurWords = curSeg.words.slice(0, -1);
+    const newNextWords = [wordToShift, ...(nextSeg.words || [])];
+
+    // Cập nhật câu sau
+    const updatedNextSeg: CaptionSegment = {
+      ...nextSeg,
+      words: newNextWords,
+      start: newNextWords[0].start,
+      end: newNextWords[newNextWords.length - 1].end,
+      text: newNextWords.map((w) => w.word).join(" "),
+    };
+
+    const nextSegments = [...segments];
+    nextSegments[segIdx + 1] = updatedNextSeg;
+
+    // Nếu câu hiện tại hết từ, xóa câu hiện tại; nếu còn từ thì cập nhật
+    if (remainingCurWords.length === 0) {
+      nextSegments.splice(segIdx, 1);
+      toast.success(`Đã chuyển từ "${wordToShift.word}" xuống câu sau và gộp câu!`);
+    } else {
+      const updatedCurSeg: CaptionSegment = {
+        ...curSeg,
+        words: remainingCurWords,
+        start: remainingCurWords[0].start,
+        end: remainingCurWords[remainingCurWords.length - 1].end,
+        text: remainingCurWords.map((w) => w.word).join(" "),
+      };
+      nextSegments[segIdx] = updatedCurSeg;
+      toast.success(`Đã chuyển từ "${wordToShift.word}" xuống câu sau (Timeline tự khớp)!`);
+    }
+
+    onUpdateSegments(nextSegments);
   };
 
   // ─── Find & Replace Execution ─────────────────────────────────────────────
@@ -353,10 +446,36 @@ export function TranscriptDocEditor({
 
                   {/* Actions on Segment */}
                   <div className="flex items-center gap-1 opacity-0 group-hover/seg:opacity-100 transition-opacity">
+                    {/* Nút Đẩy 1 từ lên câu trước */}
+                    {segIdx > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleShiftWordToPrev(segIdx)}
+                        className="px-1.5 py-0.5 hover:bg-primary/20 text-on-surface-variant hover:text-primary transition rounded flex items-center gap-0.5 text-[10px] font-mono border border-white/5 cursor-pointer"
+                        title={`Đẩy từ "${seg.words?.[0]?.word || ""}" lên câu trước (Timeline tự khớp)`}
+                      >
+                        <ArrowUp className="w-2.5 h-2.5" />
+                        <span className="hidden sm:inline">Lên</span>
+                      </button>
+                    )}
+
+                    {/* Nút Đẩy 1 từ xuống câu sau */}
+                    {segIdx < segments.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleShiftWordToNext(segIdx)}
+                        className="px-1.5 py-0.5 hover:bg-primary/20 text-on-surface-variant hover:text-primary transition rounded flex items-center gap-0.5 text-[10px] font-mono border border-white/5 cursor-pointer"
+                        title={`Đẩy từ "${seg.words?.[seg.words.length - 1]?.word || ""}" xuống câu sau (Timeline tự khớp)`}
+                      >
+                        <span className="hidden sm:inline">Xuống</span>
+                        <ArrowDown className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+
                     {segIdx < segments.length - 1 && (
                       <button
                         onClick={() => handleMergeWithNext(segIdx)}
-                        className="p-1 hover:text-amber-400 transition rounded text-on-surface-variant"
+                        className="p-1 hover:text-amber-400 transition rounded text-on-surface-variant cursor-pointer"
                         title="Gộp với câu kế tiếp"
                       >
                         <ArrowDownToLine className="w-3 h-3" />

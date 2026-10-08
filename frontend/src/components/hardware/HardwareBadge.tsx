@@ -14,7 +14,8 @@ export function HardwareBadge() {
   const isRemote = hardwareConfig.use_remote_gpu;
   const devName = isRemote
     ? "Cloud GPU (Tesla T4)"
-    : hardwareConfig.cuda_device_name || "NVIDIA GTX 1650 (4GB)";
+    : hardwareConfig.cuda_device_name ||
+      (hardwareConfig.cuda_available ? "NVIDIA GPU" : "CPU Cục bộ");
 
   return (
     <button

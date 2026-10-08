@@ -460,6 +460,68 @@ def resegment_words(
             seg_id += 1
             current_words = []
 
+    # ── Post-processing: Auto Re-balance & Anti-Orphan Chunks ─────────────────
+    # Tự động gộp triệt để các câu cụt / mồ côi (1-3 từ hoặc < 1.2s) vào câu trước hoặc sau
+    if len(new_segments) > 1:
+        balanced_segments: list[dict[str, Any]] = []
+
+        for idx, seg in enumerate(new_segments):
+            words = seg.get("words", [])
+            dur = seg["end"] - seg["start"]
+            w_count = len(words)
+
+            # Kiểm tra xem câu này có bị cụt mồ côi không (<= 3 từ hoặc dur < 1.2s)
+            if (w_count <= 3 or dur < 1.2) and balanced_segments:
+                prev_seg = balanced_segments[-1]
+                prev_words = prev_seg.get("words", [])
+                gap = seg["start"] - prev_seg["end"]
+
+                # Điều kiện gộp: Khoảng nghỉ nhỏ (< 1.2s) và tổng từ không quá dài (<= 13 từ)
+                if gap < 1.2 and (len(prev_words) + w_count) <= (16 if is_cjk else 13):
+                    merged_words = prev_words + words
+                    prev_seg["words"] = merged_words
+                    prev_seg["end"] = round(words[-1]["end"], 3)
+                    if is_cjk:
+                        prev_seg["text"] = "".join(w["word"] for w in merged_words)
+                    else:
+                        prev_seg["text"] = " ".join(w["word"] for w in merged_words)
+                    continue
+
+            # Hoặc nếu là câu cụt ở đầu danh sách, gộp vào câu kế tiếp
+            if (w_count <= 3 or dur < 1.2) and idx < len(new_segments) - 1:
+                next_seg = new_segments[idx + 1]
+                next_words = next_seg.get("words", [])
+                gap = next_seg["start"] - seg["end"]
+
+                if gap < 1.2 and (w_count + len(next_words)) <= (16 if is_cjk else 13):
+                    merged_words = words + next_words
+                    next_seg["words"] = merged_words
+                    next_seg["start"] = round(words[0]["start"], 3)
+                    if is_cjk:
+                        next_seg["text"] = "".join(w["word"] for w in merged_words)
+                    else:
+                        next_seg["text"] = " ".join(w["word"] for w in merged_words)
+                    continue
+
+            balanced_segments.append(seg)
+
+        # Đánh lại ID tuần tự và chuẩn hóa chữ thường
+        for i, s in enumerate(balanced_segments, 1):
+            s["id"] = i
+            s["text"] = s.get("text", "").lower()
+            if "words" in s:
+                for w in s["words"]:
+                    if "word" in w:
+                        w["word"] = w["word"].lower()
+        new_segments = balanced_segments
+    else:
+        for s in new_segments:
+            s["text"] = s.get("text", "").lower()
+            if "words" in s:
+                for w in s["words"]:
+                    if "word" in w:
+                        w["word"] = w["word"].lower()
+
     return new_segments
 
 
@@ -1113,6 +1175,7 @@ def generate_ass_subtitles(
         plain_text = seg.get("text", "")
         if not plain_text and words:
             plain_text = " ".join(w.get("word", "").strip() for w in words)
+        plain_text = plain_text.lower()
 
         # Tính toán tự động co font size nếu câu dài, đảm bảo luôn vừa khít 1 hàng duy nhất (không rớt dòng, không tràn mép)
         max_safe_w = video_w * 0.90
@@ -1136,13 +1199,13 @@ def generate_ass_subtitles(
                     effective_end = max(w["end"], seg["end"])
 
                 dur_cs = max(1, int(round((effective_end - w_start) * 100)))
-                word_clean = w["word"].strip()
+                word_clean = w["word"].strip().lower()
                 karaoke_parts.append(f"{{\\k{dur_cs}}}{word_clean}")
 
             text_line = " ".join(karaoke_parts)
         else:
             # Fallback nếu câu không có word-level
-            text_line = seg.get("text", "")
+            text_line = seg.get("text", "").lower()
 
         ass_content.append(
             f"Dialogue: 0,{start_time},{end_time},KineticStyle,,0,0,0,,{pos_tag}{size_tag}{text_line}"

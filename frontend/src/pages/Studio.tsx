@@ -28,8 +28,6 @@ export default function Studio() {
     audioUrl,
     voices,
     selectedVoiceId,
-    enhanceAudio,
-    setEnhanceAudio,
     setMode,
     setInstruct,
     setCfgValue,
@@ -83,6 +81,25 @@ export default function Studio() {
 
     return blocks.cleanup;
   }, [fetchVoices]);
+
+  // Tự động kiểm tra và giải phóng các phân đoạn câu nếu bị kẹt 'rendering' khi người dùng chuyển trang
+  useEffect(() => {
+    if (!generator.isLoading) {
+      const hasStuckBlocks = blocks.studioBlocks.some((b) => b.status === "rendering");
+      if (hasStuckBlocks) {
+        const sanitized = blocks.studioBlocks.map((b) => {
+          if (b.status === "rendering") {
+            return {
+              ...b,
+              status: (b.audioUrl || b.filename ? "ready" : "idle") as typeof b.status,
+            };
+          }
+          return b;
+        });
+        blocks.saveStudioBlocks(sanitized, false);
+      }
+    }
+  }, [generator.isLoading, blocks.studioBlocks]);
 
   // ── Wrappers kết nối hooks với nhau ───────────────────────────────────────
   const handleGenerate = () =>
@@ -314,7 +331,16 @@ export default function Studio() {
               isLoading={generator.isLoading}
               elapsedTime={generator.elapsedTime}
               generationProgress={generator.generationProgress}
-              onClearSession={handleClearStudioSession}
+              onClearSession={() => {
+                const hasData = Boolean(
+                  text.trim() || blocks.studioBlocks.length > 0 || audioUrl,
+                );
+                if (!hasData) {
+                  toast.info("Studio hiện đang trống và sẵn sàng cho bài mới!");
+                  return;
+                }
+                setIsNewScriptModalOpen(true);
+              }}
               blocksCount={blocks.studioBlocks.length}
             />
 
@@ -369,8 +395,6 @@ export default function Studio() {
               (useTTSStore.getState().audioFormat as "mp3" | "wav") || "mp3"
             }
             setAudioFormat={setAudioFormat}
-            enhanceAudio={enhanceAudio}
-            setEnhanceAudio={setEnhanceAudio}
             selectedProjectId={selectedProjectId}
             setSelectedProjectId={setSelectedProjectId}
             projects={projects}

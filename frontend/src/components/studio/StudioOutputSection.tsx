@@ -12,8 +12,9 @@ import {
   Music,
 } from "lucide-react";
 import { ScriptBlockItem } from "../project/ScriptBlockItem";
-import type { ScriptBlock, Voice } from "../../store/useTTSStore";
+import { useTTSStore, type ScriptBlock, type Voice } from "../../store/useTTSStore";
 import { globalAudio } from "../../utils/audioCoordinator";
+import { toast } from "sonner";
 
 interface StudioOutputSectionProps {
   audioUrl: string | null;
@@ -75,6 +76,23 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
   const masterAudioRef = useRef<HTMLAudioElement | null>(null);
   const [activePlaybackBlockId, setActivePlaybackBlockId] = useState<string | null>(null);
   const isMasterPlayingRef = useRef(false);
+  const syncStatus = useTTSStore((state) => state.syncStatus);
+  const isCloudStorage = syncStatus?.mode === "cloud";
+
+  const handleOpenOutputFolder = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/settings/open-output-directory", {
+        method: "POST",
+      });
+      if (res.ok) {
+        toast.success("Đang mở thư mục lưu trữ trên máy tính...");
+      } else {
+        toast.error("Không thể mở thư mục.");
+      }
+    } catch {
+      toast.error("Không thể kết nối đến máy chủ để mở thư mục.");
+    }
+  };
 
   // Tính toán timeline cho từng block dựa vào duration và pauseAfter
   const blockTimelines = useMemo(() => {
@@ -164,16 +182,31 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
                   LỒNG NHẠC NỀN (BGM)
                 </button>
               )}
-              <button
-                type="button"
-                onClick={onDownload}
-                className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface border border-white/10 rounded-lg font-label-caps text-xs transition-colors shadow-sm flex items-center gap-2 font-medium"
-              >
-                <span className="material-symbols-outlined text-[16px]">
-                  download
-                </span>
-                TẢI VỀ
-              </button>
+              {isCloudStorage ? (
+                <button
+                  type="button"
+                  onClick={onDownload}
+                  className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface border border-white/10 rounded-lg font-label-caps text-xs transition-colors shadow-sm flex items-center gap-2 font-medium cursor-pointer"
+                  title="Tải file âm thanh về máy từ Cloud Storage"
+                >
+                  <span className="material-symbols-outlined text-[16px]">
+                    download
+                  </span>
+                  TẢI VỀ
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleOpenOutputFolder}
+                  className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface border border-white/10 rounded-lg font-label-caps text-xs transition-colors shadow-sm flex items-center gap-1.5 font-medium cursor-pointer"
+                  title="Mở thư mục lưu trữ file audio trên máy tính"
+                >
+                  <span className="material-symbols-outlined text-[16px]">
+                    folder_open
+                  </span>
+                  MỞ THƯ MỤC
+                </button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4">

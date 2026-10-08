@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTTSStore, type AudioRecord } from "../store/useTTSStore";
@@ -158,9 +158,18 @@ export function AudioRecordItem({
             }}
             className="h-10 bg-surface-variant text-on-surface-variant font-label-caps text-xs px-3 rounded-lg border border-white/5 focus:outline-none focus:border-primary cursor-pointer hover:bg-white/10 transition-colors"
           >
-            <option value="">-- Thư viện chung --</option>
+            <option
+              value=""
+              className="bg-surface-variant text-on-surface-variant"
+            >
+              -- Thư viện chung --
+            </option>
             {projects.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option
+                key={p.id}
+                value={p.id}
+                className="bg-surface-variant text-on-surface-variant"
+              >
                 {p.name}
               </option>
             ))}
@@ -424,7 +433,7 @@ function VideoProjectCard({
 }
 
 export default function Library() {
-  const { history, removeHistory, cleanupJunkFiles } = useTTSStore();
+  const { history, removeHistory, cleanupJunkFiles, projects } = useTTSStore();
 
   // Tab State: "video" | "audio" (mặc định mở Lịch sử Dịch Video)
   const [activeTab, setActiveTab] = useState<"video" | "audio">("video");
@@ -452,9 +461,43 @@ export default function Library() {
   const [isCleaning, setIsCleaning] = useState(false);
   const itemsPerPage = 5;
 
-  const totalPages = Math.ceil(history.length / itemsPerPage);
+  // Bộ lọc Dự án & Tìm kiếm cho Audio (Phòng thu)
+  const [selectedProjectFilter, setSelectedProjectFilter] =
+    useState<string>("all");
+  const [audioSearchQuery, setAudioSearchQuery] = useState("");
+
+  const unassignedAudioCount = useMemo(() => {
+    return history.filter((h) => !h.projectId).length;
+  }, [history]);
+
+  const filteredHistory = useMemo(() => {
+    return history.filter((record) => {
+      // 1. Lọc theo Dự án
+      if (selectedProjectFilter !== "all") {
+        if (selectedProjectFilter === "unassigned") {
+          if (record.projectId) return false;
+        } else {
+          if (record.projectId !== selectedProjectFilter) return false;
+        }
+      }
+      // 2. Tìm kiếm nội dung văn bản, giọng hoặc ID
+      if (audioSearchQuery.trim()) {
+        const q = audioSearchQuery.toLowerCase();
+        const matchText = record.text?.toLowerCase().includes(q);
+        const matchVoice = record.voiceName?.toLowerCase().includes(q);
+        const matchId = record.id?.toLowerCase().includes(q);
+        if (!matchText && !matchVoice && !matchId) return false;
+      }
+      return true;
+    });
+  }, [history, selectedProjectFilter, audioSearchQuery]);
+
+  const totalPages = Math.ceil(filteredHistory.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentItems = history.slice(startIndex, startIndex + itemsPerPage);
+  const currentItems = filteredHistory.slice(
+    startIndex,
+    startIndex + itemsPerPage,
+  );
 
   if (currentPage > totalPages && totalPages > 0) {
     setCurrentPage(totalPages);
@@ -854,14 +897,99 @@ export default function Library() {
 
             <div className="flex items-center gap-3">
               <div className="bg-surface-variant px-3.5 py-1.5 rounded-xl text-xs font-mono-data text-on-surface-variant border border-white/5">
-                {history.length} mục
+                {filteredHistory.length} / {history.length} mục
               </div>
             </div>
           </div>
 
-          {history.length === 0 ? (
-            <div className="p-12 text-center text-on-surface-variant font-mono-data text-mono-data border border-dashed border-white/10 rounded-2xl bg-surface-dim">
-              Thư viện trống. Hãy tạo một đoạn âm thanh mới ở Phòng thu.
+          {/* Controls Bar: Bộ Lọc Dự Án & Tìm Kiếm */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto flex-1">
+              {/* Dropdown Lọc Theo Dự Án */}
+              <div className="flex items-center gap-2 bg-surface-dim border border-white/10 px-3 py-2 rounded-xl text-xs shadow-xs w-full sm:w-auto">
+                <FolderOpen className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-on-surface-variant font-medium whitespace-nowrap">
+                  Dự án:
+                </span>
+                <select
+                  value={selectedProjectFilter}
+                  onChange={(e) => {
+                    setSelectedProjectFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="bg-surface-variant text-on-surface font-semibold text-xs px-2.5 py-1 rounded-lg border border-white/10 focus:outline-none focus:border-primary cursor-pointer transition-colors max-w-[220px] truncate"
+                >
+                  <option value="all">Tất cả dự án ({history.length})</option>
+                  <option value="unassigned">
+                    -- Thư viện chung ({unassignedAudioCount}) --
+                  </option>
+                  {projects.map((p) => {
+                    const count = history.filter(
+                      (h) => h.projectId === p.id,
+                    ).length;
+                    return (
+                      <option key={p.id} value={p.id}>
+                        📁 {p.name} ({count})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Tìm kiếm nội dung bản thu */}
+              <div className="relative flex-1 min-w-[200px] w-full sm:w-auto">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+                <input
+                  type="text"
+                  value={audioSearchQuery}
+                  onChange={(e) => {
+                    setAudioSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="Tìm kiếm nội dung bản thu, giọng đọc, ID..."
+                  className="w-full pl-10 pr-4 py-2 bg-surface-dim border border-white/10 rounded-xl text-xs text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+
+              {(selectedProjectFilter !== "all" || audioSearchQuery) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedProjectFilter("all");
+                    setAudioSearchQuery("");
+                    setCurrentPage(1);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface border border-white/10 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5"
+                  title="Xóa bộ lọc"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Đặt lại
+                </button>
+              )}
+            </div>
+          </div>
+
+          {filteredHistory.length === 0 ? (
+            <div className="p-12 text-center text-on-surface-variant font-mono-data text-mono-data border border-dashed border-white/10 rounded-2xl bg-surface-dim flex flex-col items-center gap-3">
+              <Volume2 className="w-10 h-10 text-on-surface-variant/40" />
+              <p className="text-sm text-on-surface">
+                {history.length === 0
+                  ? "Thư viện trống. Hãy tạo một đoạn âm thanh mới ở Phòng thu."
+                  : "Không tìm thấy bản thu âm nào phù hợp với bộ lọc."}
+              </p>
+              {history.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedProjectFilter("all");
+                    setAudioSearchQuery("");
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs font-label-caps text-primary hover:underline cursor-pointer"
+                >
+                  Bỏ lọc để xem tất cả ({history.length} mục)
+                </button>
+              )}
             </div>
           ) : (
             <>
