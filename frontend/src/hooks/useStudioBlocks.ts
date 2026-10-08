@@ -6,12 +6,9 @@ import { API_BASE_URL } from "../constants/api";
 import { globalAudio } from "../utils/audioCoordinator";
 
 export function useStudioBlocks() {
-  const { pronunciationWords, enhanceAudio } = useTTSStore();
+  const { pronunciationWords, enhanceAudio, studioBlocks, setStudioBlocks } = useTTSStore();
 
   // ── State ────────────────────────────────────────────────────────────────
-  const [studioBlocks, setStudioBlocks] = useState<ScriptBlock[]>(() =>
-    JSON.parse(localStorage.getItem("tts_studio_blocks") || "[]"),
-  );
   const [isSegmentsCollapsed, setIsSegmentsCollapsed] = useState(false);
   const [hasModifiedSegments, setHasModifiedSegments] = useState<boolean>(() => {
     try {
@@ -92,7 +89,6 @@ export function useStudioBlocks() {
       pushToHistory(studioBlocks);
     }
     setStudioBlocks(newBlocks);
-    localStorage.setItem("tts_studio_blocks", JSON.stringify(newBlocks));
   };
 
   const handleUndo = () => {
@@ -106,7 +102,6 @@ export function useStudioBlocks() {
 
     // 1. Khôi phục danh sách phân đoạn câu
     setStudioBlocks(previous.blocks);
-    localStorage.setItem("tts_studio_blocks", JSON.stringify(previous.blocks));
 
     // 2. Khôi phục văn bản đầu vào (text input)
     useTTSStore.getState().setText(previous.text);
@@ -135,7 +130,6 @@ export function useStudioBlocks() {
 
     // 1. Khôi phục danh sách phân đoạn câu
     setStudioBlocks(next.blocks);
-    localStorage.setItem("tts_studio_blocks", JSON.stringify(next.blocks));
 
     // 2. Khôi phục văn bản đầu vào (text input)
     useTTSStore.getState().setText(next.text);
@@ -205,15 +199,13 @@ export function useStudioBlocks() {
       const a = new Audio(block.audioUrl);
       a.addEventListener("loadedmetadata", () => {
         if (!isMounted || !a.duration) return;
-        setStudioBlocks((prev) => {
-          const next = prev.map((item) =>
-            item.id === block.id
-              ? { ...item, duration: Math.round(a.duration * 100) / 100 }
-              : item,
-          );
-          localStorage.setItem("tts_studio_blocks", JSON.stringify(next));
-          return next;
-        });
+        const currentBlocks = useTTSStore.getState().studioBlocks;
+        const next = currentBlocks.map((item) =>
+          item.id === block.id
+            ? { ...item, duration: Math.round(a.duration * 100) / 100 }
+            : item,
+        );
+        setStudioBlocks(next);
       });
     });
 

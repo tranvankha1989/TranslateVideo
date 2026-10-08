@@ -131,3 +131,5 @@ if FRONTEND_DIST and FRONTEND_DIST.exists():
             return FileResponse(index_file)
         raise HTTPException(status_code=404, detail="Not Found")
 
+# Trigger reload for storage and output endpoints
+

@@ -7,7 +7,7 @@ import { downloadAudioFile } from "../utils/download";
 
 export function useStudioProject() {
   const navigate = useNavigate();
-  const { audioUrl, history, text, voices, selectedVoiceId, addProject, updateProjectBlocks, updateProjectMaster, projects, setPendingVoiceForVideo, cfg_value, speed, pitch, enhanceAudio } =
+  const { audioUrl, history, text, voices, selectedVoiceId, addProject, updateProjectBlocks, updateProjectMaster, projects, setPendingVoiceForVideo, cfg_value, speed, pitch } =
     useTTSStore();
 
   const [configSaved, setConfigSaved] = useState(false);
@@ -19,16 +19,16 @@ export function useStudioProject() {
       speed,
       pitch,
       audioFormat: useTTSStore.getState().audioFormat,
-      enhanceAudio,
+      enhanceAudio: true,
     };
     localStorage.setItem("tts_model_config", JSON.stringify(config));
     setConfigSaved(true);
     toast.success(
-      `Đã lưu cấu hình: CFG ${cfg_value.toFixed(1)} · Speed ${speed.toFixed(2)}x · Pitch ${pitch >= 0 ? "+" : ""}${pitch.toFixed(1)} · Bộ lọc: ${enhanceAudio ? "Bật" : "Tắt"}`,
+      `Đã lưu cấu hình: CFG ${cfg_value.toFixed(1)} · Speed ${speed.toFixed(2)}x · Pitch ${pitch >= 0 ? "+" : ""}${pitch.toFixed(1)}`,
       { duration: 3000 },
     );
     setTimeout(() => setConfigSaved(false), 2000);
-  }, [cfg_value, speed, pitch, enhanceAudio]);
+  }, [cfg_value, speed, pitch]);
 
   // ── Lưu kịch bản vào dự án ──────────────────────────────────────────────
   const handleSaveStudioAsProject = (

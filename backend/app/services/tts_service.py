@@ -23,6 +23,7 @@ from app.core.config import (
     CUSTOM_VOICES_JSON,
     DEFAULT_NUM_STEP,
     logger,
+    export_file_to_custom_directory,
 )
 from app.schemas.tts import (
     TTSRequest,
@@ -316,6 +317,7 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
         pass
 
     r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
+    export_file_to_custom_directory(output_path, sub_dir="audios")
 
     return TTSResponse(
         message="Tổng hợp thành công!",
@@ -811,6 +813,8 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
             object_key=f"{r2_prefix}{srt_filename}",
             content_type="text/plain; charset=utf-8",
         )
+
+    export_file_to_custom_directory(target_dir / out_filename, sub_dir="audios")
 
     return StitchResponse(
         message="Ghép nối phân đoạn thành công!",

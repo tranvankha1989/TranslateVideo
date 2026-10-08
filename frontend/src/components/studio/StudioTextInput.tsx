@@ -1,12 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import {
-  FileUp,
-  UploadCloud,
-  CheckCircle2,
-  RotateCcw,
-  X,
-} from "lucide-react";
+import { FileUp, CheckCircle2, UploadCloud } from "lucide-react";
 import { NON_VERBAL_SYMBOLS } from "../../constants/studio";
 import { parseScriptFile } from "../../utils/scriptImporter";
 import type { PauseSettings, PronunciationWord } from "../../store/useTTSStore";
@@ -44,21 +38,19 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const [isSavedRecently, setIsSavedRecently] = useState(false);
-  const [showRecoveryBanner, setShowRecoveryBanner] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const initialCheckDoneRef = useRef(false);
 
-  // ── Khôi phục phiên làm việc (Crash Recovery) khi mount ────────────────────
+  // ── Khôi phục mốc thời gian lưu gần nhất khi mount ────────────────────────
   useEffect(() => {
     if (initialCheckDoneRef.current) return;
     initialCheckDoneRef.current = true;
 
     try {
       const savedTimeStr = localStorage.getItem("tts_draft_last_saved");
-      const hasContent = Boolean(text.trim() || blocksCount > 0);
-      if (hasContent && savedTimeStr) {
+      if (savedTimeStr) {
         const timeNum = parseInt(savedTimeStr, 10);
         if (!isNaN(timeNum)) {
           const date = new Date(timeNum);
@@ -67,7 +59,6 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
             minute: "2-digit",
           });
           setLastSavedTime(formatted);
-          setShowRecoveryBanner(true);
         }
       }
     } catch {}
@@ -122,7 +113,9 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
   const handleProcessFile = async (file: File) => {
     const ext = file.name.toLowerCase().split(".").pop() || "";
     if (!["txt", "docx", "md"].includes(ext)) {
-      toast.error(`Định dạng .${ext} chưa được hỗ trợ. Vui lòng chọn file .txt, .docx hoặc .md.`);
+      toast.error(
+        `Định dạng .${ext} chưa được hỗ trợ. Vui lòng chọn file .txt, .docx hoặc .md.`,
+      );
       return;
     }
 
@@ -136,14 +129,16 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
       if (text.trim().length > 0) {
         toast.dismiss(toastId);
         toast(`Nạp thành công "${parsed.filename}" (${parsed.wordCount} từ)`, {
-          description: "Kịch bản hiện tại đang có nội dung. Bạn muốn Thay thế hay Nối tiếp vào cuối?",
+          description:
+            "Kịch bản hiện tại đang có nội dung. Bạn muốn Thay thế hay Nối tiếp vào cuối?",
           duration: 8000,
           action: {
             label: "Thay thế kịch bản",
             onClick: () => {
               onChangeText(parsed.text);
-              setShowRecoveryBanner(false);
-              toast.success(`Đã thay thế kịch bản bằng nội dung file "${parsed.filename}"`);
+              toast.success(
+                `Đã thay thế kịch bản bằng nội dung file "${parsed.filename}"`,
+              );
             },
           },
           cancel: {
@@ -151,20 +146,24 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
             onClick: () => {
               const updated = text.trim() + "\n\n" + parsed.text;
               onChangeText(updated);
-              toast.success(`Đã nối thêm ${parsed.wordCount} từ vào cuối kịch bản hiện tại!`);
+              toast.success(
+                `Đã nối thêm ${parsed.wordCount} từ vào cuối kịch bản hiện tại!`,
+              );
             },
           },
         });
       } else {
         onChangeText(parsed.text);
-        setShowRecoveryBanner(false);
         toast.success(
           `Đã nạp thành công kịch bản từ "${parsed.filename}" (${parsed.wordCount} từ • ${parsed.charCount} ký tự)!`,
-          { id: toastId }
+          { id: toastId },
         );
       }
     } catch (err: any) {
-      toast.error(`Lỗi nạp file: ${err?.message || "Không thể đọc nội dung file"}`, { id: toastId });
+      toast.error(
+        `Lỗi nạp file: ${err?.message || "Không thể đọc nội dung file"}`,
+        { id: toastId },
+      );
     } finally {
       setIsParsingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -221,52 +220,6 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
 
   return (
     <div className="flex flex-col gap-3 2k:gap-4 z-10">
-      {/* ── Crash Recovery Notification Banner ─────────────────────────────── */}
-      {showRecoveryBanner && text.trim().length > 0 && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-secondary/10 border border-secondary/25 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="p-1 rounded-md bg-secondary/20 text-secondary shrink-0">
-              <RotateCcw className="w-3.5 h-3.5" />
-            </span>
-            <p className="text-xs text-on-surface truncate">
-              <span className="font-semibold text-secondary">Khôi phục phiên làm việc:</span> Đã nạp lại bản nháp kịch bản{" "}
-              {lastSavedTime && <span>(lưu lúc {lastSavedTime})</span>}
-              {blocksCount > 0 && <span> • {blocksCount} câu phân đoạn</span>}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowRecoveryBanner(false)}
-              className="px-2.5 py-1 rounded-lg text-xs font-label-caps bg-white/10 hover:bg-white/20 text-on-surface transition-colors"
-            >
-              Tiếp tục làm
-            </button>
-            {onClearSession && (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRecoveryBanner(false);
-                  onClearSession();
-                }}
-                className="px-2 py-1 rounded-lg text-xs font-label-caps text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors"
-                title="Bỏ bản nháp này để làm bài mới"
-              >
-                Bài mới
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setShowRecoveryBanner(false)}
-              className="p-1 text-on-surface-variant/60 hover:text-on-surface transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* ── Input Header & Actions ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -288,40 +241,55 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
           </div>
         </div>
 
-        {/* Hidden File Input */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".txt,.docx,.md"
-          onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
-              handleProcessFile(e.target.files[0]);
-            }
-          }}
-          className="hidden"
-        />
-
-        {/* Nút Nạp Kịch Bản (.txt, .docx, .md) */}
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isParsingFile}
-          className="px-3 py-1.5 rounded-lg text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 whitespace-nowrap group cursor-pointer"
-          title="Nạp file kịch bản (.txt, .docx, .md) từ máy tính"
-        >
-          {isParsingFile ? (
-            <span className="material-symbols-outlined text-[14px] animate-spin text-primary">
-              sync
-            </span>
-          ) : (
-            <FileUp className="w-3.5 h-3.5 text-primary group-hover:-translate-y-0.5 transition-transform" />
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Nút Làm bài mới (hiển thị khi đang có nội dung kịch bản hoặc phân đoạn) */}
+          {onClearSession && (text.trim().length > 0 || blocksCount > 0) && (
+            <button
+              type="button"
+              onClick={onClearSession}
+              className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-label-caps bg-surface-dim hover:bg-rose-500/15 text-on-surface-variant hover:text-rose-400 border border-white/10 hover:border-rose-500/30 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 whitespace-nowrap cursor-pointer group"
+              title="Làm mới để bắt đầu kịch bản mới"
+            >
+              <FileUp className="w-3.5 h-3.5 text-rose-400/80" />
+              <span>Làm bài mới</span>
+            </button>
           )}
-          <span className="font-medium">Nạp file kịch bản</span>
-        </button>
+
+          {/* Hidden File Input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.docx,.md"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                handleProcessFile(e.target.files[0]);
+              }
+            }}
+            className="hidden"
+          />
+
+          {/* Nút Nạp Kịch Bản (.txt, .docx, .md) */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isParsingFile}
+            className="px-3 py-1.5 rounded-lg text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 whitespace-nowrap group cursor-pointer"
+            title="Nạp file kịch bản (.txt, .docx, .md) từ máy tính"
+          >
+            {isParsingFile ? (
+              <span className="material-symbols-outlined text-[14px] animate-spin text-primary">
+                sync
+              </span>
+            ) : (
+              <FileUp className="w-3.5 h-3.5 text-primary" />
+            )}
+            <span className="font-medium">Nạp file kịch bản</span>
+          </button>
+        </div>
       </div>
 
       {/* ── Non-verbal symbols & Emotion Toolbar ─────────────────────────────── */}
-      <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-surface-dim/60 border border-white/8 backdrop-blur-sm shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-surface-dim/60 backdrop-blur-sm shadow-sm overflow-hidden">
         <div className="flex items-center gap-1.5 text-xs font-label-caps text-on-surface-variant shrink-0">
           <span className="material-symbols-outlined text-[16px] 2k:text-[18px] text-amber-400">
             sentiment_satisfied

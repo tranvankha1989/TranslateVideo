@@ -16,15 +16,15 @@ import {
   Type,
   MoveVertical,
   Video,
-  Clock,
   Loader2,
-  SidebarClose,
-  SidebarOpen,
   FileUp,
   FileText,
   Wand2,
   ArrowUp,
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
   CheckCheck,
   Maximize2,
   Minimize2,
@@ -33,6 +33,8 @@ import {
   Check,
   ClipboardPaste,
   Trash2,
+  Sliders,
+  FileCode,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TimelineEditor } from "@/components/caption/TimelineEditor";
@@ -89,7 +91,34 @@ const SYSTEM_FONTS = [
 
 const DRAFT_STORAGE_KEY = "autocaption_latest_draft";
 
+const STEPS = [
+  {
+    id: 1 as const,
+    title: "1. Nạp Video & Kịch bản",
+    desc: "Tải file & bóc tách AI",
+    icon: Upload,
+  },
+  {
+    id: 2 as const,
+    title: "2. Biên tập & Kiểu dáng",
+    desc: "Chỉnh từ, timeline, font & vị trí Y",
+    icon: FileText,
+  },
+  {
+    id: 3 as const,
+    title: "3. Xem trước & Xuất Video",
+    desc: "Render video MP4 & tải SRT/VTT",
+    icon: Download,
+  },
+];
+
 export default function AutoCaption() {
+  // Stepper Workflow Step: 1 | 2 | 3
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [editorTab, setEditorTab] = useState<"transcript" | "style">(
+    "transcript",
+  );
+
   // Video & Transcription State
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -101,11 +130,17 @@ export default function AutoCaption() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [selectedSegId, setSelectedSegId] = useState<number | null>(null);
 
+  // File Drag-and-drop state on Step 1
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+
+  // Whisper model & language configuration
+  const [whisperModel, setWhisperModel] = useState<"medium" | "small" | "base">(
+    "medium",
+  );
+  const [whisperLanguage, setWhisperLanguage] = useState<string>("vi");
+
   // Undo history stack
   const [undoStack, setUndoStack] = useState<CaptionSegment[][]>([]);
-
-  // Inspector Sidebar State (Collapsible)
-  const [showInspector, setShowInspector] = useState<boolean>(true);
 
   // Dynamic Video Aspect Ratio
   const [videoAspectRatio, setVideoAspectRatio] = useState<number | null>(null);
@@ -127,16 +162,10 @@ export default function AutoCaption() {
   const [referenceScript, setReferenceScript] = useState("");
   const [isAligningScript, setIsAligningScript] = useState(false);
   const [isOptimizingChunks, setIsOptimizingChunks] = useState(false);
-  const [showScriptBox, setShowScriptBox] = useState(true);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
 
   // Raw Segments Backup
   const [rawSegments, setRawSegments] = useState<CaptionSegment[]>([]);
-
-  // Active Tab: Lời thoại (transcript) | Kiểu dáng chữ (style)
-  const [activeTab, setActiveTab] = useState<"transcript" | "style">(
-    "transcript",
-  );
 
   // Nạp giọng đọc kịch bản từ Phòng thu / Thư viện (nếu có chuyển giao sang)
   const { pendingVoiceForVideo, setPendingVoiceForVideo } = useTTSStore();
@@ -171,7 +200,6 @@ export default function AutoCaption() {
     if (pendingVoiceForVideo) {
       if (pendingVoiceForVideo.text) {
         setReferenceScript(pendingVoiceForVideo.text);
-        setShowScriptBox(true);
         toast.success(
           `✨ Đã nạp kịch bản từ Phòng thu: "${pendingVoiceForVideo.text.slice(0, 45)}...". Hãy chọn video bạn đã edit để tạo phụ đề.`,
           { duration: 6000 },
@@ -262,7 +290,9 @@ export default function AutoCaption() {
       if (!draft.sessionId) return;
 
       // Kiểm tra session còn tồn tại trên server không
-      fetch(`http://localhost:8000/api/caption/session/${draft.sessionId}/check`)
+      fetch(
+        `http://localhost:8000/api/caption/session/${draft.sessionId}/check`,
+      )
         .then((res) => res.json())
         .then((data) => {
           if (data && data.exists) {
@@ -272,7 +302,11 @@ export default function AutoCaption() {
             setSegments(draft.segments || []);
             setRawSegments(draft.rawSegments || draft.segments || []);
             if (draft.style) setStyle(draft.style);
-            if (draft.referenceScript) setReferenceScript(draft.referenceScript);
+            if (draft.referenceScript)
+              setReferenceScript(draft.referenceScript);
+            if (draft.segments && draft.segments.length > 0) {
+              setCurrentStep(2);
+            }
 
             toast.info(
               `✨ Đã khôi phục phiên làm việc gần nhất: "${draft.filename || "Video"}" (${draft.segments?.length || 0} câu phụ đề).`,
@@ -301,6 +335,7 @@ export default function AutoCaption() {
     setUndoStack([]);
     setReferenceScript("");
     setSelectedSegId(null);
+    setCurrentStep(1);
     localStorage.removeItem(DRAFT_STORAGE_KEY);
 
     if (currentId) {
@@ -311,11 +346,8 @@ export default function AutoCaption() {
     toast.success("✨ Đã dọn dẹp phiên cũ, sẵn sàng cho video mới!");
   };
 
-  // Chọn video
-  const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // Xử lý nạp file video (dùng chung cho input chọn file và drag-drop)
+  const handleProcessVideoFile = (file: File) => {
     if (!file.type.startsWith("video/")) {
       toast.error("Vui lòng chọn file video hợp lệ (.mp4, .mov, .webm)");
       return;
@@ -335,7 +367,16 @@ export default function AutoCaption() {
     setRawSegments([]);
     setSessionId(null);
     setVideoDuration(0);
+    setCurrentStep(1);
     toast.success(`Đã chọn video: ${file.name}`);
+  };
+
+  // Chọn video qua input dialog
+  const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    handleProcessVideoFile(file);
+    e.target.value = "";
   };
 
   // Tạo phụ đề AI với Whisper + Kịch bản đối chiếu
@@ -348,8 +389,8 @@ export default function AutoCaption() {
     setIsTranscribing(true);
     const formData = new FormData();
     formData.append("video", videoFile);
-    formData.append("language", "vi");
-    formData.append("model_size", "base");
+    formData.append("language", whisperLanguage);
+    formData.append("model_size", whisperModel);
     if (referenceScript.trim()) {
       formData.append("reference_script", referenceScript.trim());
     }
@@ -377,17 +418,19 @@ export default function AutoCaption() {
       if (data.video_url) {
         setVideoUrl(data.video_url);
       }
-      setSegments(data.segments || []);
-      setRawSegments(data.segments || []);
+      const cleanSegs = normalizeSegmentsToLowercase(data.segments || []);
+      setSegments(cleanSegs);
+      setRawSegments(cleanSegs);
 
-      if ((data.segments?.length || 0) === 0) {
+      if (cleanSegs.length === 0) {
         toast.warning(
           "Video không phát hiện thấy âm thanh lời nói rõ ràng. Hãy kiểm tra lại âm lượng video đã xuất.",
           { duration: 6000 },
         );
       } else {
+        setCurrentStep(2);
         toast.success(
-          `✨ Hoàn tất! Bóc tách được ${data.segments?.length || 0} câu có mốc thời gian chi tiết khớp với kịch bản.`,
+          `✨ Hoàn tất! Bóc tách được ${cleanSegs.length} câu có mốc thời gian chi tiết khớp với kịch bản.`,
         );
       }
     } catch (err: any) {
@@ -395,6 +438,20 @@ export default function AutoCaption() {
     } finally {
       setIsTranscribing(false);
     }
+  };
+
+  // Helper chuẩn hóa toàn bộ câu và từ thành chữ thường
+  const normalizeSegmentsToLowercase = (
+    list: CaptionSegment[],
+  ): CaptionSegment[] => {
+    return (list || []).map((seg) => ({
+      ...seg,
+      text: seg.text ? seg.text.toLowerCase() : "",
+      words: (seg.words || []).map((w) => ({
+        ...w,
+        word: w.word ? w.word.toLowerCase() : "",
+      })),
+    }));
   };
 
   // So khớp kịch bản đối chiếu tức thì
@@ -419,7 +476,7 @@ export default function AutoCaption() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             segments,
-            reference_script: referenceScript.trim(),
+            reference_script: referenceScript.trim().toLowerCase(),
           }),
         },
       );
@@ -432,10 +489,11 @@ export default function AutoCaption() {
       const data = await response.json();
       if (data.segments && data.segments.length > 0) {
         pushHistorySnapshot();
-        setSegments(data.segments);
-        setRawSegments(data.segments);
+        const cleanSegs = normalizeSegmentsToLowercase(data.segments);
+        setSegments(cleanSegs);
+        setRawSegments(cleanSegs);
         toast.success(
-          `✨ Đã chuẩn hóa 100% chính tả theo kịch bản mẫu (${data.segments.length} câu)!`,
+          `✨ Đã chuẩn hóa 100% chính tả theo kịch bản mẫu (${cleanSegs.length} câu)!`,
         );
       }
     } catch (err: any) {
@@ -473,9 +531,10 @@ export default function AutoCaption() {
 
       const data = await response.json();
       pushHistorySnapshot();
-      setSegments(data.segments || []);
+      const cleanSegs = normalizeSegmentsToLowercase(data.segments || []);
+      setSegments(cleanSegs);
       toast.success(
-        `✨ Đã chia ngắn thành ${data.segments?.length || 0} câu chuẩn Shorts/Reels!`,
+        `✨ Đã chia ngắn thành ${cleanSegs.length} câu chuẩn Shorts/Reels!`,
       );
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi chia nhỏ câu");
@@ -488,7 +547,9 @@ export default function AutoCaption() {
   const handleRestoreSync = async () => {
     if (rawSegments.length > 0) {
       pushHistorySnapshot();
-      setSegments(JSON.parse(JSON.stringify(rawSegments)));
+      setSegments(
+        normalizeSegmentsToLowercase(JSON.parse(JSON.stringify(rawSegments))),
+      );
       toast.success(
         "Đã khôi phục mốc thời gian phụ đề gốc, khớp 100% với giọng nói!",
       );
@@ -504,8 +565,9 @@ export default function AutoCaption() {
           const data = await res.json();
           if (data.segments && data.segments.length > 0) {
             pushHistorySnapshot();
-            setSegments(data.segments);
-            setRawSegments(data.segments);
+            const cleanSegs = normalizeSegmentsToLowercase(data.segments);
+            setSegments(cleanSegs);
+            setRawSegments(cleanSegs);
             toast.success("Đã khôi phục mốc thời gian gốc từ máy chủ!");
             return;
           }
@@ -810,6 +872,13 @@ export default function AutoCaption() {
         );
       } else {
         setStyle((s) => ({ ...s, position_y: clampedY }));
+        if (selectedSegId) {
+          setSegments((prev) =>
+            prev.map((s) =>
+              s.id === selectedSegId ? { ...s, customPositionY: clampedY } : s,
+            ),
+          );
+        }
       }
     };
 
@@ -827,7 +896,7 @@ export default function AutoCaption() {
         window.removeEventListener("mouseup", handleMouseUp);
       };
     }
-  }, [isDraggingCaption, activeSegment]);
+  }, [isDraggingCaption, activeSegment, selectedSegId]);
 
   // Đổi vị trí riêng cho 1 đoạn hoặc áp dụng cho tất cả
   const handleUpdateSegmentPositionY = (segId: number, posY: number) => {
@@ -876,7 +945,7 @@ export default function AutoCaption() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           session_id: sessionId,
-          segments,
+          segments: normalizeSegmentsToLowercase(segments),
           style_config: {
             ...style,
             preview_height: videoContainerRef.current?.clientHeight || 450,
@@ -925,12 +994,633 @@ export default function AutoCaption() {
     }
   };
 
-  const currentSegmentY = activeSegment?.customPositionY ?? style.position_y;
+  const currentSegmentY =
+    activeSegment?.customPositionY ??
+    (selectedSegId
+      ? (segments.find((s) => s.id === selectedSegId)?.customPositionY ??
+        style.position_y)
+      : style.position_y);
+
+  // ─── Format mốc thời gian phụ đề .SRT và .VTT ────────────────────────────
+  const formatTimestampSrt = (seconds: number) => {
+    const pad = (n: number, z = 2) => String(Math.floor(n)).padStart(z, "0");
+    const hrs = pad(seconds / 3600);
+    const mins = pad((seconds % 3600) / 60);
+    const secs = pad(seconds % 60);
+    const ms = String(Math.floor((seconds % 1) * 1000)).padStart(3, "0");
+    return `${hrs}:${mins}:${secs},${ms}`;
+  };
+
+  const formatTimestampVtt = (seconds: number) => {
+    const pad = (n: number, z = 2) => String(Math.floor(n)).padStart(z, "0");
+    const hrs = pad(seconds / 3600);
+    const mins = pad((seconds % 3600) / 60);
+    const secs = pad(seconds % 60);
+    const ms = String(Math.floor((seconds % 1) * 1000)).padStart(3, "0");
+    return `${hrs}:${mins}:${secs}.${ms}`;
+  };
+
+  const handleDownloadSrt = () => {
+    if (!segments.length) {
+      toast.error("Chưa có phụ đề để tải về");
+      return;
+    }
+    const srtContent = segments
+      .map((seg, idx) => {
+        return `${idx + 1}\n${formatTimestampSrt(seg.start)} --> ${formatTimestampSrt(seg.end)}\n${seg.text.toLowerCase()}\n`;
+      })
+      .join("\n");
+
+    const blob = new Blob([srtContent], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${videoFile?.name?.replace(/\.[^/.]+$/, "") || "subtitles"}.srt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("✨ Đã tải file phụ đề .SRT thành công!");
+  };
+
+  const handleDownloadVtt = () => {
+    if (!segments.length) {
+      toast.error("Chưa có phụ đề để tải về");
+      return;
+    }
+    let vttContent = "WEBVTT\n\n";
+    vttContent += segments
+      .map((seg, idx) => {
+        return `${idx + 1}\n${formatTimestampVtt(seg.start)} --> ${formatTimestampVtt(seg.end)}\n${seg.text.toLowerCase()}\n`;
+      })
+      .join("\n");
+
+    const blob = new Blob([vttContent], { type: "text/vtt;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${videoFile?.name?.replace(/\.[^/.]+$/, "") || "subtitles"}.vtt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("✨ Đã tải file phụ đề .VTT thành công!");
+  };
+
+  // ─── Reusable Video Player với Kinetic Subtitle Overlay ──────────────────
+  const renderVideoPlayer = (interactiveDrag = false) => {
+    const displaySegment = activeSegment;
+
+    return (
+      <div
+        ref={videoContainerRef}
+        style={{
+          aspectRatio: videoAspectRatio ? `${videoAspectRatio}` : "16 / 9",
+        }}
+        className={cn(
+          "relative w-full max-h-[72vh] 2k:max-h-[80vh] bg-black/95 rounded-2xl overflow-hidden border border-white/10 shadow-2xl flex items-center justify-center select-none group",
+          isFullscreen && "rounded-none border-0 max-h-screen",
+        )}
+      >
+        {videoUrl ? (
+          <>
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              onLoadedMetadata={(e) => {
+                const vid = e.currentTarget;
+                const dur = vid.duration || 0;
+                setVideoDuration(dur);
+                if (vid.videoWidth && vid.videoHeight) {
+                  setVideoAspectRatio(vid.videoWidth / vid.videoHeight);
+                }
+                if (currentTime > 0) {
+                  vid.currentTime = currentTime;
+                }
+              }}
+              onEnded={() => setIsPlaying(false)}
+              className="w-full h-full object-contain pointer-events-auto cursor-pointer select-none"
+              onClick={togglePlay}
+              playsInline
+            />
+
+            {/* Kinetic Subtitle Overlay */}
+            <div
+              onMouseDown={interactiveDrag ? handleCaptionMouseDown : undefined}
+              className={cn(
+                "absolute left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex flex-col items-center justify-center px-4 py-1",
+                interactiveDrag
+                  ? "pointer-events-auto cursor-move group/caption"
+                  : "pointer-events-none",
+              )}
+              style={{
+                top: `${currentSegmentY}%`,
+              }}
+              title={
+                interactiveDrag
+                  ? "Nhấp giữ để kéo vị trí hiển thị chữ lên xuống trên video"
+                  : undefined
+              }
+            >
+              {/* Badge định vị Y và nút thao tác nhanh (Chỉ hiển thị khi interactiveDrag) */}
+              {interactiveDrag && (
+                <div className="opacity-0 group-hover/caption:opacity-100 transition-opacity bg-black/80 backdrop-blur-md px-2.5 py-0.5 rounded-full border border-white/15 text-[10px] text-white flex items-center gap-1.5 mb-1.5 shadow-lg pointer-events-auto">
+                  <MoveVertical className="w-3 h-3 text-primary" />
+                  <span className="font-mono text-white/90">
+                    Y: {currentSegmentY}%
+                  </span>
+                  {activeSegment?.customPositionY !== undefined ? (
+                    <>
+                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-medium text-[9px] border border-amber-500/30">
+                        Đoạn riêng
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (activeSegment)
+                            handleResetSegmentPosition(activeSegment.id);
+                        }}
+                        className="text-[9px] text-white/60 hover:text-white underline ml-1 cursor-pointer"
+                      >
+                        Đặt lại
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-white/40 text-[9px]">(Chung)</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleApplyPositionToAll(currentSegmentY);
+                    }}
+                    className="text-[9px] text-primary hover:text-primary-fixed-dim font-semibold underline ml-1 cursor-pointer flex items-center gap-0.5"
+                  >
+                    <CheckCheck className="w-2.5 h-2.5" />
+                    <span>Áp dụng tất cả</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Render chữ Kinetic Karaoke */}
+              {displaySegment
+                ? (() => {
+                    const plainText = displaySegment.words
+                      .map((w) => w.word.toLowerCase())
+                      .join(" ");
+                    const charCount = plainText.length;
+                    const fitScale =
+                      charCount > 25 ? Math.max(0.65, 25 / charCount) : 1;
+                    const computedFontSize = Math.round(
+                      style.font_size * fitScale,
+                    );
+
+                    return (
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={cn(
+                            "flex flex-nowrap justify-center items-center gap-x-2 text-center max-w-[96%] px-3 py-1.5 rounded-xl bg-black/30 backdrop-blur-[2px] border border-white/10 transition whitespace-nowrap overflow-hidden select-none shadow-lg",
+                            interactiveDrag &&
+                              "group-hover/caption:border-primary/40",
+                          )}
+                        >
+                          {displaySegment.words.map((w, idx) => {
+                            const isCurrent = activeSegment
+                              ? idx === activeWordIdx
+                              : idx === 0;
+
+                            return (
+                              <span
+                                key={idx}
+                                className={cn(
+                                  "font-black tracking-wide transition-all duration-150 inline-block shrink-0 select-none",
+                                  isCurrent
+                                    ? "scale-110 drop-shadow-[0_0_15px_rgba(255,255,0,0.8)] z-10"
+                                    : "opacity-90",
+                                )}
+                                style={{
+                                  fontFamily: style.font_name,
+                                  fontSize: `${computedFontSize}px`,
+                                  color: isCurrent
+                                    ? style.highlight_color
+                                    : style.primary_color,
+                                  WebkitTextStroke: `${style.outline_size}px ${style.outline_color}`,
+                                  paintOrder: "stroke fill",
+                                }}
+                              >
+                                {w.word.toLowerCase()}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()
+                : null}
+            </div>
+
+            {/* Floating Player Control Bar */}
+            <div className="absolute bottom-4 left-4 right-4 bg-black/80 backdrop-blur-md px-4 py-2 rounded-xl flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity z-30 border border-white/10">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={togglePlay}
+                  className="p-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary/90 transition cursor-pointer"
+                  title={isPlaying ? "Tạm dừng (Space)" : "Phát video (Space)"}
+                >
+                  {isPlaying ? (
+                    <Pause className="w-3.5 h-3.5" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                  )}
+                </button>
+                <button
+                  onClick={() => seekTo(0)}
+                  className="p-1.5 text-on-surface-variant hover:text-on-surface transition cursor-pointer"
+                  title="Phát lại từ đầu"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-xs font-mono text-on-surface">
+                  {currentTime.toFixed(1)}s / {videoDuration.toFixed(1)}s
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-on-surface-variant flex items-center gap-1">
+                  <MoveVertical className="w-3 h-3 text-primary" />
+                  Y: {currentSegmentY}%
+                </span>
+
+                <button
+                  onClick={handleToggleFullscreen}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition flex items-center gap-1 text-xs cursor-pointer"
+                  title={
+                    isFullscreen
+                      ? "Thu nhỏ màn hình (Esc)"
+                      : "Phóng to toàn màn hình (Fullscreen)"
+                  }
+                >
+                  {isFullscreen ? (
+                    <Minimize2 className="w-3.5 h-3.5" />
+                  ) : (
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  )}
+                  <span className="hidden sm:inline text-[11px]">
+                    {isFullscreen ? "Thu nhỏ" : "Toàn màn hình"}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center p-8 text-center space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-surface-variant/40 flex items-center justify-center text-primary/80 border border-white/5">
+              <Video className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-on-surface">
+                Chưa có video nào được chọn
+              </h3>
+              <p className="text-sm text-on-surface-variant max-w-sm mt-1">
+                Hãy quay lại Bước 1 để tải file video lên hệ thống
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ─── Component Bảng Điều Khiển Kiểu Dáng Chữ ──────────────────────────────
+  const renderStyleControlsContent = (withHeader = true) => {
+    return (
+      <div className="flex flex-col space-y-4 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 flex-1">
+        {withHeader && (
+          <div className="flex items-center justify-between pb-2 border-b border-white/5 shrink-0">
+            <div className="flex items-center gap-2">
+              <Palette className="w-4 h-4 text-primary" />
+              <h3 className="text-sm font-bold text-on-surface">
+                Kiểu dáng Chữ Kinetic
+              </h3>
+            </div>
+            <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-medium">
+              Tự động Karaoke
+            </span>
+          </div>
+        )}
+
+        {/* Font Family Selection */}
+        <div className="space-y-1.5 shrink-0">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
+              <Type className="w-3.5 h-3.5 text-primary" />
+              Font chữ ({SYSTEM_FONTS.length + customFonts.length})
+            </label>
+
+            <input
+              type="file"
+              ref={fontInputRef}
+              onChange={handleCustomFontUpload}
+              accept=".ttf,.otf,.woff,.woff2"
+              className="hidden"
+            />
+            <button
+              onClick={() => fontInputRef.current?.click()}
+              className="flex items-center gap-1 text-[10px] text-primary hover:underline font-medium cursor-pointer"
+            >
+              <FileUp className="w-3 h-3" />
+              Tải Font riêng
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-1.5 max-h-[170px] overflow-y-auto pr-1">
+            {customFonts.map((name) => (
+              <button
+                key={name}
+                onClick={() => setStyle({ ...style, font_name: name })}
+                className={cn(
+                  "p-2 rounded-lg border text-xs text-left transition flex items-center justify-between cursor-pointer",
+                  style.font_name === name
+                    ? "bg-primary/20 border-primary text-primary"
+                    : "bg-surface-variant/20 border-white/10 text-on-surface hover:bg-surface-variant/40",
+                )}
+                style={{ fontFamily: name }}
+              >
+                <span className="truncate">{name}</span>
+                <span className="text-[8px] bg-primary/20 text-primary px-1 py-0.5 rounded">
+                  Custom
+                </span>
+              </button>
+            ))}
+
+            {SYSTEM_FONTS.map((f) => (
+              <button
+                key={f.name}
+                onClick={() => setStyle({ ...style, font_name: f.name })}
+                className={cn(
+                  "p-2 rounded-lg border text-xs text-left transition truncate cursor-pointer",
+                  style.font_name === f.name
+                    ? "bg-primary/20 border-primary text-primary"
+                    : "bg-surface-variant/20 border-white/10 text-on-surface hover:bg-surface-variant/40",
+                )}
+                style={{ fontFamily: f.name }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Font Size Slider */}
+        <div className="space-y-1.5 shrink-0">
+          <div className="flex justify-between text-[11px]">
+            <span className="font-semibold uppercase tracking-wider text-on-surface-variant">
+              Cỡ chữ ({style.font_size}px)
+            </span>
+          </div>
+          <input
+            type="range"
+            min="16"
+            max="60"
+            value={style.font_size}
+            onChange={(e) =>
+              setStyle({
+                ...style,
+                font_size: Number(e.target.value),
+              })
+            }
+            className="w-full h-1.5 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
+          />
+        </div>
+
+        {/* Y Position Controls */}
+        <div className="space-y-2 p-2.5 rounded-xl bg-surface-variant/20 border border-white/10 shrink-0">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="font-semibold uppercase tracking-wider text-on-surface flex items-center gap-1.5">
+              <MoveVertical className="w-3.5 h-3.5 text-primary" />
+              Vị trí phụ đề (Y: {currentSegmentY}%)
+            </span>
+            {activeSegment && (
+              <div className="flex items-center gap-1">
+                {activeSegment.customPositionY !== undefined ? (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Đoạn #{activeSegment.id} riêng
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/10 text-on-surface-variant">
+                    Mặc định chung
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          <input
+            type="range"
+            min="10"
+            max="90"
+            value={currentSegmentY}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              if (activeSegment) {
+                handleUpdateSegmentPositionY(activeSegment.id, val);
+              } else {
+                setStyle({ ...style, position_y: val });
+              }
+            }}
+            className="w-full h-1.5 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
+          />
+
+          {/* Presets Trên / Giữa / Dưới */}
+          <div className="grid grid-cols-3 gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                if (activeSegment) {
+                  handleUpdateSegmentPositionY(activeSegment.id, 15);
+                } else {
+                  setStyle({ ...style, position_y: 15 });
+                }
+              }}
+              className={cn(
+                "py-1 px-1.5 rounded-md text-[10px] font-medium border transition text-center flex items-center justify-center gap-1 cursor-pointer",
+                currentSegmentY === 15
+                  ? "bg-primary/20 border-primary text-primary"
+                  : "bg-surface-variant/30 border-white/5 text-on-surface-variant hover:bg-surface-variant/60",
+              )}
+              title="Đặt phụ đề ở phía trên video"
+            >
+              <ArrowUp className="w-2.5 h-2.5" />
+              Trên (15%)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (activeSegment) {
+                  handleUpdateSegmentPositionY(activeSegment.id, 50);
+                } else {
+                  setStyle({ ...style, position_y: 50 });
+                }
+              }}
+              className={cn(
+                "py-1 px-1.5 rounded-md text-[10px] font-medium border transition text-center flex items-center justify-center gap-1 cursor-pointer",
+                currentSegmentY === 50
+                  ? "bg-primary/20 border-primary text-primary"
+                  : "bg-surface-variant/30 border-white/5 text-on-surface-variant hover:bg-surface-variant/60",
+              )}
+              title="Đặt phụ đề ở chính giữa video"
+            >
+              Giữa (50%)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (activeSegment) {
+                  handleUpdateSegmentPositionY(activeSegment.id, 85);
+                } else {
+                  setStyle({ ...style, position_y: 85 });
+                }
+              }}
+              className={cn(
+                "py-1 px-1.5 rounded-md text-[10px] font-medium border transition text-center flex items-center justify-center gap-1 cursor-pointer",
+                currentSegmentY === 85
+                  ? "bg-primary/20 border-primary text-primary"
+                  : "bg-surface-variant/30 border-white/5 text-on-surface-variant hover:bg-surface-variant/60",
+              )}
+              title="Đặt phụ đề ở phía dưới video"
+            >
+              <ArrowDown className="w-2.5 h-2.5" />
+              Dưới (85%)
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between pt-1 border-t border-white/5 text-[10px]">
+            {activeSegment && activeSegment.customPositionY !== undefined ? (
+              <button
+                type="button"
+                onClick={() => handleResetSegmentPosition(activeSegment.id)}
+                className="flex items-center gap-1 text-amber-400/90 hover:text-amber-300 transition cursor-pointer"
+              >
+                <RotateCcw className="w-2.5 h-2.5" />
+                Khôi phục đoạn này
+              </button>
+            ) : (
+              <span className="text-white/40 text-[9px]">
+                Kéo thả trên video để chỉnh
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={() => handleApplyPositionToAll(currentSegmentY)}
+              className="flex items-center gap-1 text-primary hover:text-primary-fixed-dim transition ml-auto font-medium cursor-pointer"
+              title="Áp dụng vị trí này cho toàn bộ các câu trong video"
+            >
+              <CheckCheck className="w-2.5 h-2.5" />
+              Áp dụng tất cả
+            </button>
+          </div>
+        </div>
+
+        {/* Colors */}
+        <div className="grid grid-cols-2 gap-2.5 shrink-0">
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
+              Màu chữ gốc
+            </label>
+            <div className="flex items-center gap-2 p-1.5 bg-surface-variant/30 rounded-lg border border-white/10">
+              <input
+                type="color"
+                value={style.primary_color}
+                onChange={(e) =>
+                  setStyle({
+                    ...style,
+                    primary_color: e.target.value,
+                  })
+                }
+                className="w-5 h-5 rounded cursor-pointer bg-transparent border-0"
+              />
+              <span className="text-[11px] font-mono text-on-surface">
+                {style.primary_color}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
+              Highlight Karaoke
+            </label>
+            <div className="flex items-center gap-2 p-1.5 bg-surface-variant/30 rounded-lg border border-white/10">
+              <input
+                type="color"
+                value={style.highlight_color}
+                onChange={(e) =>
+                  setStyle({
+                    ...style,
+                    highlight_color: e.target.value,
+                  })
+                }
+                className="w-5 h-5 rounded cursor-pointer bg-transparent border-0"
+              />
+              <span className="text-[11px] font-mono text-on-surface">
+                {style.highlight_color}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Outline Color & Size */}
+        <div className="space-y-2 shrink-0">
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="font-semibold uppercase tracking-wider text-on-surface-variant">
+              Viền chữ ({style.outline_size}px)
+            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="color"
+                value={style.outline_color}
+                onChange={(e) =>
+                  setStyle({
+                    ...style,
+                    outline_color: e.target.value,
+                  })
+                }
+                className="w-4 h-4 rounded cursor-pointer bg-transparent border-0"
+              />
+              <span className="font-mono text-[10px] text-on-surface-variant">
+                {style.outline_color}
+              </span>
+            </div>
+          </div>
+          <input
+            type="range"
+            min="1"
+            max="8"
+            value={style.outline_size}
+            onChange={(e) =>
+              setStyle({
+                ...style,
+                outline_size: Number(e.target.value),
+              })
+            }
+            className="w-full h-1.5 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
+          />
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="w-full max-w-full px-2 md:px-4 pb-16 space-y-4">
-      {/* ─── 1. Header Toolbar ────────────────────────────────────────────── */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-surface/85 backdrop-blur-md px-5 py-3.5 rounded-2xl border border-white/10 shadow-xl">
+      <input
+        type="file"
+        ref={videoInputRef}
+        onChange={handleVideoSelect}
+        accept="video/mp4,video/quicktime,video/webm"
+        className="hidden"
+      />
+
+      {/* ─── 1. Header Toolbar Tinh Gọn ─────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-surface/85 backdrop-blur-md px-5 py-3.5 rounded-2xl border border-white/10 shadow-xl">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-primary/10 border border-primary/30 rounded-xl text-primary">
             <Sparkles className="w-5 h-5" />
@@ -945,547 +1635,504 @@ export default function AutoCaption() {
               </span>
             </div>
             <p className="text-xs text-on-surface-variant">
-              Tạo phụ đề tự động khớp kịch bản, gộp/tách câu & cập nhật timeline
-              mượt mà
+              Tạo phụ đề tự động theo quy trình 3 bước tinh gọn, tự động đồng bộ
+              mốc thời gian
             </p>
           </div>
         </div>
 
-        {/* Action Buttons Toolbar */}
-        <div className="flex items-center flex-wrap gap-2.5 w-full lg:w-auto">
-          <input
-            type="file"
-            ref={videoInputRef}
-            onChange={handleVideoSelect}
-            accept="video/mp4,video/quicktime,video/webm"
-            className="hidden"
-          />
+        {/* Global Action Header: Đổi video & Làm video mới */}
+        <div className="flex items-center gap-2 ml-auto sm:ml-0">
+          {videoFile && (
+            <button
+              onClick={() => videoInputRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 hover:border-primary/50 bg-surface-variant/40 hover:bg-surface-variant text-on-surface transition text-xs font-medium cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5 text-primary" />
+              <span>Đổi video</span>
+            </button>
+          )}
 
-          {/* Chọn Video Button */}
-          <button
-            onClick={() => videoInputRef.current?.click()}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-white/10 hover:border-primary/50 bg-surface-variant/40 hover:bg-surface-variant text-on-surface transition-all text-xs font-medium cursor-pointer"
-          >
-            <Upload className="w-3.5 h-3.5 text-primary" />
-            {videoFile ? "Đổi video (.mp4)" : "Chọn Video (.mp4)"}
-          </button>
-
-          {/* Nút Làm Video Mới / Dọn Dẹp Phiên Cũ */}
           {(sessionId || videoUrl || segments.length > 0) && (
             <button
               onClick={handleStartNewSession}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-red-500/30 hover:border-red-500/60 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold transition-all cursor-pointer shadow-xs"
-              title="Dọn dẹp phiên video này và bắt đầu làm video mới"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-red-500/30 hover:border-red-500/60 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold transition cursor-pointer"
+              title="Dọn dẹp phiên hiện tại và bắt đầu làm video mới"
             >
               <RotateCcw className="w-3.5 h-3.5 text-red-400" />
-              <span className="hidden sm:inline">Làm video mới</span>
-              <span className="sm:hidden">Làm mới</span>
-            </button>
-          )}
-
-          {/* Nút Nhập Kịch Bản Mẫu */}
-          <button
-            onClick={() => setShowScriptBox((v) => !v)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium transition-all cursor-pointer",
-              showScriptBox || referenceScript.trim()
-                ? "bg-primary/15 border-primary/40 text-primary shadow-xs"
-                : "bg-surface-variant/40 border-white/10 hover:border-white/20 text-on-surface",
-            )}
-            title="Dán kịch bản đã làm ở Phòng thu để chuẩn hóa chính tả 100%"
-          >
-            <FileText className="w-3.5 h-3.5 text-primary" />
-            <span>
-              {referenceScript.trim() ? "Kịch bản (Đã nạp)" : "Dán Kịch bản"}
-            </span>
-            {referenceScript.trim() && (
-              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            )}
-          </button>
-
-          {/* Nút Mở Thư Viện Import Kịch Bản Nhanh */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowScriptBox(true);
-              setIsLibraryModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-semibold transition-all cursor-pointer shadow-xs"
-            title="Nhập nhanh kịch bản từ các file giọng đọc/video trong Thư viện"
-          >
-            <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Import từ Thư viện</span>
-            <span className="sm:hidden">Thư viện</span>
-          </button>
-
-          {/* Nút Tạo Phụ Đề AI */}
-          {videoFile && (
-            <button
-              onClick={handleTranscribe}
-              disabled={isTranscribing}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary-fixed-dim text-on-primary font-semibold transition-all shadow-md hover:shadow-primary/20 disabled:opacity-50 text-xs cursor-pointer"
-            >
-              {isTranscribing ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Đang bóc tách AI...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Tạo Phụ Đề AI</span>
-                </>
-              )}
-            </button>
-          )}
-
-          {/* Nút Cập Nhật Timeline Caption */}
-          {segments.length > 0 && (
-            <button
-              onClick={handleUpdateTimeline}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 transition text-xs font-semibold shadow-xs cursor-pointer"
-              title="Tính toán và chuẩn hóa mốc thời gian hiển thị sau khi bạn gộp/tách câu"
-            >
-              <Clock className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Cập nhật Timeline</span>
-            </button>
-          )}
-
-          {/* Nút Toggle Inspector Panel */}
-          <button
-            onClick={() => setShowInspector(!showInspector)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium transition cursor-pointer",
-              showInspector
-                ? "bg-primary/15 border-primary/40 text-primary"
-                : "bg-surface-variant/40 border-white/10 text-on-surface hover:bg-surface-variant",
-            )}
-            title="Ẩn / Hiện thanh công cụ Kiểu dáng & Lời thoại"
-          >
-            {showInspector ? (
-              <SidebarClose className="w-3.5 h-3.5" />
-            ) : (
-              <SidebarOpen className="w-3.5 h-3.5" />
-            )}
-            <span className="hidden sm:inline">
-              {showInspector ? "Thu gọn công cụ" : "Mở công cụ"}
-            </span>
-          </button>
-
-          {/* Nút Xuất Video */}
-          {segments.length > 0 && (
-            <button
-              onClick={handleExport}
-              disabled={isExporting}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition disabled:opacity-50 cursor-pointer"
-            >
-              {isExporting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Đang xuất...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Xuất Video</span>
-                </>
-              )}
+              <span>Làm video mới</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* ─── Kịch Bản Mẫu (Dán kịch bản đối chiếu) ────────────────────────── */}
-      {showScriptBox && (
-        <div className="bg-surface/90 backdrop-blur-md p-4 rounded-2xl border border-amber-500/30 shadow-2xl space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/25">
-                <FileText className="w-4 h-4" />
-              </div>
+      {/* ─── 2. Stepper Progress Bar (Thanh điều hướng 3 giai đoạn) ──────────── */}
+      <div className="bg-surface/75 backdrop-blur-md p-2 rounded-2xl border border-white/10 shadow-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {STEPS.map((step) => {
+            const isActive = currentStep === step.id;
+            const isCompleted = currentStep > step.id;
+            const isAccessible = step.id === 1 || segments.length > 0;
+            const StepIcon = step.icon;
+
+            return (
+              <button
+                key={step.id}
+                disabled={!isAccessible}
+                onClick={() => {
+                  if (isAccessible) {
+                    setCurrentStep(step.id);
+                  } else {
+                    toast.info(
+                      "Vui lòng hoàn thành bước nạp video và tạo phụ đề trước.",
+                    );
+                  }
+                }}
+                className={cn(
+                  "flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all duration-200 cursor-pointer",
+                  isActive
+                    ? "bg-primary/20 border-primary text-primary shadow-md shadow-primary/10"
+                    : isCompleted
+                      ? "bg-surface-variant/30 border-emerald-500/30 text-on-surface hover:bg-surface-variant/50"
+                      : "bg-surface-variant/10 border-white/5 text-on-surface-variant/50 cursor-not-allowed opacity-60",
+                )}
+              >
+                <div
+                  className={cn(
+                    "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold transition",
+                    isActive
+                      ? "bg-primary text-on-primary shadow-sm"
+                      : isCompleted
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        : "bg-white/5 text-on-surface-variant",
+                  )}
+                >
+                  {isCompleted ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <StepIcon className="w-3.5 h-3.5" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold truncate flex items-center gap-1.5">
+                    <span>{step.title}</span>
+                  </div>
+                  <p className="text-[10px] text-on-surface-variant/70 truncate hidden sm:block">
+                    {step.desc}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ─── 3. WORKFLOW STEP CONTENTS ─────────────────────────────────────── */}
+
+      {/* ── BƯỚC 1: NẠP VIDEO & KỊCH BẢN ────────────────────────────────────── */}
+      {currentStep === 1 && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start animate-fadeIn">
+          {/* Cột Trái: Chọn Video Dropzone & Preview */}
+          <div className="lg:col-span-5 flex flex-col gap-3">
+            <div className="bg-surface/80 backdrop-blur-md rounded-2xl border border-white/10 p-5 shadow-xl space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-on-surface flex items-center gap-2">
-                  <span>Kịch bản đọc đối chiếu (Chuẩn hóa chính tả 100%)</span>
-                  <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium">
-                    Whisper AI Precision
-                  </span>
-                </h3>
+                <div className="flex items-center gap-2 mb-1">
+                  <Video className="w-4 h-4 text-primary" />
+                  <h2 className="text-sm font-bold text-on-surface">
+                    1. Chọn Video (.mp4 / .mov / .webm)
+                  </h2>
+                </div>
                 <p className="text-xs text-on-surface-variant">
-                  Dán kịch bản hoặc lấy từ Thư viện video/voice đã tạo để hệ
-                  thống khớp chính tả từng từ chính xác tuyệt đối.
+                  Video đã edit từ CapCut/Premiere có giọng đọc rõ ràng
                 </p>
               </div>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Nút Import từ Thư viện nổi bật */}
-              <button
-                type="button"
-                onClick={() => setIsLibraryModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-primary/20 hover:from-amber-500/30 hover:via-orange-500/30 hover:to-primary/30 border border-amber-500/50 hover:border-amber-400 text-amber-300 hover:text-white text-xs font-bold shadow-sm transition-all duration-150 cursor-pointer group"
-                title="Chọn kịch bản từ các file giọng đọc hoặc video đã làm trong Thư viện"
-              >
-                <FolderOpen className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
-                <span>Import Kịch bản từ Thư viện</span>
-              </button>
 
-              {segments.length > 0 && (
-                <button
-                  onClick={handleAlignScript}
-                  disabled={isAligningScript || !referenceScript.trim()}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-on-primary text-xs font-semibold shadow-md transition disabled:opacity-40 cursor-pointer"
-                >
-                  {isAligningScript ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Wand2 className="w-3.5 h-3.5" />
+              {videoFile ? (
+                <div className="p-4 rounded-xl bg-surface-variant/30 border border-white/10 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-primary/20 text-primary border border-primary/30">
+                      <Video className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-on-surface truncate">
+                        {videoFile.name}
+                      </p>
+                      <p className="text-[11px] text-on-surface-variant">
+                        {(videoFile.size / (1024 * 1024)).toFixed(1)} MB
+                        {videoDuration > 0 && ` • ${videoDuration.toFixed(1)}s`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {videoUrl && (
+                    <div className="relative aspect-video rounded-lg overflow-hidden bg-black/60 border border-white/10">
+                      <video
+                        src={videoUrl}
+                        className="w-full h-full object-contain"
+                        controls
+                        playsInline
+                      />
+                    </div>
                   )}
-                  Khớp & Sửa chính tả tức thì
-                </button>
+
+                  <button
+                    onClick={() => videoInputRef.current?.click()}
+                    className="w-full py-2 rounded-lg bg-surface-variant/60 hover:bg-surface-variant border border-white/10 text-xs font-semibold text-on-surface transition cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-primary" />
+                    <span>Chọn video khác</span>
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDraggingFile(true);
+                  }}
+                  onDragLeave={() => setIsDraggingFile(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDraggingFile(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) handleProcessVideoFile(file);
+                  }}
+                  onClick={() => videoInputRef.current?.click()}
+                  className={cn(
+                    "min-h-[220px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center p-6 text-center transition cursor-pointer group",
+                    isDraggingFile
+                      ? "border-primary bg-primary/10 scale-[1.01]"
+                      : "border-white/15 hover:border-primary/50 bg-surface-variant/20 hover:bg-surface-variant/30",
+                  )}
+                >
+                  <div className="p-3.5 rounded-2xl bg-primary/15 text-primary mb-3 group-hover:scale-110 transition-transform">
+                    <Upload className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-on-surface">
+                    Kéo thả video vào đây hoặc nhấp để chọn
+                  </h3>
+                  <p className="text-xs text-on-surface-variant max-w-xs mt-1">
+                    Định dạng hỗ trợ: MP4, MOV, WEBM (Khuyên dùng video dọc
+                    9:16)
+                  </p>
+                </div>
               )}
+
+              <div className="p-3 rounded-xl bg-primary/5 border border-primary/15 text-[11px] text-on-surface-variant flex items-start gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                <span>
+                  Hệ thống sử dụng Whisper AI bóc tách giọng nói từng từ
+                  (word-level timestamps) và tự động chống câu cụt/vụn.
+                </span>
+              </div>
             </div>
           </div>
 
-          <textarea
-            id="reference_script"
-            name="reference_script"
-            value={referenceScript}
-            onChange={(e) => setReferenceScript(e.target.value)}
-            placeholder="Dán toàn bộ kịch bản bạn đã dùng chuyển voice vào đây, hoặc nhấn nút 'Import Kịch bản từ Thư viện' ở trên để nạp tự động..."
-            rows={3}
-            className="w-full px-3.5 py-2.5 rounded-xl bg-surface-variant/30 border border-white/10 text-on-surface placeholder:text-on-surface-variant/40 text-sm focus:outline-none focus:border-amber-500/50 resize-y leading-relaxed font-sans"
-          />
+          {/* Cột Phải: Kịch Bản Đối Chiếu & Cấu Hình Whisper AI */}
+          <div className="lg:col-span-7 flex flex-col gap-3">
+            <div className="bg-surface/80 backdrop-blur-md rounded-2xl border border-white/10 p-5 shadow-xl space-y-4">
+              <div>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-amber-400" />
+                    <h2 className="text-sm font-bold text-on-surface">
+                      2. Kịch bản đọc đối chiếu (Khuyên dùng)
+                    </h2>
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium">
+                      Chính xác 100%
+                    </span>
+                  </div>
 
-          {/* Quick Actions & Helper */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs text-on-surface-variant">
-            {!referenceScript.trim() ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] text-on-surface-variant">
-                  💡 Mẹo:
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsLibraryModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-semibold transition cursor-pointer"
-                >
-                  <FolderOpen className="w-3 h-3 text-amber-400" />
-                  <span>Chọn nhanh từ Thư viện</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const text = await navigator.clipboard.readText();
-                      if (text.trim()) {
-                        setReferenceScript(text);
-                        toast.success("Đã dán kịch bản từ Clipboard!");
-                      } else {
-                        toast.error("Bộ nhớ tạm (Clipboard) đang trống!");
-                      }
-                    } catch {
-                      toast.error(
-                        "Vui lòng nhấn Ctrl+V trực tiếp vào ô để dán kịch bản!",
-                      );
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-variant/40 hover:bg-surface-variant border border-white/10 text-on-surface text-[11px] font-medium transition cursor-pointer"
-                >
-                  <ClipboardPaste className="w-3 h-3 text-primary" />
-                  <span>Dán từ Clipboard</span>
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-emerald-400 font-medium flex items-center gap-1 text-[11px]">
-                  <Check className="w-3.5 h-3.5" /> Đã nạp kịch bản (
-                  {referenceScript.length} ký tự •{" "}
-                  {referenceScript.trim().split(/\s+/).filter(Boolean).length}{" "}
-                  từ)
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsLibraryModalOpen(true)}
-                  className="text-amber-400 hover:text-amber-300 hover:underline flex items-center gap-1 text-[11px] cursor-pointer font-medium"
-                >
-                  <FolderOpen className="w-3 h-3" /> Đổi kịch bản khác
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReferenceScript("");
-                    toast.info("Đã xóa kịch bản đối chiếu");
-                  }}
-                  className="text-red-400/80 hover:text-red-400 hover:underline flex items-center gap-1 text-[11px] cursor-pointer"
-                >
-                  <Trash2 className="w-3 h-3" /> Xóa kịch bản
-                </button>
-              </div>
-            )}
+                  {/* Actions Kịch bản */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setIsLibraryModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-[11px] font-semibold transition cursor-pointer"
+                    >
+                      <FolderOpen className="w-3 h-3 text-amber-400" />
+                      <span>Import từ Thư viện</span>
+                    </button>
 
-            <button
-              onClick={() => setShowScriptBox(false)}
-              className="text-[11px] text-on-surface-variant hover:text-on-surface underline cursor-pointer ml-auto"
-            >
-              Thu gọn ô này
-            </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText();
+                          if (text.trim()) {
+                            setReferenceScript(text);
+                            toast.success("Đã dán kịch bản từ Clipboard!");
+                          } else {
+                            toast.error("Bộ nhớ tạm (Clipboard) đang trống!");
+                          }
+                        } catch {
+                          toast.error(
+                            "Vui lòng nhấn Ctrl+V trực tiếp vào ô để dán!",
+                          );
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-variant/40 hover:bg-surface-variant border border-white/10 text-on-surface text-[11px] font-medium transition cursor-pointer"
+                    >
+                      <ClipboardPaste className="w-3 h-3 text-primary" />
+                      <span>Dán Clipboard</span>
+                    </button>
+
+                    {referenceScript.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReferenceScript("");
+                          toast.info("Đã xóa kịch bản đối chiếu");
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-red-400/80 hover:text-red-400 text-[11px] cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Xóa</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-xs text-on-surface-variant">
+                  Dán kịch bản bạn đã dùng để lồng tiếng để AI so khớp chính tả
+                  100% chuẩn xác từng từ
+                </p>
+              </div>
+
+              {/* Textarea kịch bản - Kích thước cân đối, không kéo dãn vỡ UI */}
+              <div className="space-y-1">
+                <textarea
+                  id="reference_script"
+                  name="reference_script"
+                  value={referenceScript}
+                  onChange={(e) => setReferenceScript(e.target.value)}
+                  placeholder="Dán toàn bộ kịch bản vào đây, hoặc nhấn nút 'Import từ Thư viện' ở góc trên để nạp kịch bản tự động..."
+                  rows={5}
+                  className="w-full min-h-[140px] max-h-[220px] px-3.5 py-2.5 rounded-xl bg-surface-variant/30 border border-white/10 text-on-surface placeholder:text-on-surface-variant/40 text-xs focus:outline-none focus:border-amber-500/50 resize-y leading-relaxed font-sans"
+                />
+                <div className="flex items-center justify-between text-[11px] text-on-surface-variant px-1">
+                  <span>
+                    {referenceScript.trim() ? (
+                      <strong className="text-emerald-400">
+                        ✓ Đã có {referenceScript.length} ký tự •{" "}
+                        {
+                          referenceScript.trim().split(/\s+/).filter(Boolean)
+                            .length
+                        }{" "}
+                        từ
+                      </strong>
+                    ) : (
+                      "Không bắt buộc (nếu để trống, Whisper AI sẽ tự nhận diện âm thanh gốc)"
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Cấu hình Whisper AI */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-surface-variant/20 border border-white/10">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider flex items-center gap-1">
+                    <Sliders className="w-3 h-3 text-primary" />
+                    <span>Ngôn ngữ âm thanh</span>
+                  </label>
+                  <select
+                    value={whisperLanguage}
+                    onChange={(e) => setWhisperLanguage(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-surface-variant/40 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/50"
+                  >
+                    <option
+                      value="vi"
+                      className="bg-surface-variant text-on-surface"
+                    >
+                      Tiếng Việt (Khuyên dùng)
+                    </option>
+                    <option
+                      value="en"
+                      className="bg-surface-variant text-on-surface"
+                    >
+                      Tiếng Anh (English)
+                    </option>
+                    <option
+                      value="auto"
+                      className="bg-surface-variant text-on-surface"
+                    >
+                      Tự động nhận diện (Auto detect)
+                    </option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-primary" />
+                    <span>Mô hình Whisper AI</span>
+                  </label>
+                  <select
+                    value={whisperModel}
+                    onChange={(e) => setWhisperModel(e.target.value as any)}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-surface-variant/40 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/50"
+                  >
+                    <option
+                      value="medium"
+                      className="bg-surface-variant text-on-surface"
+                    >
+                      Medium (Chuyên sâu)
+                    </option>
+                    <option
+                      value="base"
+                      className="bg-surface-variant text-on-surface"
+                    >
+                      Base (Nhanh 2x, khuyên dùng)
+                    </option>
+                    <option
+                      value="small"
+                      className="bg-surface-variant text-on-surface"
+                    >
+                      Small (Chuẩn xác cao hơn)
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Action Buttons Step 1 */}
+              <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
+                <button
+                  onClick={handleTranscribe}
+                  disabled={!videoFile || isTranscribing}
+                  className="w-full sm:flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-primary to-orange-500 hover:from-primary/90 hover:to-orange-500/90 text-on-primary font-bold transition-all shadow-lg hover:shadow-primary/25 disabled:opacity-50 text-sm cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {isTranscribing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Đang bóc tách âm thanh & nhận diện AI...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Bắt đầu Tạo Phụ Đề</span>
+                    </>
+                  )}
+                </button>
+
+                {segments.length > 0 && referenceScript.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleAlignScript}
+                    disabled={isAligningScript}
+                    className="w-full sm:w-auto py-3 px-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 font-semibold transition text-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    title="Khớp lại chính tả từ kịch bản đối chiếu"
+                  >
+                    {isAligningScript ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Wand2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>Khớp chính tả</span>
+                  </button>
+                )}
+
+                {segments.length > 0 && (
+                  <button
+                    onClick={() => setCurrentStep(2)}
+                    className="w-full sm:w-auto py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition text-xs cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <span>Tiếp tục: Biên tập & Kiểu dáng</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ─── 2. Main Studio Workspace: 2 Columns (Preview SIÊU LỚN & Inspector) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
-        {/* Left Column: Video Live Preview SIÊU LỚN (Ưu tiên không gian tối đa) */}
-        <div
-          className={cn(
-            "flex flex-col transition-all duration-300",
-            showInspector
-              ? "lg:col-span-8 xl:col-span-8"
-              : "lg:col-span-12 xl:col-span-12",
-          )}
-        >
-          <div
-            ref={videoContainerRef}
-            style={{
-              aspectRatio: videoAspectRatio ? `${videoAspectRatio}` : "16 / 9",
-            }}
-            className={cn(
-              "relative w-full max-h-[72vh] 2k:max-h-[80vh] bg-black/95 rounded-2xl overflow-hidden border border-white/10 shadow-2xl flex items-center justify-center select-none group",
-              isFullscreen && "rounded-none border-0 max-h-screen",
-            )}
-          >
-            {videoUrl ? (
-              <>
-                <video
-                  ref={videoRef}
-                  src={videoUrl}
-                  onLoadedMetadata={(e) => {
-                    const vid = e.currentTarget;
-                    const dur = vid.duration || 0;
-                    setVideoDuration(dur);
-                    if (vid.videoWidth && vid.videoHeight) {
-                      setVideoAspectRatio(vid.videoWidth / vid.videoHeight);
-                    }
-                  }}
-                  onEnded={() => setIsPlaying(false)}
-                  className="w-full h-full object-contain pointer-events-auto cursor-pointer select-none"
-                  onClick={togglePlay}
-                  playsInline
-                />
+      {/* ── BƯỚC 2: BIÊN TẬP & KIỂU DÁNG ───────────────────────────────────── */}
+      {currentStep === 2 && (
+        <div className="space-y-4 animate-fadeIn">
+          {/* Sub-Nav Action Bar cho Bước 2 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface/70 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10 shadow-md">
+            <button
+              onClick={() => setCurrentStep(1)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 hover:border-white/20 bg-surface-variant/40 hover:bg-surface-variant text-on-surface text-xs font-medium transition cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Quay lại: Nạp Video</span>
+            </button>
 
-                {/* ── Kinetic Subtitle Interactive Overlay (Kéo thả vị trí Y trên video) ── */}
-                <div
-                  onMouseDown={handleCaptionMouseDown}
-                  className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex flex-col items-center justify-center pointer-events-auto cursor-move group/caption px-4 py-1"
-                  style={{
-                    top: `${currentSegmentY}%`,
-                  }}
-                  title="Nhấp giữ để kéo vị trí hiển thị chữ lên xuống trên video"
-                >
-                  {/* Badge định vị Y và nút thao tác nhanh */}
-                  <div className="opacity-0 group-hover/caption:opacity-100 transition-opacity bg-black/80 backdrop-blur-md px-2.5 py-0.5 rounded-full border border-white/15 text-[10px] text-white flex items-center gap-1.5 mb-1.5 shadow-lg pointer-events-auto">
-                    <MoveVertical className="w-3 h-3 text-primary" />
-                    <span className="font-mono text-white/90">
-                      Y: {currentSegmentY}%
-                    </span>
-                    {activeSegment?.customPositionY !== undefined ? (
-                      <>
-                        <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-medium text-[9px] border border-amber-500/30">
-                          Đoạn riêng
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (activeSegment)
-                              handleResetSegmentPosition(activeSegment.id);
-                          }}
-                          className="text-[9px] text-white/60 hover:text-white underline ml-1 cursor-pointer"
-                        >
-                          Đặt lại
-                        </button>
-                      </>
-                    ) : (
-                      <span className="text-white/40 text-[9px]">(Chung)</span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleApplyPositionToAll(currentSegmentY);
-                      }}
-                      className="text-[9px] text-primary hover:text-primary-fixed-dim font-semibold underline ml-1 cursor-pointer flex items-center gap-0.5"
-                    >
-                      <CheckCheck className="w-2.5 h-2.5" />
-                      <span>Áp dụng tất cả</span>
-                    </button>
-                  </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-on-surface-variant font-medium">
+                Đang có{" "}
+                <strong className="text-primary font-bold">
+                  {segments.length}
+                </strong>{" "}
+                đoạn câu
+                <span className="text-white/40 ml-1.5 hidden sm:inline">
+                  • Kéo trực tiếp phụ đề trên video để chỉnh vị trí Y (
+                  {currentSegmentY}%)
+                </span>
+              </span>
+            </div>
 
-                  {/* Render chữ Kinetic Karaoke - Luôn hiển thị trên 1 hàng duy nhất */}
-                  {activeSegment ? (
-                    (() => {
-                      const plainText = activeSegment.words
-                        .map((w) => w.word)
-                        .join(" ");
-                      const charCount = plainText.length;
-                      // Tự động scale font-size vừa vặn 1 hàng nếu câu dài
-                      const fitScale =
-                        charCount > 25 ? Math.max(0.65, 25 / charCount) : 1;
-                      const computedFontSize = Math.round(
-                        style.font_size * fitScale,
-                      );
-
-                      return (
-                        <div className="flex flex-nowrap justify-center items-center gap-x-2 text-center max-w-[96%] px-3 py-1.5 rounded-xl bg-black/30 backdrop-blur-[2px] border border-white/10 group-hover/caption:border-primary/30 transition whitespace-nowrap overflow-hidden select-none shadow-lg">
-                          {activeSegment.words.map((w, idx) => {
-                            const isCurrent = idx === activeWordIdx;
-
-                            return (
-                              <span
-                                key={idx}
-                                className={cn(
-                                  "font-black tracking-wide uppercase transition-all duration-150 inline-block shrink-0 select-none",
-                                  isCurrent
-                                    ? "scale-110 drop-shadow-[0_0_15px_rgba(255,255,0,0.8)] z-10"
-                                    : "opacity-90",
-                                )}
-                                style={{
-                                  fontSize: `${computedFontSize}px`,
-                                  color: isCurrent
-                                    ? style.highlight_color
-                                    : style.primary_color,
-                                  WebkitTextStroke: `${style.outline_size}px ${style.outline_color}`,
-                                  paintOrder: "stroke fill",
-                                }}
-                              >
-                                {w.word}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()
-                  ) : (
-                    <div className="text-xs text-white/30 italic px-3 py-1 bg-black/40 rounded-full border border-white/5 opacity-0 group-hover/caption:opacity-100 transition">
-                      Kéo để định vị vị trí chữ ({style.position_y}%)
-                    </div>
-                  )}
-                </div>
-
-                {/* Floating Player Control Bar */}
-                <div className="absolute bottom-4 left-4 right-4 bg-black/80 backdrop-blur-md px-4 py-2 rounded-xl flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity z-30 border border-white/10">
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={togglePlay}
-                      className="p-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary/90 transition cursor-pointer"
-                      title={
-                        isPlaying ? "Tạm dừng (Space)" : "Phát video (Space)"
-                      }
-                    >
-                      {isPlaying ? (
-                        <Pause className="w-3.5 h-3.5" />
-                      ) : (
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => seekTo(0)}
-                      className="p-1.5 text-on-surface-variant hover:text-on-surface transition cursor-pointer"
-                      title="Phát lại từ đầu"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="text-xs font-mono text-on-surface">
-                      {currentTime.toFixed(1)}s / {videoDuration.toFixed(1)}s
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-on-surface-variant flex items-center gap-1">
-                      <MoveVertical className="w-3 h-3 text-primary" />
-                      Y: {currentSegmentY}%
-                    </span>
-
-                    {/* Nút Fullscreen Toàn Màn Hình */}
-                    <button
-                      onClick={handleToggleFullscreen}
-                      className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition flex items-center gap-1 text-xs cursor-pointer"
-                      title={
-                        isFullscreen
-                          ? "Thu nhỏ màn hình (Esc)"
-                          : "Phóng to toàn màn hình (Fullscreen)"
-                      }
-                    >
-                      {isFullscreen ? (
-                        <Minimize2 className="w-3.5 h-3.5" />
-                      ) : (
-                        <Maximize2 className="w-3.5 h-3.5" />
-                      )}
-                      <span className="hidden sm:inline text-[11px]">
-                        {isFullscreen ? "Thu nhỏ" : "Toàn màn hình"}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center p-8 text-center space-y-4">
-                <div className="w-16 h-16 rounded-2xl bg-surface-variant/40 flex items-center justify-center text-primary/80 border border-white/5">
-                  <Video className="w-8 h-8" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-on-surface">
-                    Chưa có video nào được chọn
-                  </h3>
-                  <p className="text-sm text-on-surface-variant max-w-sm mt-1">
-                    Nhấn vào nút "Chọn Video (.mp4)" phía trên để nạp video bạn
-                    đã dựng hoàn chỉnh từ CapCut / Premiere
-                  </p>
-                </div>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentStep(3)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary hover:bg-primary-fixed-dim text-on-primary text-xs font-semibold shadow-md transition cursor-pointer"
+              >
+                <span>Tiếp tục: Xem trước & Xuất Video</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Right Column: Inspector Panel (Lời thoại & Kiểu dáng) */}
-        {showInspector && (
-          <div className="lg:col-span-4 flex flex-col transition-all duration-300 h-fit">
-            <div className="bg-surface/70 backdrop-blur-md rounded-2xl border border-white/10 p-3.5 flex flex-col h-[520px] lg:h-[760px] 2k:h-[760px] overflow-hidden shadow-xl">
-              {/* Tabs Switcher */}
-              <div className="flex p-1 bg-surface-variant/40 rounded-xl border border-white/10 text-xs font-medium mb-3 gap-1 shrink-0">
+          {/* Grid 2 Cột: Video Player with Interactive Drag & Unified Tab Inspector */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
+            <div className="lg:col-span-7 xl:col-span-7 flex flex-col">
+              {renderVideoPlayer(true)}
+              <div className="mt-2 px-3 py-1.5 rounded-xl bg-surface-variant/20 border border-white/5 text-[11px] text-on-surface-variant flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <MoveVertical className="w-3.5 h-3.5 text-primary" />
+                  Kéo thả phụ đề trên màn hình video để chỉnh vị trí Y nhanh
+                  chóng ({currentSegmentY}%)
+                </span>
+                <span className="text-white/40 hidden sm:inline">
+                  Tự động căn lề chuẩn
+                </span>
+              </div>
+            </div>
+
+            <div className="lg:col-span-5 xl:col-span-5 flex flex-col h-[520px] lg:h-[760px] 2k:h-[760px] bg-surface/70 backdrop-blur-md rounded-2xl border border-white/10 p-3.5 shadow-xl overflow-hidden">
+              {/* Tab Switcher Header */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-surface-variant/40 rounded-xl border border-white/10 mb-3 shrink-0">
                 <button
-                  onClick={() => setActiveTab("transcript")}
+                  type="button"
+                  onClick={() => setEditorTab("transcript")}
                   className={cn(
-                    "flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer",
-                    activeTab === "transcript"
+                    "py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer",
+                    editorTab === "transcript"
                       ? "bg-primary text-on-primary shadow-sm"
-                      : "text-on-surface-variant hover:text-on-surface",
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-white/5",
                   )}
                 >
                   <FileText className="w-3.5 h-3.5" />
-                  <span>Biên tập Lời thoại</span>
-                  {segments.length > 0 && (
-                    <span className="text-[10px] bg-black/25 px-1.5 py-0.2 rounded-full">
-                      {segments.length}
-                    </span>
-                  )}
+                  <span>Biên tập Lời thoại ({segments.length})</span>
                 </button>
 
                 <button
-                  onClick={() => setActiveTab("style")}
+                  type="button"
+                  onClick={() => setEditorTab("style")}
                   className={cn(
-                    "flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer",
-                    activeTab === "style"
+                    "py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer",
+                    editorTab === "style"
                       ? "bg-primary text-on-primary shadow-sm"
-                      : "text-on-surface-variant hover:text-on-surface",
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-white/5",
                   )}
                 >
                   <Palette className="w-3.5 h-3.5" />
-                  <span>Kiểu dáng Chữ</span>
+                  <span>Kiểu dáng & Vị trí Y</span>
                 </button>
               </div>
 
-              {/* Tab 1: Transcript Doc Editor (Gộp câu, Tách câu, Tìm/Thay thế) */}
-              {activeTab === "transcript" && (
-                <div className="flex-1 overflow-hidden animate-fadeIn">
+              {/* Tab Contents */}
+              <div className="flex-1 overflow-hidden flex flex-col">
+                {editorTab === "transcript" ? (
                   <TranscriptDocEditor
                     segments={segments}
                     currentTime={currentTime}
@@ -1493,7 +2140,7 @@ export default function AutoCaption() {
                     onSeek={seekTo}
                     onUpdateSegments={(newSegs) => {
                       pushHistorySnapshot();
-                      setSegments(newSegs);
+                      setSegments(normalizeSegmentsToLowercase(newSegs));
                     }}
                     onOptimizeChunks={handleOptimizeChunks}
                     isOptimizingChunks={isOptimizingChunks}
@@ -1503,347 +2150,192 @@ export default function AutoCaption() {
                     }
                     onUpdateTimeline={handleUpdateTimeline}
                   />
-                </div>
-              )}
-
-              {/* Tab 2: Style Controls */}
-              {activeTab === "style" && (
-                <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin scrollbar-thumb-white/10 text-sm animate-fadeIn">
-                  {/* Font Family Selection */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
-                        <Type className="w-3.5 h-3.5 text-primary" />
-                        Font chữ ({SYSTEM_FONTS.length + customFonts.length})
-                      </label>
-
-                      <input
-                        type="file"
-                        ref={fontInputRef}
-                        onChange={handleCustomFontUpload}
-                        accept=".ttf,.otf,.woff,.woff2"
-                        className="hidden"
-                      />
-                      <button
-                        onClick={() => fontInputRef.current?.click()}
-                        className="flex items-center gap-1 text-[10px] text-primary hover:underline font-medium cursor-pointer"
-                      >
-                        <FileUp className="w-3 h-3" />
-                        Tải Font riêng
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-1.5 max-h-[170px] overflow-y-auto pr-1">
-                      {customFonts.map((name) => (
-                        <button
-                          key={name}
-                          onClick={() =>
-                            setStyle({ ...style, font_name: name })
-                          }
-                          className={cn(
-                            "p-2 rounded-lg border text-xs text-left transition flex items-center justify-between cursor-pointer",
-                            style.font_name === name
-                              ? "bg-primary/20 border-primary text-primary"
-                              : "bg-surface-variant/20 border-white/10 text-on-surface hover:bg-surface-variant/40",
-                          )}
-                          style={{ fontFamily: name }}
-                        >
-                          <span className="truncate">{name}</span>
-                          <span className="text-[8px] bg-primary/20 text-primary px-1 py-0.5 rounded">
-                            Custom
-                          </span>
-                        </button>
-                      ))}
-
-                      {SYSTEM_FONTS.map((f) => (
-                        <button
-                          key={f.name}
-                          onClick={() =>
-                            setStyle({ ...style, font_name: f.name })
-                          }
-                          className={cn(
-                            "p-2 rounded-lg border text-xs text-left transition truncate cursor-pointer",
-                            style.font_name === f.name
-                              ? "bg-primary/20 border-primary text-primary"
-                              : "bg-surface-variant/20 border-white/10 text-on-surface hover:bg-surface-variant/40",
-                          )}
-                          style={{ fontFamily: f.name }}
-                        >
-                          {f.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Font Size Slider */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-[11px]">
-                      <span className="font-semibold uppercase tracking-wider text-on-surface-variant">
-                        Cỡ chữ ({style.font_size}px)
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="16"
-                      max="60"
-                      value={style.font_size}
-                      onChange={(e) =>
-                        setStyle({
-                          ...style,
-                          font_size: Number(e.target.value),
-                        })
-                      }
-                      className="w-full h-1.5 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
-
-                  {/* Y Position Controls */}
-                  <div className="space-y-2 p-2.5 rounded-xl bg-surface-variant/20 border border-white/10">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold uppercase tracking-wider text-on-surface flex items-center gap-1.5">
-                        <MoveVertical className="w-3.5 h-3.5 text-primary" />
-                        Vị trí phụ đề (Y: {currentSegmentY}%)
-                      </span>
-                      {activeSegment && (
-                        <div className="flex items-center gap-1">
-                          {activeSegment.customPositionY !== undefined ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              Đoạn #{activeSegment.id} riêng
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/10 text-on-surface-variant">
-                              Mặc định chung
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <input
-                      type="range"
-                      min="10"
-                      max="90"
-                      value={currentSegmentY}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        if (activeSegment) {
-                          handleUpdateSegmentPositionY(activeSegment.id, val);
-                        } else {
-                          setStyle({ ...style, position_y: val });
-                        }
-                      }}
-                      className="w-full h-1.5 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-
-                    {/* Presets Trên / Giữa / Dưới */}
-                    <div className="grid grid-cols-3 gap-1.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (activeSegment) {
-                            handleUpdateSegmentPositionY(activeSegment.id, 15);
-                          } else {
-                            setStyle({ ...style, position_y: 15 });
-                          }
-                        }}
-                        className={cn(
-                          "py-1 px-1.5 rounded-md text-[10px] font-medium border transition text-center flex items-center justify-center gap-1 cursor-pointer",
-                          currentSegmentY === 15
-                            ? "bg-primary/20 border-primary text-primary"
-                            : "bg-surface-variant/30 border-white/5 text-on-surface-variant hover:bg-surface-variant/60",
-                        )}
-                        title="Đặt phụ đề ở phía trên video"
-                      >
-                        <ArrowUp className="w-2.5 h-2.5" />
-                        Trên (15%)
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (activeSegment) {
-                            handleUpdateSegmentPositionY(activeSegment.id, 50);
-                          } else {
-                            setStyle({ ...style, position_y: 50 });
-                          }
-                        }}
-                        className={cn(
-                          "py-1 px-1.5 rounded-md text-[10px] font-medium border transition text-center flex items-center justify-center gap-1 cursor-pointer",
-                          currentSegmentY === 50
-                            ? "bg-primary/20 border-primary text-primary"
-                            : "bg-surface-variant/30 border-white/5 text-on-surface-variant hover:bg-surface-variant/60",
-                        )}
-                        title="Đặt phụ đề ở chính giữa video"
-                      >
-                        Giữa (50%)
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (activeSegment) {
-                            handleUpdateSegmentPositionY(activeSegment.id, 85);
-                          } else {
-                            setStyle({ ...style, position_y: 85 });
-                          }
-                        }}
-                        className={cn(
-                          "py-1 px-1.5 rounded-md text-[10px] font-medium border transition text-center flex items-center justify-center gap-1 cursor-pointer",
-                          currentSegmentY === 85
-                            ? "bg-primary/20 border-primary text-primary"
-                            : "bg-surface-variant/30 border-white/5 text-on-surface-variant hover:bg-surface-variant/60",
-                        )}
-                        title="Đặt phụ đề ở phía dưới video"
-                      >
-                        <ArrowDown className="w-2.5 h-2.5" />
-                        Dưới (85%)
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1 border-t border-white/5 text-[10px]">
-                      {activeSegment &&
-                      activeSegment.customPositionY !== undefined ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleResetSegmentPosition(activeSegment.id)
-                          }
-                          className="flex items-center gap-1 text-amber-400/90 hover:text-amber-300 transition cursor-pointer"
-                        >
-                          <RotateCcw className="w-2.5 h-2.5" />
-                          Khôi phục đoạn này
-                        </button>
-                      ) : (
-                        <span className="text-white/40 text-[9px]">
-                          Kéo thả trên video để chỉnh
-                        </span>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleApplyPositionToAll(currentSegmentY)
-                        }
-                        className="flex items-center gap-1 text-primary hover:text-primary-fixed-dim transition ml-auto font-medium cursor-pointer"
-                        title="Áp dụng vị trí này cho toàn bộ các đoạn trong video"
-                      >
-                        <CheckCheck className="w-2.5 h-2.5" />
-                        Áp dụng tất cả
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Colors */}
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
-                        Màu chữ gốc
-                      </label>
-                      <div className="flex items-center gap-2 p-1.5 bg-surface-variant/30 rounded-lg border border-white/10">
-                        <input
-                          type="color"
-                          value={style.primary_color}
-                          onChange={(e) =>
-                            setStyle({
-                              ...style,
-                              primary_color: e.target.value,
-                            })
-                          }
-                          className="w-5 h-5 rounded cursor-pointer bg-transparent border-0"
-                        />
-                        <span className="text-[11px] font-mono text-on-surface">
-                          {style.primary_color}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
-                        Highlight Karaoke
-                      </label>
-                      <div className="flex items-center gap-2 p-1.5 bg-surface-variant/30 rounded-lg border border-white/10">
-                        <input
-                          type="color"
-                          value={style.highlight_color}
-                          onChange={(e) =>
-                            setStyle({
-                              ...style,
-                              highlight_color: e.target.value,
-                            })
-                          }
-                          className="w-5 h-5 rounded cursor-pointer bg-transparent border-0"
-                        />
-                        <span className="text-[11px] font-mono text-on-surface">
-                          {style.highlight_color}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Outline Color & Size */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="font-semibold uppercase tracking-wider text-on-surface-variant">
-                        Viền chữ ({style.outline_size}px)
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="color"
-                          value={style.outline_color}
-                          onChange={(e) =>
-                            setStyle({
-                              ...style,
-                              outline_color: e.target.value,
-                            })
-                          }
-                          className="w-4 h-4 rounded cursor-pointer bg-transparent border-0"
-                        />
-                        <span className="font-mono text-[10px] text-on-surface-variant">
-                          {style.outline_color}
-                        </span>
-                      </div>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="8"
-                      value={style.outline_size}
-                      onChange={(e) =>
-                        setStyle({
-                          ...style,
-                          outline_size: Number(e.target.value),
-                        })
-                      }
-                      className="w-full h-1.5 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
-                </div>
-              )}
+                ) : (
+                  renderStyleControlsContent(false)
+                )}
+              </div>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* ─── 3. Bottom Caption & Audio Waveform Timeline ───────────────────── */}
-      <TimelineEditor
-        currentTime={currentTime}
-        duration={videoDuration}
-        segments={segments}
-        videoFile={videoFile}
-        videoUrl={videoUrl}
-        isPlaying={isPlaying}
-        onSeek={seekTo}
-        onTogglePlay={togglePlay}
-        onUpdateSegments={(newSegs) => {
-          pushHistorySnapshot();
-          setSegments(newSegs);
-        }}
-        onSplit={handleSplitAtPlayhead}
-        canUndo={undoStack.length > 0}
-        onUndo={handleUndo}
-        selectedSegmentId={selectedSegId}
-        onSelectSegment={setSelectedSegId}
-      />
+          {/* Bottom Waveform Timeline Editor */}
+          <TimelineEditor
+            currentTime={currentTime}
+            duration={videoDuration}
+            segments={segments}
+            videoFile={videoFile}
+            videoUrl={videoUrl}
+            isPlaying={isPlaying}
+            onSeek={seekTo}
+            onTogglePlay={togglePlay}
+            onUpdateSegments={(newSegs) => {
+              pushHistorySnapshot();
+              setSegments(normalizeSegmentsToLowercase(newSegs));
+            }}
+            onSplit={handleSplitAtPlayhead}
+            canUndo={undoStack.length > 0}
+            onUndo={handleUndo}
+            selectedSegmentId={selectedSegId}
+            onSelectSegment={setSelectedSegId}
+          />
+        </div>
+      )}
+
+      {/* ── BƯỚC 3: XEM TRƯỚC & XUẤT VIDEO ──────────────────────────────────── */}
+      {currentStep === 3 && (
+        <div className="space-y-4 animate-fadeIn">
+          {/* Sub-Nav Action Bar cho Bước 3 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface/70 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10 shadow-md">
+            <button
+              onClick={() => setCurrentStep(2)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 hover:border-white/20 bg-surface-variant/40 hover:bg-surface-variant text-on-surface text-xs font-medium transition cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Quay lại: Biên tập & Kiểu dáng</span>
+            </button>
+
+            <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4" />
+              Sẵn sàng xuất video hoàn chỉnh
+            </span>
+          </div>
+
+          {/* Grid 2 Cột: Video Player Preview & Export Hub Card */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            <div className="lg:col-span-7 xl:col-span-7 flex flex-col">
+              {renderVideoPlayer(false)}
+            </div>
+
+            <div className="lg:col-span-5 xl:col-span-5 flex flex-col gap-4">
+              <div className="bg-surface/80 backdrop-blur-md rounded-2xl border border-white/10 p-5 shadow-xl space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-white/5">
+                  <div className="flex items-center gap-2">
+                    <Download className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-on-surface">
+                      Trung Tâm Xuất Thành Phẩm
+                    </h3>
+                  </div>
+                  <span className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">
+                    Chuẩn HD
+                  </span>
+                </div>
+
+                {/* Video & Subtitle Specs Summary Table */}
+                <div className="p-3 rounded-xl bg-surface-variant/30 border border-white/10 space-y-2 text-xs">
+                  <div className="flex justify-between text-on-surface-variant">
+                    <span>Tên video:</span>
+                    <strong className="text-on-surface truncate max-w-[200px]">
+                      {videoFile?.name || "video.mp4"}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between text-on-surface-variant">
+                    <span>Thời lượng:</span>
+                    <strong className="text-on-surface">
+                      {videoDuration.toFixed(1)}s
+                    </strong>
+                  </div>
+                  <div className="flex justify-between text-on-surface-variant">
+                    <span>Số lượng câu phụ đề:</span>
+                    <strong className="text-primary">
+                      {segments.length} đoạn câu
+                    </strong>
+                  </div>
+                  <div className="flex justify-between text-on-surface-variant">
+                    <span>Font chữ & Cỡ:</span>
+                    <strong className="text-on-surface">
+                      {style.font_name} • {style.font_size}px
+                    </strong>
+                  </div>
+                  <div className="flex justify-between text-on-surface-variant">
+                    <span>Vị trí hiển thị:</span>
+                    <strong className="text-on-surface">
+                      Y: {style.position_y}%
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Primary Action: Xuất Video MP4 Hardsub */}
+                <div className="space-y-2 pt-1">
+                  <button
+                    onClick={handleExport}
+                    disabled={isExporting}
+                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg hover:shadow-emerald-500/25 transition disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isExporting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Đang render phụ đề vào video...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        <span>🎬 Xuất Video MP4 (Hardsub HD)</span>
+                      </>
+                    )}
+                  </button>
+                  <p className="text-[11px] text-on-surface-variant text-center">
+                    Video được ghép phụ đề Kinetic Karaoke sắc nét, tải trực
+                    tiếp về máy tính.
+                  </p>
+                </div>
+
+                {/* Secondary Actions: Tải file phụ đề rời .SRT & .VTT */}
+                <div className="pt-3 border-t border-white/5 space-y-2">
+                  <h4 className="text-xs font-semibold text-on-surface flex items-center gap-1.5">
+                    <FileCode className="w-3.5 h-3.5 text-primary" />
+                    <span>
+                      Tải file phụ đề rời (Cho Premiere, CapCut, YouTube)
+                    </span>
+                  </h4>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={handleDownloadSrt}
+                      className="py-2.5 px-3 rounded-xl bg-surface-variant/40 hover:bg-surface-variant border border-white/10 hover:border-white/20 text-on-surface text-xs font-medium transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Tải file .SRT</span>
+                    </button>
+
+                    <button
+                      onClick={handleDownloadVtt}
+                      className="py-2.5 px-3 rounded-xl bg-surface-variant/40 hover:bg-surface-variant border border-white/10 hover:border-white/20 text-on-surface text-xs font-medium transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5 text-primary" />
+                      <span>Tải file .VTT</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Navigation Links */}
+                <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-on-surface-variant">
+                  <span>Cần điều chỉnh thêm?</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setCurrentStep(2);
+                        setEditorTab("transcript");
+                      }}
+                      className="text-primary hover:underline cursor-pointer"
+                    >
+                      Sửa lời thoại
+                    </button>
+                    <span>•</span>
+                    <button
+                      onClick={() => {
+                        setCurrentStep(2);
+                        setEditorTab("style");
+                      }}
+                      className="text-primary hover:underline cursor-pointer"
+                    >
+                      Đổi kiểu dáng
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Import Kịch bản từ Thư viện */}
       <LibraryScriptModal

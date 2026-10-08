@@ -1,4 +1,3 @@
-import { useState, useRef } from "react";
 import { toast } from "sonner";
 
 import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
@@ -13,6 +12,8 @@ interface GenerateOptions {
   saveStudioBlocks: (blocks: ScriptBlock[]) => void;
   setGenerationProgress: (progress: { current: number; total: number }) => void;
 }
+
+let globalStudioTimer: NodeJS.Timeout | null = null;
 
 export function useStudioGenerate() {
   const {
@@ -32,21 +33,16 @@ export function useStudioGenerate() {
     setIsLoading,
     setAudioUrl,
     addHistory,
+    generationProgress,
+    elapsedTime,
+    setElapsedTime,
   } = useTTSStore();
 
-  const [elapsedTime, setElapsedTime] = useState(() => {
-    try {
-      const saved = localStorage.getItem("tts_master_elapsed_time");
-      return saved ? parseInt(saved, 10) || 0 : 0;
-    } catch {
-      return 0;
-    }
-  });
-  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-
   const cleanupTimer = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
+    if (globalStudioTimer) {
+      clearInterval(globalStudioTimer);
+      globalStudioTimer = null;
+    }
   };
 
   // ── Phân tích câu với thông tin ngắt nghỉ ─────────────────────────────
@@ -113,8 +109,8 @@ export function useStudioGenerate() {
       localStorage.removeItem("tts_master_elapsed_time");
     } catch {}
     cleanupTimer();
-    timerRef.current = setInterval(() => {
-      setElapsedTime((prev) => prev + 1);
+    globalStudioTimer = setInterval(() => {
+      useTTSStore.getState().setElapsedTime((prev) => prev + 1);
     }, 1000);
 
     const currentSessionId =
@@ -177,6 +173,7 @@ export function useStudioGenerate() {
           duration: data.duration || undefined,
         };
         saveStudioBlocks([singleBlock]);
+        useTTSStore.getState().setStudioBlocks([singleBlock]);
 
         const singleBlockFn =
           data.filename || (data.audio_url ? data.audio_url.split("/").pop() : null);
@@ -222,8 +219,9 @@ export function useStudioGenerate() {
           status: "rendering",
         }));
         saveStudioBlocks(newBlocks);
+        useTTSStore.getState().setStudioBlocks(newBlocks);
         setProgress({ current: 0, total: sentences.length });
-        setGenerationProgress({ current: 0, total: sentences.length });
+        useTTSStore.getState().setGenerationProgress({ current: 0, total: sentences.length });
 
         let completedBlocks: ScriptBlock[] = [...newBlocks];
         const CONCURRENCY = 2;
@@ -280,8 +278,9 @@ export function useStudioGenerate() {
 
             finishedCount++;
             setProgress({ current: finishedCount, total: sentences.length });
-            setGenerationProgress({ current: finishedCount, total: sentences.length });
+            useTTSStore.getState().setGenerationProgress({ current: finishedCount, total: sentences.length });
             saveStudioBlocks([...completedBlocks]);
+            useTTSStore.getState().setStudioBlocks([...completedBlocks]);
           }
         };
 
@@ -328,6 +327,7 @@ export function useStudioGenerate() {
                 return matchedSeg ? { ...b, duration: matchedSeg.duration } : b;
               });
               saveStudioBlocks(completedBlocks);
+              useTTSStore.getState().setStudioBlocks(completedBlocks);
             }
 
             const blockFilenames = readyBlocks
@@ -371,8 +371,14 @@ export function useStudioGenerate() {
     } catch (err: any) {
       toast.error(`Tổng hợp thất bại: ${err.message}`, { id: toastId });
     } finally {
-      setIsLoading(false);
       cleanupTimer();
+      setIsLoading(false);
+      try {
+        localStorage.setItem(
+          "tts_master_elapsed_time",
+          String(useTTSStore.getState().elapsedTime),
+        );
+      } catch {}
     }
   };
 

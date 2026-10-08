@@ -1,6 +1,6 @@
 {
-  "version": "3.12.0",
+  "version": "3.13.0",
   "name": "VideoTranslate AI",
-  "release_date": "2026-10-07",
-  "description": "Nâng cấp V3.12.0: Thêm tính năng lưu trữ dữ liệu qua MongoDB và Cloudflare R2. Tối ưu hoá UI"
+  "release_date": "2026-10-08",
+  "description": "Nâng cấp V3.13.0: Tái cấu trúc trang Auto Caption theo quy trình 3 bước, tự động điều chỉnh timeline caption thông minh khi chỉnh sửa, chuẩn hoá chữ thường cho caption"
 }

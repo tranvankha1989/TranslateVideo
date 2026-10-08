@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { FolderPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import type { Project } from "../../store/useTTSStore";
@@ -24,15 +25,16 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
   projects,
   onSave,
 }) => {
-  const [saveProjectTab, setSaveProjectTab] = useState<"new" | "existing">("new");
+  const [saveProjectTab, setSaveProjectTab] = useState<"new" | "existing">(
+    "new",
+  );
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newProjectNotes, setNewProjectNotes] = useState("");
-  const [targetExistingProjectId, setTargetExistingProjectId] = useState<string>(
-    projects[0]?.id || "",
-  );
-  const [saveExistingMode, setSaveExistingMode] = useState<"append" | "replace">(
-    "append",
-  );
+  const [targetExistingProjectId, setTargetExistingProjectId] =
+    useState<string>(projects[0]?.id || "");
+  const [saveExistingMode, setSaveExistingMode] = useState<
+    "append" | "replace"
+  >("append");
 
   if (!isOpen) return null;
 
@@ -68,7 +70,7 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
       <div className="glass-card rounded-2xl max-w-lg w-full p-6 border border-white/10 shadow-2xl flex flex-col gap-5">
         <div className="flex items-center justify-between border-b border-white/5 pb-4">
@@ -81,7 +83,8 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
                 Lưu kịch bản vào Dự án
               </h3>
               <p className="text-[11px] text-on-surface-variant/70">
-                Chuyển {studioBlocksCount} phân đoạn câu hiện tại vào thư viện Dự án
+                Chuyển {studioBlocksCount} phân đoạn câu hiện tại vào thư viện
+                Dự án
               </p>
             </div>
           </div>
@@ -278,6 +281,7 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
