@@ -224,6 +224,12 @@ interface TTSState {
   setIsLoading: (val: boolean) => void;
   setAudioUrl: (url: string | null) => void;
   setAudioFormat: (format: string) => void;
+  studioBlocks: ScriptBlock[];
+  setStudioBlocks: (blocks: ScriptBlock[]) => void;
+  generationProgress: { current: number; total: number };
+  setGenerationProgress: (progress: { current: number; total: number }) => void;
+  elapsedTime: number;
+  setElapsedTime: (time: number | ((prev: number) => number)) => void;
   addHistory: (record: Omit<AudioRecord, "id" | "timestamp">) => void;
   removeHistory: (id: string) => void;
   fetchVoices: () => Promise<void>;
@@ -402,18 +408,8 @@ export const useTTSStore = create<TTSState>((set, get) => {
       typeof _savedConfig.audioFormat === "string"
         ? _savedConfig.audioFormat
         : "mp3",
-    enhanceAudio:
-      typeof _savedConfig.enhanceAudio === "boolean"
-        ? _savedConfig.enhanceAudio
-        : true,
-    loudnessStandard: (() => {
-      try {
-        const saved = localStorage.getItem("tts_loudness_standard");
-        return (saved as "ebu_r128" | "youtube" | "peak") || "ebu_r128";
-      } catch {
-        return "ebu_r128";
-      }
-    })(),
+    enhanceAudio: true,
+    loudnessStandard: "ebu_r128",
     setLoudnessStandard: (standard) => {
       try {
         localStorage.setItem("tts_loudness_standard", standard);
@@ -425,6 +421,44 @@ export const useTTSStore = create<TTSState>((set, get) => {
       localStorage.setItem("tts_selected_engine", engine);
       set({ engine });
     },
+    studioBlocks: (() => {
+      try {
+        const saved = localStorage.getItem("tts_studio_blocks");
+        if (!saved) return [];
+        const parsed: ScriptBlock[] = JSON.parse(saved);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map((b) =>
+          b.status === "rendering"
+            ? {
+                ...b,
+                status: (b.audioUrl || b.filename ? "ready" : "idle") as ScriptBlock["status"],
+              }
+            : b,
+        );
+      } catch {
+        return [];
+      }
+    })(),
+    generationProgress: { current: 0, total: 0 },
+    elapsedTime: (() => {
+      try {
+        const saved = localStorage.getItem("tts_master_elapsed_time");
+        return saved ? parseInt(saved, 10) || 0 : 0;
+      } catch {
+        return 0;
+      }
+    })(),
+    setStudioBlocks: (studioBlocks) => {
+      try {
+        localStorage.setItem("tts_studio_blocks", JSON.stringify(studioBlocks));
+      } catch {}
+      set({ studioBlocks });
+    },
+    setGenerationProgress: (generationProgress) => set({ generationProgress }),
+    setElapsedTime: (time) =>
+      set((state) => ({
+        elapsedTime: typeof time === "function" ? time(state.elapsedTime) : time,
+      })),
     history: JSON.parse(localStorage.getItem("tts_history") || "[]"),
     syncStatus: {
       mode: (localStorage.getItem("tts_sync_mode") as "cloud" | "local") || "local",
@@ -728,7 +762,32 @@ export const useTTSStore = create<TTSState>((set, get) => {
     setSeed: (seed) => set({ seed }),
     setSpeed: (speed) => set({ speed }),
     setPitch: (pitch) => set({ pitch }),
-    setIsLoading: (isLoading) => set({ isLoading }),
+    setIsLoading: (isLoading) =>
+      set((state) => {
+        if (!isLoading) {
+          const hasStuck = state.studioBlocks.some((b) => b.status === "rendering");
+          if (hasStuck) {
+            const sanitized = state.studioBlocks.map((b) =>
+              b.status === "rendering"
+                ? {
+                    ...b,
+                    status: (b.audioUrl || b.filename ? "ready" : "idle") as ScriptBlock["status"],
+                  }
+                : b,
+            );
+            try {
+              localStorage.setItem("tts_studio_blocks", JSON.stringify(sanitized));
+            } catch {}
+            return {
+              isLoading,
+              studioBlocks: sanitized,
+              generationProgress: { current: 0, total: 0 },
+            };
+          }
+          return { isLoading, generationProgress: { current: 0, total: 0 } };
+        }
+        return { isLoading };
+      }),
     setAudioUrl: (audioUrl) => {
       try {
         if (audioUrl) {

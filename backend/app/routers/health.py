@@ -111,11 +111,16 @@ async def download_file(filename: str):
     Tải file âm thanh (mp3/wav) về máy từ thư mục outputs/.
     Header Content-Disposition: attachment sẽ kích hoạt popup lưu file trên trình duyệt.
     """
-    safe_filename = os.path.basename(filename)
+    safe_filename = os.path.basename(filename.split("?")[0])
     file_path = OUTPUTS_DIR / safe_filename
 
     if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=404, detail="File không tồn tại")
+        # Tìm kiếm trong toàn bộ thư mục con của OUTPUTS_DIR (như outputs/audios/...)
+        found = list(OUTPUTS_DIR.glob(f"**/{safe_filename}"))
+        if found and found[0].is_file():
+            file_path = found[0]
+        else:
+            raise HTTPException(status_code=404, detail="File không tồn tại")
 
     ext = file_path.suffix.lower()
     media_types = {

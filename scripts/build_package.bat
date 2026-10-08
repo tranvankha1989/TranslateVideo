@@ -76,11 +76,12 @@ if not defined ISCC (
 
 echo Dang su dung: "%ISCC%"
 "%ISCC%" "%~dp0installer.iss"
+set "BUILD_STATUS=%ERRORLEVEL%"
 
 :: Don dep thu muc tam staging sau khi build xong
-if exist "%~dp0\..\build_staging" rmdir /s /q "%~dp0\..\build_staging"
+if exist "%~dp0\..\build_staging" rmdir /s /q "%~dp0\..\build_staging" 2>nul
 
-if %ERRORLEVEL% EQU 0 (
+if %BUILD_STATUS% EQU 0 (
     echo.
     echo ====================================================================
     echo [HOAN TAT XUAT SAC] File cai dat Setup.exe da duoc tao tai:

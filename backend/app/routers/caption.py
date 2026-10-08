@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, File, UploadFile, Form
 from fastapi.responses import FileResponse
 
-from app.core.config import CAPTIONS_DIR, OUTPUTS_DIR, logger
+from app.core.config import CAPTIONS_DIR, OUTPUTS_DIR, export_file_to_custom_directory, logger
 from app.schemas.caption import (
     AlignScriptRequest,
     OptimizeChunksRequest,
@@ -364,10 +364,19 @@ async def export_captioned_video(request: ExportCaptionRequest):
         except Exception as cle:
             logger.warning(f"Không thể dọn file trung gian: {cle}")
 
+        output_final_path = session_dir / "output_final.mp4"
+        out_name = f"kinetic_{request.session_id[:8]}.mp4"
+        saved_custom = export_file_to_custom_directory(
+            output_final_path,
+            sub_dir="videos",
+            custom_filename=out_name,
+        )
+
         return {
             "status": "success",
             "download_url": f"http://localhost:8000/api/caption/download/{request.session_id}",
-            "filename": f"kinetic_{request.session_id[:8]}.mp4",
+            "filename": out_name,
+            "saved_to_custom_dir": str(saved_custom) if saved_custom else None,
         }
     except Exception as exc:
         logger.error(f"Lỗi khi render video thành phẩm: {exc}", exc_info=True)

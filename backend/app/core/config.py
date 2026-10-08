@@ -1,6 +1,7 @@
 import os
 import logging
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 import re
@@ -270,5 +271,60 @@ def log_verbose_step(step_name: str, message: str, details: dict | None = None) 
         except Exception:
             log_text += f"\n    ↳ Dữ liệu: {details}"
     logger.info(log_text)
+
+
+def get_custom_output_dir() -> Optional[Path]:
+    """Lấy thư mục xuất file tùy chọn do người dùng cấu hình (nếu có và hợp lệ)."""
+    custom = os.getenv("CUSTOM_OUTPUT_DIR", "").strip()
+    if custom:
+        try:
+            p = Path(custom)
+            if not p.exists():
+                p.mkdir(parents=True, exist_ok=True)
+            return p
+        except Exception as e:
+            logger.warning(f"Không thể truy cập thư mục CUSTOM_OUTPUT_DIR ({custom}): {e}")
+            return None
+    return None
+
+
+def export_file_to_custom_directory(
+    source_path: Path,
+    sub_dir: str = "",
+    custom_filename: Optional[str] = None,
+) -> Optional[Path]:
+    """
+    Tự động sao chép file đầu ra vào thư mục lưu trữ tùy chọn của người dùng (nếu được kích hoạt).
+    Sao chép kèm cả file phụ đề .srt tương ứng nếu tồn tại cùng thư mục.
+    """
+    if os.getenv("AUTO_SAVE_TO_CUSTOM_DIR", "true").lower() not in ("true", "1", "yes"):
+        return None
+
+    target_root = get_custom_output_dir()
+    if not target_root:
+        return None
+
+    try:
+        dest_dir = target_root / sub_dir if sub_dir else target_root
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        target_name = custom_filename or source_path.name
+        dest_file = dest_dir / target_name
+        shutil.copy2(str(source_path), str(dest_file))
+        logger.info(f"📂 [AUTO-SAVE] Đã tự động lưu file vào thư mục đích: {dest_file}")
+
+        # Sao chép kèm file .srt nếu có
+        base_stem = source_path.stem
+        srt_candidate = source_path.parent / f"{base_stem}.srt"
+        if srt_candidate.exists():
+            dest_srt = dest_dir / f"{Path(target_name).stem}.srt"
+            shutil.copy2(str(srt_candidate), str(dest_srt))
+            logger.info(f"📂 [AUTO-SAVE] Đã tự động lưu file phụ đề kèm theo: {dest_srt}")
+
+        return dest_file
+    except Exception as e:
+        logger.warning(f"⚠️ [AUTO-SAVE] Lỗi khi sao chép file vào {target_root}: {e}")
+        return None
+
 
 
