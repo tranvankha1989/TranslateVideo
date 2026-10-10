@@ -50,6 +50,11 @@ if exist "frontend\package.json" (
         call npm run build
     )
     cd ..
+    if exist "frontend\dist" (
+        if not exist "dist" mkdir "dist"
+        xcopy /E /I /Y "frontend\dist\*" "dist\" >nul 2>&1
+        echo [INFO] Đã đồng bộ giao diện bundle mới sang thư mục dist.
+    )
 )
 echo.
 

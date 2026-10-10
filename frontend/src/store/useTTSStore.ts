@@ -309,6 +309,11 @@ export interface CheckUpdateResult {
   commit_messages: string[];
   message: string;
   error?: string;
+  release_tag?: string;
+  release_notes?: string;
+  patch_asset_url?: string;
+  patch_asset_name?: string;
+  patch_asset_size_mb?: number;
 }
 
 export interface PerformUpdateResult {

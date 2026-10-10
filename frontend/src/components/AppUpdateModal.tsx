@@ -232,12 +232,19 @@ export function AppUpdateModal({ isOpen, onClose }: AppUpdateModalProps) {
 
               {/* Confirmation Notice Box */}
               <div className="p-4 rounded-xl bg-surface-variant/50 border border-white/10 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-semibold text-on-surface">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Bảo đảm an toàn dữ liệu</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-on-surface">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Bảo đảm an toàn dữ liệu & Cập nhật tự động</span>
+                  </div>
+                  {checkResult?.patch_asset_name && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      ⚡ Gói Pre-built Patch ({checkResult.patch_asset_size_mb} MB)
+                    </span>
+                  )}
                 </div>
                 <ul className="text-[11px] text-on-surface-variant space-y-1 list-disc pl-4 leading-relaxed">
-                  <li>Tự động kéo mã nguồn mới nhất từ GitHub qua <code className="text-primary font-mono">git pull</code>.</li>
+                  <li>Tự động đồng bộ giao diện và gói cập nhật chính thức từ GitHub.</li>
                   <li>Toàn bộ dữ liệu dự án, file giọng nói đã tạo và cài đặt cá nhân của bạn được <strong className="text-on-surface">bảo toàn 100%</strong>.</li>
                 </ul>
               </div>

@@ -22,6 +22,8 @@ backend/*.scratch.*
 # ── Node / Frontend ──────────────────────────────
 frontend/node_modules/
 frontend/release/
+frontend/dist/
+dist/
 frontend/.env.local
 frontend/.env.production
 

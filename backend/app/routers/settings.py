@@ -655,6 +655,11 @@ class CheckUpdateResponse(BaseModel):
     commit_messages: list[str] = []
     message: str
     error: Optional[str] = None
+    release_tag: Optional[str] = None
+    release_notes: Optional[str] = None
+    patch_asset_url: Optional[str] = None
+    patch_asset_name: Optional[str] = None
+    patch_asset_size_mb: Optional[float] = None
 
 
 class PerformUpdateResponse(BaseModel):
@@ -682,6 +687,122 @@ def _get_git_output(args: list[str], cwd: Path = REPO_ROOT, timeout: float = 12.
         return res.returncode, output
     except Exception as e:
         return -1, str(e)
+
+
+def _apply_update_zip(zip_bytes: bytes, project_root: Path) -> None:
+    """Giải nén gói cập nhật đè vào thư mục cài đặt, bảo vệ 100% dữ liệu người dùng."""
+    import zipfile
+    import io
+    import shutil
+
+    protected_paths = {
+        ".env",
+        "backend/.env",
+        "backend/venv",
+        "frontend/node_modules",
+        "outputs",
+        "backend/outputs",
+        "presets/custom",
+        "presets/custom_voices.json",
+        "presets/custom_voices_user.json",
+        "backend/presets/custom",
+        "backend/presets/custom_voices.json",
+        "backend/presets/custom_voices_user.json",
+        "logs",
+        "backend/logs",
+    }
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+        prefix = ""
+        namelist = z.namelist()
+        if namelist and "/" in namelist[0]:
+            first_dir = namelist[0].split("/")[0]
+            if first_dir.startswith("TranslateVideo-") or first_dir.startswith("patch-") or first_dir.startswith("release-"):
+                prefix = first_dir + "/"
+
+        for member in z.infolist():
+            rel_path = member.filename
+            if prefix and rel_path.startswith(prefix):
+                rel_path = rel_path[len(prefix):]
+
+            if not rel_path:
+                continue
+
+            should_skip = False
+            for p in protected_paths:
+                if rel_path == p or rel_path.startswith(p + "/") or rel_path.startswith(p + "\\"):
+                    should_skip = True
+                    break
+
+            if should_skip:
+                continue
+
+            dest_path = project_root / rel_path
+            if member.is_dir():
+                dest_path.mkdir(parents=True, exist_ok=True)
+            else:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(member) as source, open(dest_path, "wb") as target:
+                    target.write(source.read())
+
+    # Đảm bảo cả frontend/dist và dist gốc luôn đồng bộ với nhau
+    frontend_dist = project_root / "frontend" / "dist"
+    root_dist = project_root / "dist"
+    try:
+        if frontend_dist.is_dir():
+            root_dist.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(str(frontend_dist), str(root_dist), dirs_exist_ok=True)
+        elif root_dist.is_dir():
+            frontend_dist.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(str(root_dist), str(frontend_dist), dirs_exist_ok=True)
+    except Exception as e:
+        logger.warning(f"Lỗi đồng bộ thư mục dist: {e}")
+
+
+def _try_build_frontend(logs: list[str], project_root: Path) -> bool:
+    """Tự động biên dịch lại Frontend nếu máy có pnpm hoặc npm (Môi trường Dev / Lập trình viên)."""
+    frontend_dir = project_root / "frontend"
+    if not (frontend_dir / "package.json").exists():
+        return False
+
+    import shutil
+    pnpm_cmd = shutil.which("pnpm") or shutil.which("pnpm.cmd")
+    npm_cmd = shutil.which("npm") or shutil.which("npm.cmd")
+    build_tool = pnpm_cmd or npm_cmd
+
+    if not build_tool:
+        return False
+
+    tool_name = Path(build_tool).stem
+    logs.append(f"🔨 [Tự động biên dịch] Phát hiện {tool_name}, đang chạy build Frontend mới nhất...")
+    try:
+        res = subprocess.run(
+            [build_tool, "run", "build"],
+            cwd=str(frontend_dir),
+            capture_output=True,
+            text=True,
+            timeout=180.0,
+            shell=sys.platform == "win32",
+        )
+        if res.returncode == 0:
+            logs.append("✅ Đã biên dịch Frontend mới thành công.")
+            frontend_dist = frontend_dir / "dist"
+            root_dist = project_root / "dist"
+            if frontend_dist.is_dir():
+                try:
+                    root_dist.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(str(frontend_dist), str(root_dist), dirs_exist_ok=True)
+                    logs.append("✅ Đã đồng bộ bundle giao diện mới sang dist.")
+                except Exception:
+                    pass
+            return True
+        else:
+            err_msg = (res.stderr or res.stdout or "")[:200]
+            logs.append(f"⚠️ Cảnh báo build Frontend: {err_msg}")
+            return False
+    except Exception as be:
+        logs.append(f"⚠️ Bỏ qua build Frontend ({be})")
+        return False
 
 
 @router.get("/app-version", response_model=AppVersionResponse, summary="Lấy thông tin phiên bản phần mềm hiện tại")
@@ -724,9 +845,10 @@ async def get_app_version_endpoint():
 @router.post("/check-update", response_model=CheckUpdateResponse, summary="Kiểm tra xem có bản cập nhật mới từ GitHub không")
 async def check_update_endpoint():
     """
-    Kiểm tra phiên bản mới thông minh:
-    1. Kiểm tra trực tiếp qua GitHub HTTP API (Hoạt động 100% không cần cài Git).
-    2. Nếu có Git, kiểm tra thêm số lượng commit chưa kéo về.
+    Kiểm tra phiên bản mới thông minh chuẩn Desktop App:
+    1. Kiểm tra qua GitHub Releases API (tìm gói Release + pre-built patch asset).
+    2. Fallback qua GitHub contents/version.json và raw URL.
+    3. Kiểm tra thêm số lượng commit Git (nếu máy có git).
     """
     cur_ver = APP_VERSION
     for v_path in POSSIBLE_VERSION_FILES:
@@ -739,48 +861,75 @@ async def check_update_endpoint():
             except Exception:
                 pass
 
+    def parse_v(v_str: str) -> list[int]:
+        return [int(x) for x in re.findall(r"\d+", v_str)]
+
+    headers = {
+        "User-Agent": "VideoTranslate-AI/1.0",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
     remote_ver = None
     remote_desc = None
+    patch_url = None
+    patch_name = None
+    patch_size = None
 
-    # 1. Kiểm tra trực tiếp qua GitHub REST API (Real-time, không bị dính CDN cache)
+    # 1. Kiểm tra qua GitHub Releases API trước (Chuẩn Desktop App Release)
     try:
-        import base64
-        headers = {
-            "User-Agent": "VideoTranslate-AI/1.0",
-            "Accept": "application/vnd.github.v3+json",
-        }
         async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
-            api_url = "https://api.github.com/repos/tranvankha1989/TranslateVideo/contents/version.json"
-            resp = await client.get(api_url, headers=headers)
+            rel_url = "https://api.github.com/repos/tranvankha1989/TranslateVideo/releases/latest"
+            resp = await client.get(rel_url, headers=headers)
             if resp.status_code == 200:
-                api_data = resp.json()
-                content_b64 = api_data.get("content", "")
-                if content_b64:
-                    raw_text = base64.b64decode(content_b64).decode("utf-8")
-                    data = json.loads(raw_text)
-                    remote_ver = data.get("version")
-                    remote_desc = data.get("description")
-            
-            # Nếu GitHub API bị rate limit hoặc không lấy được, fallback sang raw URL
-            if not remote_ver:
-                import time
-                raw_url = f"https://raw.githubusercontent.com/tranvankha1989/TranslateVideo/main/version.json?t={int(time.time())}"
-                resp_raw = await client.get(raw_url, headers=headers)
-                if resp_raw.status_code == 200:
-                    data = resp_raw.json()
-                    remote_ver = data.get("version")
-                    remote_desc = data.get("description")
+                rel_data = resp.json()
+                tag_name = rel_data.get("tag_name", "")
+                remote_ver = tag_name.lstrip("v")
+                remote_desc = rel_data.get("body") or rel_data.get("name")
+
+                for a in rel_data.get("assets", []):
+                    aname = a.get("name", "").lower()
+                    if aname.endswith(".zip") and any(k in aname for k in ("patch", "dist", "bundle", "update")):
+                        patch_url = a.get("browser_download_url")
+                        patch_name = a.get("name")
+                        patch_size = round(a.get("size", 0) / (1024 * 1024), 2)
+                        break
     except Exception as e:
-        logger.warning(f"Không thể kiểm tra version qua GitHub: {e}")
+        logger.warning(f"Không thể kiểm tra GitHub Release: {e}")
 
-    # So sánh phiên bản nếu lấy được từ HTTP
-    if remote_ver and remote_ver != cur_ver:
-        # Tách chuỗi version để so sánh số (ví dụ: 3.4.2 > 3.4.1)
+    # 2. Fallback sang version.json nếu không lấy được từ Release
+    if not remote_ver:
         try:
-            def parse_v(v_str):
-                return [int(x) for x in re.findall(r"\d+", v_str)]
+            import base64
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+                api_url = "https://api.github.com/repos/tranvankha1989/TranslateVideo/contents/version.json"
+                resp = await client.get(api_url, headers=headers)
+                if resp.status_code == 200:
+                    api_data = resp.json()
+                    content_b64 = api_data.get("content", "")
+                    if content_b64:
+                        raw_text = base64.b64decode(content_b64).decode("utf-8")
+                        import json
+                        data = json.loads(raw_text)
+                        remote_ver = data.get("version")
+                        remote_desc = data.get("description")
 
+                if not remote_ver:
+                    import time
+                    import json
+                    raw_url = f"https://raw.githubusercontent.com/tranvankha1989/TranslateVideo/main/version.json?t={int(time.time())}"
+                    resp_raw = await client.get(raw_url, headers=headers)
+                    if resp_raw.status_code == 200:
+                        data = resp_raw.json()
+                        remote_ver = data.get("version")
+                        remote_desc = data.get("description")
+        except Exception as e:
+            logger.warning(f"Không thể kiểm tra version qua GitHub: {e}")
+
+    # So sánh phiên bản nếu lấy được từ GitHub
+    if remote_ver and remote_ver != cur_ver:
+        try:
             if parse_v(remote_ver) > parse_v(cur_ver):
+                patch_hint = f" (Sẵn sàng gói patch pre-built {patch_size}MB)" if patch_url else ""
                 return CheckUpdateResponse(
                     ok=True,
                     has_update=True,
@@ -788,12 +937,17 @@ async def check_update_endpoint():
                     latest_remote_commit=f"v{remote_ver}",
                     commits_behind=1,
                     commit_messages=[remote_desc or f"Bản phát hành mới v{remote_ver} trên GitHub"],
-                    message=f"Đã có phiên bản mới v{remote_ver}! Sẵn sàng nâng cấp 1-Click.",
+                    message=f"Đã có phiên bản mới v{remote_ver}!{patch_hint} Sẵn sàng nâng cấp 1-Click.",
+                    release_tag=f"v{remote_ver}",
+                    release_notes=remote_desc,
+                    patch_asset_url=patch_url,
+                    patch_asset_name=patch_name,
+                    patch_asset_size_mb=patch_size,
                 )
         except Exception:
             pass
 
-    # 2. Kiểm tra bổ sung qua Git (nếu máy có cài Git và có thư mục .git)
+    # 3. Kiểm tra bổ sung qua Git (nếu máy có cài Git và có thư mục .git)
     fetch_code, _ = _get_git_output(["fetch", "origin", "main"], timeout=10.0)
     if fetch_code == 0:
         count_code, count_str = _get_git_output(["rev-list", "HEAD..origin/main", "--count"])
@@ -827,112 +981,87 @@ async def check_update_endpoint():
     )
 
 
-@router.post("/perform-update", response_model=PerformUpdateResponse, summary="Tiến hành kéo code cập nhật phần mềm")
+@router.post("/perform-update", response_model=PerformUpdateResponse, summary="Tiến hành cập nhật phần mềm")
 async def perform_update_endpoint():
     """
-    Tiến hành cập nhật phần mềm linh hoạt (Hybrid Updater):
-    - Nếu máy có Git & thư mục .git: Thực hiện 'git pull origin main'.
-    - Nếu máy KHÔNG có Git hoặc tải từ file ZIP: Tự động tải file main.zip từ GitHub về và giải nén đè,
-      đồng thời bảo vệ 100% file .env, thư mục outputs/ và presets/ của người dùng.
+    Tiến hành cập nhật phần mềm bài bản chuẩn Desktop App (3-Tier Auto-Adaptive Updater):
+    1. Tầng 1: Tải trực tiếp gói pre-built patch (frontend/dist + backend) từ GitHub Release (Dành cho end-user không cần Git/Node).
+    2. Tầng 2: Nếu đang ở máy dev có Git repo: Chạy 'git pull' VÀ tự động chạy build frontend (pnpm/npm) để đồng bộ UI mới ngay lập tức.
+    3. Tầng 3: Tải mã nguồn main.zip nếu không có git và chưa có patch asset.
     """
     logs: list[str] = []
-    project_root = PROJECT_ROOT
+    project_root = REPO_ROOT
 
-    # Kiểm tra xem có thư mục .git không
+    # ── TẦNG 1: Kiểm tra xem có gói Pre-built Patch trên GitHub Release không ──
+    patch_download_url = None
+    headers = {
+        "User-Agent": "VideoTranslate-AI/1.0",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            rel_url = "https://api.github.com/repos/tranvankha1989/TranslateVideo/releases/latest"
+            resp = await client.get(rel_url, headers=headers)
+            if resp.status_code == 200:
+                rel_data = resp.json()
+                for a in rel_data.get("assets", []):
+                    aname = a.get("name", "").lower()
+                    if aname.endswith(".zip") and any(k in aname for k in ("patch", "dist", "bundle", "update")):
+                        patch_download_url = a.get("browser_download_url")
+                        logs.append(f"🎯 Phát hiện gói cập nhật Pre-built chính thức: {a.get('name')} ({round(a.get('size', 0)/1024/1024, 2)} MB)")
+                        break
+    except Exception as e:
+        logger.warning(f"Không thể tra cứu GitHub Release asset: {e}")
+
+    updated_successfully = False
+
+    # Nếu có gói pre-built patch -> Tải và giải nén ngay (Ưu tiên số 1, nhanh nhất cho người dùng)
+    if patch_download_url:
+        logs.append("📥 [1/4] Đang tải gói cập nhật Pre-built từ GitHub Release...")
+        try:
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                r = await client.get(patch_download_url)
+                if r.status_code != 200:
+                    raise Exception(f"Lỗi tải asset HTTP {r.status_code}")
+                patch_bytes = r.content
+
+            logs.append(f"📦 Đã tải xong ({len(patch_bytes) // 1024} KB). Đang giải nén và cập nhật giao diện...")
+            _apply_update_zip(patch_bytes, project_root)
+            logs.append("✅ Đã cập nhật thành công giao diện và các tài nguyên mới.")
+            updated_successfully = True
+        except Exception as pe:
+            logs.append(f"⚠️ Thử cập nhật qua Release asset thất bại ({pe}). Chuyển sang phương thức kế tiếp...")
+
+    # ── TẦNG 2: Máy có Git repo ──
     has_git_repo = (project_root / ".git").exists()
-    pull_success = False
-
-    if has_git_repo:
-        logs.append("🚀 [1/3] Đang kéo mã nguồn qua Git (git pull)...")
-        pull_code, pull_out = _get_git_output(["pull", "origin", "main"], timeout=30.0)
+    if not updated_successfully and has_git_repo:
+        logs.append("🚀 [1/4] Đang kéo mã nguồn mới nhất qua Git (git pull)...")
+        pull_code, pull_out = _get_git_output(["pull", "origin", "main"], cwd=project_root, timeout=30.0)
         if pull_code == 0:
-            pull_success = True
-            logs.append(pull_out or "✅ Đã kéo code mới nhất từ Git thành công.")
+            logs.append(pull_out or "✅ Đã kéo mã nguồn mới từ Git thành công.")
+            # ĐẶC BIỆT QUAN TRỌNG: Tự động build lại Frontend nếu máy có Node.js / pnpm / npm
+            _try_build_frontend(logs, project_root)
+            updated_successfully = True
         else:
             logs.append(f"⚠️ Git pull không khả dụng ({pull_out}), chuyển sang chế độ tải trực tiếp từ GitHub...")
 
-    # Chế độ tải trực tiếp ZIP từ GitHub (Dành cho máy không có Git hoặc lỗi Git)
-    if not pull_success:
-        logs.append("📥 [1/3] Đang tải bản cập nhật trực tiếp từ GitHub (Không cần cài Git)...")
+    # ── TẦNG 3: Tải main.zip từ GitHub khi không có Git hoặc lỗi Git ──
+    if not updated_successfully:
+        logs.append("📥 [1/4] Đang tải bản cập nhật trực tiếp từ GitHub...")
         zip_url = "https://github.com/tranvankha1989/TranslateVideo/archive/refs/heads/main.zip"
-        zip_tmp = project_root / "temp_update.zip"
-
         try:
-            import zipfile
-            import io
-
             async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
                 r = await client.get(zip_url)
                 if r.status_code != 200:
                     raise Exception(f"GitHub trả về mã lỗi HTTP {r.status_code}")
                 zip_bytes = r.content
 
-            logs.append(f"📦 Đã tải xong gói cập nhật ({len(zip_bytes) // 1024} KB). Đang giải nén...")
-
-            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-                # Danh sách file trong zip bắt đầu bằng TranslateVideo-main/
-                prefix = ""
-                namelist = z.namelist()
-                if namelist and "/" in namelist[0]:
-                    prefix = namelist[0].split("/")[0] + "/"
-
-                # Các thư mục/file TUYỆT ĐỐI KHÔNG GHI ĐÈ để bảo vệ dữ liệu người dùng
-                protected_paths = {
-                    ".env",
-                    "backend/.env",
-                    "backend/venv",
-                    "frontend/node_modules",
-                    "outputs",
-                    "backend/outputs",
-                    "presets/custom",
-                    "presets/custom_voices.json",
-                    "presets/custom_voices_user.json",
-                    "backend/presets/custom",
-                    "backend/presets/custom_voices.json",
-                    "backend/presets/custom_voices_user.json",
-                    "logs",
-                    "backend/logs",
-                }
-
-                for member in z.infolist():
-                    rel_path = member.filename
-                    if prefix and rel_path.startswith(prefix):
-                        rel_path = rel_path[len(prefix):]
-
-                    if not rel_path:
-                        continue
-
-                    # Bỏ qua các file/thư mục được bảo vệ
-                    should_skip = False
-                    for p in protected_paths:
-                        if rel_path == p or rel_path.startswith(p + "/") or rel_path.startswith(p + "\\"):
-                            should_skip = True
-                            break
-
-                    if should_skip:
-                        continue
-
-                    dest_path = project_root / rel_path
-                    if member.is_dir():
-                        dest_path.mkdir(parents=True, exist_ok=True)
-                    else:
-                        dest_path.parent.mkdir(parents=True, exist_ok=True)
-                        with z.open(member) as source, open(dest_path, "wb") as target:
-                            target.write(source.read())
-
-            # Đồng bộ toàn bộ frontend/dist sang dist nếu ứng dụng đang chạy thư mục dist gốc
-            frontend_dist = project_root / "frontend" / "dist"
-            root_dist = project_root / "dist"
-            if frontend_dist.is_dir():
-                try:
-                    import shutil
-                    root_dist.mkdir(parents=True, exist_ok=True)
-                    shutil.copytree(str(frontend_dist), str(root_dist), dirs_exist_ok=True)
-                except Exception:
-                    pass
-
-            logs.append("✅ Giải nén và cập nhật mã nguồn & giao diện thành công.")
-            pull_success = True
+            logs.append(f"📦 Đã tải xong ({len(zip_bytes) // 1024} KB). Đang giải nén...")
+            _apply_update_zip(zip_bytes, project_root)
+            # Thử build frontend nếu máy có pnpm
+            _try_build_frontend(logs, project_root)
+            logs.append("✅ Giải nén và cập nhật mã nguồn thành công.")
+            updated_successfully = True
         except Exception as ze:
             logger.error(f"Lỗi khi cập nhật bằng file ZIP: {ze}")
             return PerformUpdateResponse(
@@ -942,10 +1071,11 @@ async def perform_update_endpoint():
                 error=str(ze),
             )
 
-    # 2. Cài đặt thư viện phụ thuộc nếu có file requirements.txt
+    # ── ĐỒNG BỘ THƯ VIỆN & CẤU HÌNH ──
+    # 2. Cài đặt thư viện Python nếu có
     req_file = BASE_DIR / "requirements.txt"
     if req_file.exists():
-        logs.append("📦 [2/3] Kiểm tra và đồng bộ thư viện Python phụ thuộc...")
+        logs.append("📦 [2/4] Kiểm tra và đồng bộ thư viện Python phụ thuộc...")
         try:
             pip_cmd = [sys.executable, "-m", "pip", "install", "-r", str(req_file), "--quiet"]
             res = subprocess.run(pip_cmd, cwd=str(BASE_DIR), capture_output=True, text=True, timeout=90.0)
@@ -956,27 +1086,28 @@ async def perform_update_endpoint():
         except Exception as pe:
             logs.append(f"⚠️ Bỏ qua cập nhật pip: {pe}")
 
-    # 3. Tự động đồng bộ các biến/cấu hình mới vào file .env (bảo vệ 100% dữ liệu cũ)
-    for _b in [BASE_DIR, PROJECT_ROOT, BASE_DIR.parent]:
+    # 3. Đồng bộ file .env
+    for _b in [BASE_DIR, project_root, BASE_DIR.parent]:
         _env_f = _b / ".env"
         _ex_f = _b / ".env.example"
         if _ex_f.exists():
             _sync_env_file(_env_f, _ex_f)
     load_dotenv(ENV_FILE, override=True)
-    logs.append("⚙️ Đã tự động đồng bộ và bổ sung các biến cấu hình mới trong .env.")
+    logs.append("⚙️ [3/4] Đã tự động đồng bộ và bảo vệ các biến cấu hình trong .env.")
 
-    # 4. Đọc lại version mới từ version.json
+    # 4. Đọc lại version mới
     new_ver = APP_VERSION
-    if VERSION_FILE.exists():
-        try:
-            import json
-            with open(VERSION_FILE, "r", encoding="utf-8") as f:
-                new_ver = json.load(f).get("version", new_ver)
-        except Exception:
-            pass
+    for v_path in POSSIBLE_VERSION_FILES:
+        if v_path.exists():
+            try:
+                import json
+                with open(v_path, "r", encoding="utf-8") as f:
+                    new_ver = json.load(f).get("version", new_ver)
+                break
+            except Exception:
+                pass
 
     logs.append(f"🎉 [4/4] Nâng cấp hoàn tất thành công! Phiên bản hiện tại: v{new_ver}")
-
     return PerformUpdateResponse(
         ok=True,
         message=f"Cập nhật thành công lên phiên bản v{new_ver}!",
