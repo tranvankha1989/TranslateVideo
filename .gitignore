@@ -18,6 +18,7 @@ backend/presets/bgm/custom/*
 backend/presets/custom_voices_user.json
 backend/scratch_*.txt
 backend/*.scratch.*
+backend/.license_store.dat
 
 # ── Node / Frontend ──────────────────────────────
 frontend/node_modules/

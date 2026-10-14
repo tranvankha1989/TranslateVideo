@@ -13,6 +13,14 @@ from app.core.config import PROJECT_ROOT, logger
 SECRET_SALT = "VT_AI_SECRET_LICENSE_SALT_2026_PRO_KEY_PROTECTION"
 LICENSE_FILE = PROJECT_ROOT / "backend" / ".license_store.dat"
 MASTER_KEYS = {"AIMABIET", "AIMABIETPRO", "OMNIPRO2026"}
+GLOBAL_APP_FEATURE_ID = "app_global"
+
+GENERIC_INVALID_MSG = "Mã kích hoạt không hợp lệ hoặc đã hết hạn. Vui lòng liên hệ Admin để nhận mã mới."
+
+# Thư mục sao lưu dự phòng ẩn trong %APPDATA% (Roaming)
+APPDATA_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "VoiceSyncAI"
+APPDATA_LICENSE_FILE = APPDATA_DIR / ".sys_lic.dat"
+REG_KEY_PATH = r"Software\VoiceSyncAI\License"
 
 
 def get_machine_id() -> str:
@@ -40,21 +48,18 @@ def get_machine_id() -> str:
 
 def _compute_daily_keys() -> list[str]:
     """
-    Tính mã cài đặt / mở khóa theo ngày chuẩn đồng bộ 100% với bộ cài đặt Inno Setup.
+    Tính mã cơ sở theo ngày chuẩn đồng bộ 100% với bộ cài đặt Inno Setup.
     Thuật toán: Với mỗi chữ số x trong ddmmyyyy -> Chữ số = (x mod 4) + 1
-    Ví dụ: Ngày 06/10/2026 (06102026) -> 13213133
+    Ví dụ: Ngày 14/10/2026 (14102026) -> 21213134
     """
     valid_keys = []
     now = time.time()
-    # Kiểm tra hôm nay, hôm qua và ngày mai (tránh lệch múi giờ)
+    # Kiểm tra hôm nay, hôm qua và ngày mai (tránh lệch múi giờ +-1 ngày)
     for offset in [0, -86400, 86400]:
         t_struct = time.localtime(now + offset)
-        date_str = time.strftime("%d%m%Y", t_struct)  # VD: 06102026
-        
-        # Thuật toán chuẩn (x mod 4) + 1
+        date_str = time.strftime("%d%m%Y", t_struct)
         key = "".join(str((int(ch) % 4) + 1) for ch in date_str if ch.isdigit())
         valid_keys.append(key)
-        
     return valid_keys
 
 
@@ -64,46 +69,131 @@ def _sign_data(data_dict: dict) -> str:
     return hmac.new(SECRET_SALT.encode(), raw.encode(), hashlib.sha256).hexdigest()
 
 
-def _load_store() -> dict:
-    """Đọc dữ liệu license từ file được bảo vệ."""
-    if not LICENSE_FILE.exists():
-        return {}
+def _read_from_registry() -> Optional[dict]:
+    """Đọc dữ liệu bản quyền lưu trong Windows Registry (HKCU)."""
+    if sys.platform != "win32":
+        return None
     try:
-        with open(LICENSE_FILE, "r", encoding="utf-8") as f:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_KEY_PATH) as key:
+            val, _ = winreg.QueryValueEx(key, "Payload")
+            store = json.loads(val)
+            sig = store.get("_signature")
+            payload = {k: v for k, v in store.items() if k != "_signature"}
+            if _sign_data(payload) == sig:
+                return payload
+    except Exception:
+        pass
+    return None
+
+
+def _save_to_registry(payload: dict) -> None:
+    """Lưu dữ liệu bản quyền vào Windows Registry (HKCU)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_KEY_PATH) as key:
+            sig = _sign_data(payload)
+            full_data = {**payload, "_signature": sig}
+            winreg.SetValueEx(key, "Payload", 0, winreg.REG_SZ, json.dumps(full_data))
+    except Exception as e:
+        logger.debug(f"Không thể ghi Registry HKCU: {e}")
+
+
+def _read_from_appdata() -> Optional[dict]:
+    """Đọc dữ liệu bản quyền từ thư mục Roaming AppData ẩn."""
+    try:
+        if not APPDATA_LICENSE_FILE.exists():
+            return None
+        with open(APPDATA_LICENSE_FILE, "r", encoding="utf-8") as f:
             store = json.load(f)
-            
         sig = store.get("_signature")
         payload = {k: v for k, v in store.items() if k != "_signature"}
-        if _sign_data(payload) != sig:
-            logger.warning("⚠️ File license bị can thiệp trái phép!")
-            return {}
-        return payload
+        if _sign_data(payload) == sig:
+            return payload
+    except Exception:
+        pass
+    return None
+
+
+def _save_to_appdata(payload: dict) -> None:
+    """Lưu dữ liệu bản quyền vào thư mục Roaming AppData ẩn."""
+    try:
+        APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+        sig = _sign_data(payload)
+        full_data = {**payload, "_signature": sig}
+        with open(APPDATA_LICENSE_FILE, "w", encoding="utf-8") as f:
+            json.dump(full_data, f, indent=2)
     except Exception as e:
-        logger.error(f"Lỗi đọc file license: {e}")
-        return {}
+        logger.debug(f"Không thể ghi AppData backup: {e}")
 
 
-def _save_store(payload: dict) -> bool:
-    """Ghi dữ liệu license có chữ ký số."""
+def _load_store() -> dict:
+    """
+    Đọc dữ liệu license với cơ chế Tam giác phòng thủ:
+    1. Kiểm tra File local (.license_store.dat)
+    2. Nếu mất, khôi phục từ AppData Roaming hoặc Windows Registry
+    """
+    # 1. Đọc từ file local
+    if LICENSE_FILE.exists():
+        try:
+            with open(LICENSE_FILE, "r", encoding="utf-8") as f:
+                store = json.load(f)
+            sig = store.get("_signature")
+            payload = {k: v for k, v in store.items() if k != "_signature"}
+            if _sign_data(payload) == sig:
+                return payload
+            else:
+                logger.warning("⚠️ File local license bị can thiệp trái phép!")
+        except Exception as e:
+            logger.error(f"Lỗi đọc file local license: {e}")
+
+    # 2. Khôi phục từ AppData hoặc Registry nếu file local bị xoá
+    recovered = _read_from_appdata() or _read_from_registry()
+    if recovered:
+        logger.info("🛡️ Đã tự động khôi phục dữ liệu bản quyền từ bản sao lưu hệ thống.")
+        _save_local_file(recovered)
+        return recovered
+
+    return {}
+
+
+def _save_local_file(payload: dict) -> bool:
+    """Ghi dữ liệu license vào file local."""
     try:
         sig = _sign_data(payload)
         full_data = {**payload, "_signature": sig}
+        LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(LICENSE_FILE, "w", encoding="utf-8") as f:
             json.dump(full_data, f, indent=2)
         return True
     except Exception as e:
-        logger.error(f"Lỗi lưu file license: {e}")
+        logger.error(f"Lỗi lưu file local license: {e}")
         return False
 
 
-def get_feature_status(feature_id: str = "video_editor") -> Dict[str, Any]:
+def _save_store(payload: dict) -> bool:
     """
-    Kiểm tra trạng thái kích hoạt của tính năng.
+    Ghi đồng thời dữ liệu bản quyền vào 3 điểm:
+    1. Local File
+    2. Roaming AppData
+    3. Windows Registry HKCU
+    """
+    ok = _save_local_file(payload)
+    _save_to_appdata(payload)
+    _save_to_registry(payload)
+    return ok
+
+
+def get_feature_status(feature_id: str = "app_global") -> Dict[str, Any]:
+    """
+    Kiểm tra trạng thái kích hoạt của toàn app hoặc tính năng cụ thể.
     """
     machine_id = get_machine_id()
     store = _load_store()
     feat_data = store.get(feature_id, {})
-    
+
     # Kiểm tra máy có khớp không
     saved_machine = feat_data.get("machine_id")
     if saved_machine and saved_machine != machine_id:
@@ -117,7 +207,7 @@ def get_feature_status(feature_id: str = "video_editor") -> Dict[str, Any]:
         }
 
     tier = feat_data.get("tier")
-    
+
     if tier == "lifetime":
         return {
             "unlocked": True,
@@ -127,7 +217,7 @@ def get_feature_status(feature_id: str = "video_editor") -> Dict[str, Any]:
             "days_left": None,
             "message": "Đã kích hoạt bản quyền Vĩnh viễn (PRO).",
         }
-        
+
     if tier == "trial":
         now = time.time()
         start_time = feat_data.get("start_time", 0)
@@ -151,7 +241,7 @@ def get_feature_status(feature_id: str = "video_editor") -> Dict[str, Any]:
             feat_data["last_check_time"] = now
             store[feature_id] = feat_data
             _save_store(store)
-            
+
             days_left = max(1, math.ceil((expire_time - now) / 86400))
             return {
                 "unlocked": True,
@@ -159,7 +249,7 @@ def get_feature_status(feature_id: str = "video_editor") -> Dict[str, Any]:
                 "feature_id": feature_id,
                 "machine_id": machine_id,
                 "days_left": days_left,
-                "message": f"Đang sử dụng bản Dùng thử (Còn {days_left} ngày).",
+                "message": f"Bản quyền đang hoạt động (Còn {days_left} ngày).",
             }
         else:
             return {
@@ -169,7 +259,7 @@ def get_feature_status(feature_id: str = "video_editor") -> Dict[str, Any]:
                 "machine_id": machine_id,
                 "days_left": 0,
                 "trial_used": True,
-                "message": "Thời hạn 30 ngày dùng thử đã kết thúc. Vui lòng nhập mã kích hoạt PRO để tiếp tục sử dụng.",
+                "message": "Thời hạn sử dụng đã kết thúc. Vui lòng nhập mã kích hoạt mới để tiếp tục.",
             }
 
     # Chưa kích hoạt
@@ -181,13 +271,19 @@ def get_feature_status(feature_id: str = "video_editor") -> Dict[str, Any]:
         "machine_id": machine_id,
         "days_left": 0,
         "trial_used": trial_used,
-        "message": "Tính năng cao cấp PRO. Vui lòng nhập mã kích hoạt để sử dụng.",
+        "message": "Ứng dụng chưa được kích hoạt. Vui lòng nhập mã kích hoạt để sử dụng.",
     }
 
 
-def activate_feature_key(key: str, feature_id: str = "video_editor") -> Dict[str, Any]:
+def activate_feature_key(key: str, feature_id: str = "app_global") -> Dict[str, Any]:
     """
-    Xử lý kích hoạt mã bản quyền hoặc mã dùng thử 'demo30'.
+    Xử lý kích hoạt bản quyền:
+    - Nếu là tính năng đơn lẻ (feature_id != 'app_global'): Vẫn giữ nguyên mã DEMO30 dùng thử 30 ngày.
+    - Nếu là toàn app (feature_id == 'app_global'): Không nhận DEMO30.
+    - Nhập Base Key (8 số) -> Vĩnh viễn (Lifetime PRO).
+    - Nhập Base Key (8 số) + N (với 1 <= N <= 180) -> Kích hoạt N ngày (hỗ trợ cộng dồn thời gian).
+    - Nhập quá 180 ngày hoặc sai cú pháp -> Chỉ báo lỗi chung, KHÔNG tiết lộ quy luật.
+    - Master Keys (AIMABIET, ...) -> Mở khóa Vĩnh viễn.
     """
     cleaned_key = key.strip().upper()
     machine_id = get_machine_id()
@@ -195,16 +291,22 @@ def activate_feature_key(key: str, feature_id: str = "video_editor") -> Dict[str
     feat_data = store.get(feature_id, {})
     now = time.time()
 
-    # 1. TRƯỜNG HỢP: MÃ DÙNG THỬ 30 NGÀY (DEMO30)
+    # 1. TRƯỜNG HỢP: MÃ DÙNG THỬ CŨ DEMO30
     if cleaned_key == "DEMO30":
-        # Kiểm tra máy này đã từng dùng thử tính năng này chưa
+        # Không chấp nhận DEMO30 cho toàn app
+        if feature_id == "app_global":
+            return {
+                "ok": False,
+                "message": GENERIC_INVALID_MSG,
+            }
+
+        # Áp dụng cho các tính năng đơn lẻ (như video_editor)
         if feat_data.get("trial_used") or feat_data.get("tier") in ["trial", "expired"]:
             return {
                 "ok": False,
                 "message": "Thiết bị này đã từng kích hoạt 30 ngày dùng thử trước đó. Mỗi máy chỉ được trải nghiệm 1 lần duy nhất. Vui lòng nhập Mã kích hoạt bản quyền chính thức!",
             }
-        
-        # Kích hoạt 30 ngày dùng thử mới
+
         expire_time = now + (30 * 86400)
         store[feature_id] = {
             "machine_id": machine_id,
@@ -220,7 +322,7 @@ def activate_feature_key(key: str, feature_id: str = "video_editor") -> Dict[str
             "ok": True,
             "tier": "trial",
             "days_left": 30,
-            "message": "🎉 Chúc mừng bạn đã kích hoạt thành công 30 ngày trải nghiệm miễn phí tính năng Chỉnh Sửa Video PRO!",
+            "message": "🎉 Chúc mừng bạn đã kích hoạt thành công 30 ngày trải nghiệm tính năng!",
         }
 
     # 2. TRƯỜNG HỢP: MASTER KEY VĨNH VIỄN
@@ -236,27 +338,88 @@ def activate_feature_key(key: str, feature_id: str = "video_editor") -> Dict[str
             "ok": True,
             "tier": "lifetime",
             "days_left": None,
-            "message": "🎉 Kích hoạt thành công bản quyền VĨNH VIỄN tính năng PRO!",
+            "message": "🎉 Kích hoạt thành công bản quyền VĨNH VIỄN!",
         }
 
-    # 3. TRƯỜNG HỢP: MÃ ĐỘNG THEO NGÀY
+    # 3. TRƯỜNG HỢP: MÃ ĐỘNG THEO NGÀY (CÓ THỜI HẠN HOẶC VĨNH VIỄN)
     daily_keys = _compute_daily_keys()
-    if cleaned_key in daily_keys:
+
+    # TH 3.1: Đúng 8 chữ số -> VĨNH VIỄN
+    if len(cleaned_key) == 8:
+        if cleaned_key in daily_keys:
+            store[feature_id] = {
+                "machine_id": machine_id,
+                "tier": "lifetime",
+                "activated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "key_type": "DAILY_LIFETIME_KEY",
+            }
+            _save_store(store)
+            return {
+                "ok": True,
+                "tier": "lifetime",
+                "days_left": None,
+                "message": "🎉 Kích hoạt thành công bản quyền VĨNH VIỄN!",
+            }
+        else:
+            return {
+                "ok": False,
+                "message": GENERIC_INVALID_MSG,
+            }
+
+    # TH 3.2: Trên 8 chữ số -> Base Key (8 số) + Số ngày sử dụng (N)
+    elif len(cleaned_key) > 8:
+        base_key = cleaned_key[:8]
+        suffix = cleaned_key[8:]
+
+        # Base key không khớp ngày hôm nay/hôm qua/ngày mai HOẶC suffix không phải là số
+        if (base_key not in daily_keys) or (not suffix.isdigit()):
+            return {
+                "ok": False,
+                "message": GENERIC_INVALID_MSG,
+            }
+
+        days = int(suffix)
+        # Giới hạn an toàn: Tối đa 180 ngày và phải > 0
+        # Nếu người dùng tự bịa số ngày > 180 -> Từ chối và chỉ báo thông báo chung, KHÔNG tiết lộ số 180
+        if days <= 0 or days > 180:
+            return {
+                "ok": False,
+                "message": GENERIC_INVALID_MSG,
+            }
+
+        # Kích hoạt hợp lệ: Tính toán ngày hết hạn (hỗ trợ cộng dồn nếu đang còn hạn)
+        current_expire = feat_data.get("expire_time", 0) if feat_data.get("tier") == "trial" else 0
+        base_time = max(now, current_expire)
+        new_expire_time = base_time + (days * 86400)
+
+        calc_days = max(1, math.ceil((new_expire_time - now) / 86400))
+
         store[feature_id] = {
             "machine_id": machine_id,
-            "tier": "lifetime",
+            "tier": "trial",
+            "start_time": feat_data.get("start_time", now),
+            "expire_time": new_expire_time,
+            "last_check_time": now,
+            "trial_used": True,
+            "days_granted": days,
             "activated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "key_type": "DAILY_KEY",
+            "key_type": "DAILY_DYNAMIC_KEY",
         }
         _save_store(store)
+
+        if current_expire > now:
+            msg = f"🎉 Gia hạn thành công thêm {days} ngày sử dụng! (Tổng thời hạn còn {calc_days} ngày)"
+        else:
+            msg = f"🎉 Kích hoạt thành công {days} ngày sử dụng bản quyền!"
+
         return {
             "ok": True,
-            "tier": "lifetime",
-            "days_left": None,
-            "message": "🎉 Kích hoạt thành công bản quyền VĨNH VIỄN tính năng PRO!",
+            "tier": "trial",
+            "days_left": calc_days,
+            "message": msg,
         }
 
     return {
         "ok": False,
-        "message": "Mật mã kích hoạt không chính xác hoặc đã hết hạn trong ngày. Vui lòng liên hệ Admin để nhận mã mới.",
+        "message": GENERIC_INVALID_MSG,
     }

@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTTSStore } from "@/store/useTTSStore";
+import { LicenseBadge } from "@/components/GlobalLicenseGuard";
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },
@@ -167,6 +168,9 @@ export function MainLayout() {
 
         {/* Hardware Status & Settings Footer */}
         <div className="mt-auto space-y-2">
+          {/* License Status Badge */}
+          <LicenseBadge isCollapsed={isCollapsed} />
+
           {/* Subtle System Status (Phần thông báo trạng thái tinh tế) */}
           <Link
             to="/settings"
