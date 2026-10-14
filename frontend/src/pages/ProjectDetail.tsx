@@ -14,7 +14,11 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
+import {
+  useTTSStore,
+  applyPronunciationDictionary,
+  type ScriptBlock,
+} from "../store/useTTSStore";
 import { ScriptBlockItem } from "../components/project/ScriptBlockItem";
 import { SmartSplitModal } from "../components/project/SmartSplitModal";
 import { MasterAudioBar } from "../components/project/MasterAudioBar";
@@ -37,7 +41,7 @@ export default function ProjectDetail() {
   const projectAudios = history.filter((h) => h.projectId === id);
 
   // Tabs: "blocks" (Kịch bản phân đoạn) | "audios" (File đã lưu)
-  const [activeTab, setActiveTab] = useState<"blocks" | "audios">("blocks");
+  const [activeTab, setActiveTab] = useState<"blocks" | "audios">("audios");
 
   // Modal bóc tách kịch bản thông minh
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
@@ -113,7 +117,7 @@ export default function ProjectDetail() {
       text: "",
       voiceId: bulkVoiceId || (voices.length > 0 ? voices[0].id : null),
       voiceName:
-        voices.find((v) => v.id === (bulkVoiceId || (voices[0]?.id)))?.name ||
+        voices.find((v) => v.id === (bulkVoiceId || voices[0]?.id))?.name ||
         "Mặc định",
       speed: 1.0,
       pitch: 0.0,
@@ -136,7 +140,9 @@ export default function ProjectDetail() {
     if (target?.audioUrl) {
       const fn = target.filename || target.audioUrl.split("/").pop();
       if (fn) {
-        fetch(`http://localhost:8000/api/tts/${fn}`, { method: "DELETE" }).catch(() => {});
+        fetch(`http://localhost:8000/api/tts/${fn}`, {
+          method: "DELETE",
+        }).catch(() => {});
       }
     }
     const updated = blocks.filter((b) => b.id !== blockId);
@@ -145,7 +151,10 @@ export default function ProjectDetail() {
   };
 
   // 3. Cập nhật block
-  const handleUpdateBlock = (blockId: string, updatedFields: Partial<ScriptBlock>) => {
+  const handleUpdateBlock = (
+    blockId: string,
+    updatedFields: Partial<ScriptBlock>,
+  ) => {
     const updated = blocks.map((b) =>
       b.id === blockId ? { ...b, ...updatedFields } : b,
     );
@@ -174,7 +183,9 @@ export default function ProjectDetail() {
       status: b.status === "ready" ? ("idle" as const) : b.status,
     }));
     saveBlocks(updated);
-    toast.success(`Đã áp dụng giọng "${v?.name || voiceId}" cho toàn bộ ${blocks.length} phân đoạn!`);
+    toast.success(
+      `Đã áp dụng giọng "${v?.name || voiceId}" cho toàn bộ ${blocks.length} phân đoạn!`,
+    );
   };
 
   // 6. Áp dụng từ modal SmartSplit
@@ -188,7 +199,9 @@ export default function ProjectDetail() {
         if (oldB.audioUrl) {
           const fn = oldB.filename || oldB.audioUrl.split("/").pop();
           if (fn) {
-            fetch(`http://localhost:8000/api/tts/${fn}`, { method: "DELETE" }).catch(() => {});
+            fetch(`http://localhost:8000/api/tts/${fn}`, {
+              method: "DELETE",
+            }).catch(() => {});
           }
         }
       }
@@ -252,7 +265,9 @@ export default function ProjectDetail() {
         console.warn("Không thể lấy duration audio:", e);
       }
 
-      const oldFilename = target.filename || (target.audioUrl ? target.audioUrl.split("/").pop() : null);
+      const oldFilename =
+        target.filename ||
+        (target.audioUrl ? target.audioUrl.split("/").pop() : null);
 
       handleUpdateBlock(blockId, {
         status: "ready",
@@ -263,7 +278,9 @@ export default function ProjectDetail() {
 
       // Nếu file mới khác file cũ, xóa file cũ để tránh file rác
       if (oldFilename && oldFilename !== data.filename) {
-        fetch(`http://localhost:8000/api/tts/${oldFilename}`, { method: "DELETE" }).catch(() => {});
+        fetch(`http://localhost:8000/api/tts/${oldFilename}`, {
+          method: "DELETE",
+        }).catch(() => {});
       }
 
       toast.success("Render phân đoạn thành công!");
@@ -438,9 +455,13 @@ export default function ProjectDetail() {
   };
 
   const handlePlayAllSequence = () => {
-    const readyCount = blocks.filter((b) => b.status === "ready" && b.audioUrl).length;
+    const readyCount = blocks.filter(
+      (b) => b.status === "ready" && b.audioUrl,
+    ).length;
     if (readyCount === 0) {
-      toast.error("Chưa có phân đoạn nào được render. Hãy nhấn 'Render tất cả' trước!");
+      toast.error(
+        "Chưa có phân đoạn nào được render. Hãy nhấn 'Render tất cả' trước!",
+      );
       return;
     }
 
@@ -451,14 +472,20 @@ export default function ProjectDetail() {
 
   // 11. Ghép nối và Xuất Master (Stitching Engine)
   const handleStitchMaster = async () => {
-    const readyBlocks = blocks.filter((b) => b.status === "ready" && b.audioUrl && b.filename);
+    const readyBlocks = blocks.filter(
+      (b) => b.status === "ready" && b.audioUrl && b.filename,
+    );
     if (readyBlocks.length === 0) {
-      toast.error("Vui lòng render ít nhất một phân đoạn trước khi ghép xuất Master");
+      toast.error(
+        "Vui lòng render ít nhất một phân đoạn trước khi ghép xuất Master",
+      );
       return;
     }
 
     setIsStitching(true);
-    const toastId = toast.loading("Đang ghép nối các phân đoạn và tạo phụ đề SRT...");
+    const toastId = toast.loading(
+      "Đang ghép nối các phân đoạn và tạo phụ đề SRT...",
+    );
 
     try {
       const payload = {
@@ -470,7 +497,8 @@ export default function ProjectDetail() {
         format: "mp3",
         project_name: project.name,
         crossfade_ms: useTTSStore.getState().pauseSettings?.crossfade ?? 15,
-        loudness_standard: useTTSStore.getState().loudnessStandard || "ebu_r128",
+        loudness_standard:
+          useTTSStore.getState().loudnessStandard || "ebu_r128",
       };
 
       const res = await fetch("http://localhost:8000/api/tts/stitch", {
@@ -534,11 +562,13 @@ export default function ProjectDetail() {
               </div>
               <div className="flex items-center gap-3 text-xs font-mono-data text-on-surface-variant mt-1">
                 <span>
-                  Ngày tạo: {new Date(project.createdAt).toLocaleDateString("vi-VN")}
+                  Ngày tạo:{" "}
+                  {new Date(project.createdAt).toLocaleDateString("vi-VN")}
                 </span>
                 <span>•</span>
                 <span className="text-primary font-bold">
-                  {blocks.length} phân đoạn ({readyCount}/{blocks.length} đã render)
+                  {blocks.length} phân đoạn ({readyCount}/{blocks.length} đã
+                  render)
                 </span>
               </div>
             </div>
@@ -546,17 +576,6 @@ export default function ProjectDetail() {
 
           {/* Tab Switcher */}
           <div className="inline-flex bg-surface-dim border border-white/10 rounded-xl p-1 shadow-inner">
-            <button
-              onClick={() => setActiveTab("blocks")}
-              className={`px-4 py-2 rounded-lg font-label-caps text-xs flex items-center gap-2 transition-all ${
-                activeTab === "blocks"
-                  ? "bg-primary text-black font-semibold shadow-md"
-                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              Kịch bản phân đoạn ({blocks.length})
-            </button>
             <button
               onClick={() => setActiveTab("audios")}
               className={`px-4 py-2 rounded-lg font-label-caps text-xs flex items-center gap-2 transition-all ${
@@ -567,6 +586,17 @@ export default function ProjectDetail() {
             >
               <FolderOpen className="w-4 h-4" />
               File đã lưu ({projectAudios.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("blocks")}
+              className={`px-4 py-2 rounded-lg font-label-caps text-xs flex items-center gap-2 transition-all ${
+                activeTab === "blocks"
+                  ? "bg-primary text-black font-semibold shadow-md"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              Kịch bản phân đoạn ({blocks.length})
             </button>
           </div>
         </div>
@@ -643,7 +673,11 @@ export default function ProjectDetail() {
               {readyCount > 0 && (
                 <button
                   type="button"
-                  onClick={isPlayingSequence ? handleStopPlayback : handlePlayAllSequence}
+                  onClick={
+                    isPlayingSequence
+                      ? handleStopPlayback
+                      : handlePlayAllSequence
+                  }
                   className={`px-4 py-2 rounded-xl text-xs font-label-caps flex items-center gap-2 transition-all shadow-md ${
                     isPlayingSequence
                       ? "bg-amber-500 text-black font-bold animate-pulse"
@@ -672,7 +706,8 @@ export default function ProjectDetail() {
                   className="px-4 py-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-label-caps flex items-center gap-2 hover:bg-rose-500/30 transition-all"
                 >
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Đang tạo ({renderProgress.current}/{renderProgress.total}) · Hủy
+                  Đang tạo ({renderProgress.current}/{renderProgress.total}) ·
+                  Hủy
                 </button>
               ) : (
                 <button
@@ -726,8 +761,9 @@ export default function ProjectDetail() {
                 Chưa có phân đoạn kịch bản nào
               </h3>
               <p className="text-xs max-w-md text-on-surface-variant leading-relaxed">
-                Bạn có thể dán toàn bộ bài báo, podcast, sách nói để hệ thống tự động
-                bóc tách thành từng câu theo chuẩn ElevenLabs Projects, hoặc tự bấm thêm đoạn mới.
+                Bạn có thể dán toàn bộ bài báo, podcast, sách nói để hệ thống tự
+                động bóc tách thành từng câu theo chuẩn ElevenLabs Projects,
+                hoặc tự bấm thêm đoạn mới.
               </p>
               <div className="flex items-center gap-3 mt-2">
                 <button
@@ -805,7 +841,7 @@ export default function ProjectDetail() {
         isOpen={isSplitModalOpen}
         onClose={() => setIsSplitModalOpen(false)}
         onApply={handleApplySmartSplit}
-        defaultVoiceId={bulkVoiceId || (voices[0]?.id || null)}
+        defaultVoiceId={bulkVoiceId || voices[0]?.id || null}
         defaultVoiceName={voices[0]?.name}
       />
     </div>

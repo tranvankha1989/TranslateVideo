@@ -104,7 +104,8 @@ export function LibraryScriptModal({
                 </span>
               </h3>
               <p className="text-xs text-on-surface-variant">
-                Lấy lại nội dung bài đọc từ Thư viện / Phòng thu để Whisper AI đối chiếu chính tả 100%
+                Lấy lại nội dung bài đọc từ Thư viện / Phòng thu để Whisper AI
+                đối chiếu chính tả 100%
               </p>
             </div>
           </div>
@@ -142,7 +143,7 @@ export function LibraryScriptModal({
             <select
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="px-3 py-2 rounded-xl bg-surface-variant/40 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/60 transition cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-surface-variant/80 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/60 transition cursor-pointer"
             >
               <option value="all">📁 Tất cả dự án ({history.length})</option>
               {projects.map((proj) => (
@@ -165,7 +166,8 @@ export function LibraryScriptModal({
                 Thư viện chưa có bản ghi âm nào
               </p>
               <p className="text-xs text-on-surface-variant max-w-sm mx-auto">
-                Hãy chuyển sang trang <strong>Phòng thu</strong> để chuyển kịch bản từ text sang giọng nói trước.
+                Hãy chuyển sang trang <strong>Phòng thu</strong> để chuyển kịch
+                bản từ text sang giọng nói trước.
               </p>
             </div>
           ) : filteredHistory.length === 0 ? (
@@ -175,13 +177,16 @@ export function LibraryScriptModal({
           ) : (
             filteredHistory.map((record, index) => {
               const isPlayingThis = playingId === record.id;
-              const dateStr = new Date(record.timestamp).toLocaleString("vi-VN", {
-                hour: "2-digit",
-                minute: "2-digit",
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-              });
+              const dateStr = new Date(record.timestamp).toLocaleString(
+                "vi-VN",
+                {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                },
+              );
 
               const proj = projects.find((p) => p.id === record.projectId);
 
@@ -227,7 +232,11 @@ export function LibraryScriptModal({
                               ? "bg-primary text-on-primary border-primary"
                               : "bg-surface-variant/40 hover:bg-surface-variant border-white/10 text-on-surface",
                           )}
-                          title={isPlayingThis ? "Tạm dừng nghe thử" : "Nghe thử giọng đọc này"}
+                          title={
+                            isPlayingThis
+                              ? "Tạm dừng nghe thử"
+                              : "Nghe thử giọng đọc này"
+                          }
                         >
                           {isPlayingThis ? (
                             <Pause className="w-3.5 h-3.5" />
@@ -258,7 +267,10 @@ export function LibraryScriptModal({
                   </p>
 
                   <div className="flex items-center justify-between text-[10px] text-on-surface-variant pt-1 border-t border-white/5">
-                    <span>{record.text.length} ký tự • {record.text.trim().split(/\s+/).length} từ</span>
+                    <span>
+                      {record.text.length} ký tự •{" "}
+                      {record.text.trim().split(/\s+/).length} từ
+                    </span>
                     <span className="text-primary opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 font-medium">
                       <span>Nhấp để nạp vào kịch bản</span>
                       <Sparkles className="w-2.5 h-2.5" />
@@ -273,7 +285,8 @@ export function LibraryScriptModal({
         {/* Modal Footer */}
         <div className="p-3 border-t border-white/10 flex items-center justify-between bg-surface-variant/20 text-xs shrink-0">
           <span className="text-on-surface-variant text-[11px]">
-            💡 Sau khi chọn, nội dung sẽ được nạp tự động vào ô Kịch bản đọc đối chiếu.
+            💡 Sau khi chọn, nội dung sẽ được nạp tự động vào ô Kịch bản đọc đối
+            chiếu.
           </span>
           <button
             onClick={handleClose}

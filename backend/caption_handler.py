@@ -696,6 +696,7 @@ def transcribe_with_remote_or_local(
     beam_size: int = 5,
     word_timestamps: bool = True,
     task_dir: Path | None = None,
+    download_bgm: bool = True,
 ) -> tuple[list[dict[str, Any]], str, Path | None]:
     """
     Nhận diện giọng nói STT thông minh kết hợp tách Demucs AI:
@@ -809,8 +810,8 @@ def transcribe_with_remote_or_local(
                 bgm_download_url = res_data.get("bgm_download_url")
 
                 bgm_path: Path | None = None
-                # Tải file nhạc nền (BGM) về nếu worker đã bóc tách thành công bằng Demucs AI
-                if bgm_filename or bgm_download_url:
+                # Tải file nhạc nền (BGM) về nếu worker đã bóc tách thành công bằng Demucs AI VÀ tác vụ cần giữ BGM
+                if download_bgm and (bgm_filename or bgm_download_url):
                     effective_task_dir.mkdir(parents=True, exist_ok=True)
                     bgm_local_path = effective_task_dir / "no_vocals.wav"
 
@@ -831,6 +832,8 @@ def transcribe_with_remote_or_local(
                                 logger.warning(f"⚠️ Không thể tải BGM từ worker (HTTP Status: {bgm_resp.status_code})")
                     except Exception as dl_err:
                         logger.warning(f"⚠️ Lỗi khi tải file BGM từ worker ({dl_err}), fallback sang audio gốc")
+                elif not download_bgm and (bgm_filename or bgm_download_url):
+                    logger.info(f"⚡ [BGM Skipped] Bỏ qua bước tải file nhạc nền nặng ({bgm_filename or 'worker BGM'}) do tác vụ chỉ cần trích xuất phụ đề, tiết kiệm 100% băng thông!")
 
                 # Tự động chia nhỏ câu theo word_timestamps thành các phân đoạn 3.0s - 6.0s (5-9 từ)
                 all_words_flat = []
@@ -992,19 +995,35 @@ def transcribe_video_audio(
     Phân tích âm thanh và trích xuất mốc thời gian chi tiết từng từ (Word-level timestamps).
     Hỗ trợ kịch bản đối chiếu (reference_script) để Whisper nhận diện chính xác 100% chính tả.
     """
-    prompt_snippet = None
-    if reference_script and reference_script.strip():
-        prompt_snippet = reference_script.strip()[:450]
+    # Tuyệt đối KHÔNG truyền nội dung kịch bản đọc vào initial_prompt của Whisper!
+    # Vì Whisper coi initial_prompt là "ngữ cảnh đã phát ở đoạn trước", dẫn tới việc Whisper
+    # nuốt âm (repetition suppression) bỏ qua toàn bộ 15-25 giây đầu của video, làm mốc thời gian bị lệch hoàn toàn!
+    prompt_hint = "Phụ đề video tiếng Việt có dấu, chuẩn ngữ pháp và chính tả." if (language == "vi" or str(language).startswith("vi")) else None
 
-    # Tách giọng nói sạch (Vocals) bằng Demucs AI để loại bỏ 100% nhạc nền trước khi đưa vào Whisper
-    vocal_res = separate_vocals_demucs(audio_path, audio_path.parent, enable_demucs=True)
-    whisper_audio = vocal_res.get("vocals", audio_path)
+    # Kiểm tra cấu hình Cloud GPU
+    from model_handler import is_remote_gpu_enabled
+    if is_remote_gpu_enabled():
+        # Đã bật Cloud GPU: Cloud GPU Worker có sẵn GPU siêu tốc (ZeroGPU / RTX Pro 6000)
+        # để tự bóc tách Demucs (chỉ mất ~5-8s) hoặc nhận diện trực tiếp.
+        # TUYỆT ĐỐI không chạy Demucs cục bộ để tránh đơ máy/nóng CPU người dùng!
+        whisper_audio = audio_path
+        logger.info("⚡ [AutoCaption] Chế độ Cloud GPU đang hoạt động -> Chuyển toàn bộ tác vụ tách âm & Whisper lên Cloud GPU.")
+    else:
+        # Khi chạy hoàn toàn trên máy local: Chỉ chạy Demucs AI nếu máy có card CUDA NVIDIA.
+        # Nếu chỉ có CPU, chuyển sang FFmpeg vocal filter đa băng tần siêu tốc (< 1s) để tránh treo CPU 2-3 phút.
+        try:
+            import torch
+            has_cuda = torch.cuda.is_available()
+        except Exception:
+            has_cuda = False
+        vocal_res = separate_vocals_demucs(audio_path, audio_path.parent, enable_demucs=has_cuda)
+        whisper_audio = vocal_res.get("vocals", audio_path)
 
     stt_res = transcribe_with_remote_or_local(
         audio_path=whisper_audio,
         language=language,
         model_size=model_size,
-        initial_prompt=prompt_snippet,
+        initial_prompt=prompt_hint,
         vad_filter=True,
         vad_threshold=vad_threshold,
         min_speech_duration_ms=min_speech_duration_ms,
@@ -1012,6 +1031,7 @@ def transcribe_video_audio(
         speech_pad_ms=speech_pad_ms,
         beam_size=beam_size,
         word_timestamps=True,
+        download_bgm=False,
     )
     result_segments = stt_res[0] if isinstance(stt_res, (list, tuple)) else stt_res
 
