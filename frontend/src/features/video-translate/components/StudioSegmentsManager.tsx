@@ -18,8 +18,8 @@ import {
   Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TranslationMemoryModal } from "@/components/translation-memory";
-import { useVideoTranslateStore, StudioSegment } from "@/store/useVideoTranslateStore";
+import { TranslationMemoryModal } from "@/components/TranslationMemoryModal";
+import { useVideoTranslateStore, type StudioSegment } from "@/store/useVideoTranslateStore";
 
 export interface StudioSegmentsManagerProps {
   isStudioOpen: boolean;

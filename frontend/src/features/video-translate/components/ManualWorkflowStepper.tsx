@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { VoicePreviewSelector } from "@/components/voice-preview";
+import { VoicePreviewSelector } from "@/components/VoicePreviewSelector";
 import { useVideoTranslateStore } from "@/store/useVideoTranslateStore";
 
 export interface ManualWorkflowStepperProps {
@@ -884,7 +884,7 @@ export function ManualWorkflowStepper({
               <VoicePreviewSelector
                 voices={voices}
                 selectedVoice={selectedVoice}
-                onSelectVoice={(vId, eng) => {
+                onSelectVoice={(vId: string, eng: string) => {
                   setSelectedVoice(vId);
                   setSelectedEngine(eng);
                 }}
