@@ -306,11 +306,11 @@ export function MainLayout() {
                   : "max-w-[150px] opacity-100 translate-x-0",
               )}
             >
-              Cài đặt & GPU
+              Cài đặt
             </span>
             {isCollapsed && (
               <div className="absolute left-full ml-3 px-3 py-1.5 bg-black/95 text-white text-xs font-medium rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 whitespace-nowrap z-50">
-                Cài đặt & GPU
+                Cài đặt
               </div>
             )}
           </Link>

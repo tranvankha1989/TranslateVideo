@@ -82,24 +82,23 @@ export default function Studio() {
     return blocks.cleanup;
   }, [fetchVoices]);
 
-  // Tự động kiểm tra và giải phóng các phân đoạn câu nếu bị kẹt 'rendering' khi người dùng chuyển trang
+  // Tự động kiểm tra và giải phóng các phân đoạn câu nếu bị kẹt 'rendering' từ phiên trước khi mở trang
   useEffect(() => {
-    if (!generator.isLoading) {
-      const hasStuckBlocks = blocks.studioBlocks.some((b) => b.status === "rendering");
-      if (hasStuckBlocks) {
-        const sanitized = blocks.studioBlocks.map((b) => {
-          if (b.status === "rendering") {
-            return {
-              ...b,
-              status: (b.audioUrl || b.filename ? "ready" : "idle") as typeof b.status,
-            };
-          }
-          return b;
-        });
-        blocks.saveStudioBlocks(sanitized, false);
-      }
+    const rawBlocks = useTTSStore.getState().studioBlocks;
+    const hasStuckBlocks = rawBlocks.some((b) => b.status === "rendering");
+    if (hasStuckBlocks) {
+      const sanitized = rawBlocks.map((b) => {
+        if (b.status === "rendering") {
+          return {
+            ...b,
+            status: (b.audioUrl || b.filename ? "ready" : "idle") as typeof b.status,
+          };
+        }
+        return b;
+      });
+      blocks.saveStudioBlocks(sanitized, false);
     }
-  }, [generator.isLoading, blocks.studioBlocks]);
+  }, []);
 
   // ── Wrappers kết nối hooks với nhau ───────────────────────────────────────
   const handleGenerate = () =>
@@ -107,6 +106,9 @@ export default function Studio() {
       saveStudioBlocks: blocks.saveStudioBlocks,
       setGenerationProgress: () => {}, // generator tự track nội bộ
     });
+
+  const handleStopGenerate = () =>
+    generator.handleStopGenerate(blocks.saveStudioBlocks);
 
   const handleUpdateMasterAudio = () =>
     blocks.handleUpdateMasterAudio(setAudioUrl, pauseSettings.period);
@@ -342,6 +344,7 @@ export default function Studio() {
                 setIsNewScriptModalOpen(true);
               }}
               blocksCount={blocks.studioBlocks.length}
+              onStopGenerate={handleStopGenerate}
             />
 
             {/* Output & Blocks Section */}
@@ -400,6 +403,7 @@ export default function Studio() {
             projects={projects}
             isLoading={generator.isLoading}
             onGenerate={handleGenerate}
+            onStopGenerate={handleStopGenerate}
             onSaveConfig={project.saveModelConfig}
             configSaved={project.configSaved}
           />

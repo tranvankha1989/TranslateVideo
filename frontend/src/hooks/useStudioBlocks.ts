@@ -326,6 +326,10 @@ export function useStudioBlocks() {
       return;
     }
 
+    const toastId = toast.loading("Đang tạo âm thanh cho phân đoạn...", {
+      duration: 35000,
+    });
+
     handleUpdateStudioBlock(blockId, { status: "rendering", error: undefined });
 
     try {
@@ -393,13 +397,14 @@ export function useStudioBlocks() {
       updateHasModifiedSegments(true);
       toast.success(
         "Render phân đoạn thành công! Bạn có thể bấm 'Cập nhật Audio chính' để nghe bản hoàn chỉnh.",
+        { id: toastId },
       );
     } catch (error: any) {
       handleUpdateStudioBlock(blockId, {
         status: "error",
         error: error.message || "Lỗi không xác định",
       });
-      toast.error(`Render thất bại: ${error.message}`);
+      toast.error(`Render thất bại: ${error.message}`, { id: toastId });
     }
   };
 
@@ -408,6 +413,12 @@ export function useStudioBlocks() {
     setAudioUrl: (url: string | null) => void,
     pausePeriod: number,
   ) => {
+    const isAnyRendering = studioBlocks.some((b) => b.status === "rendering");
+    if (isAnyRendering) {
+      toast.warning("Có phân đoạn đang trong quá trình render. Vui lòng chờ hoàn tất trước khi cập nhật.");
+      return;
+    }
+
     const readyBlocks = studioBlocks.filter(
       (b) => b.status === "ready" && (b.filename || b.audioUrl),
     );
@@ -461,6 +472,17 @@ export function useStudioBlocks() {
         id: toastId,
       });
     } catch (err: any) {
+      const match = err.message?.match(/phân đoạn (\d+)/i);
+      if (match && match[1]) {
+        const segIdx = parseInt(match[1], 10) - 1;
+        if (segIdx >= 0 && segIdx < studioBlocks.length) {
+          const targetBlock = studioBlocks[segIdx];
+          handleUpdateStudioBlock(targetBlock.id, {
+            status: "error",
+            error: "Thiếu file âm thanh. Vui lòng bấm 'Render lại' câu này.",
+          });
+        }
+      }
       toast.error(`Cập nhật thất bại: ${err.message}`, { id: toastId });
     } finally {
       setIsUpdatingMaster(false);

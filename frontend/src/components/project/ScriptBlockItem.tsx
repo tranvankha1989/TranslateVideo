@@ -92,7 +92,7 @@ export function ScriptBlockItem({
           : isHighlighted
             ? "border-primary bg-primary/15 shadow-[0_0_25px_rgba(245,158,11,0.25)] ring-2 ring-primary/60 scale-[1.008]"
             : isRendering
-              ? "border-amber-500/40 bg-amber-500/5"
+              ? "border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/30"
               : "border-white/5 bg-surface-dim hover:border-white/15 hover:bg-surface-dim/90"
       }`}
     >
@@ -118,16 +118,17 @@ export function ScriptBlockItem({
           ref={textareaRef}
           value={block.text}
           onChange={handleTextChange}
+          disabled={isRendering}
           placeholder="Nhập nội dung cho phân đoạn câu này..."
           rows={1}
-          className="flex-1 bg-transparent text-sm text-on-surface leading-snug placeholder:text-on-surface-variant/40 focus:outline-none resize-none font-body-md py-0.5"
+          className="flex-1 bg-transparent text-sm text-on-surface leading-snug placeholder:text-on-surface-variant/40 focus:outline-none resize-none font-body-md py-0.5 disabled:opacity-60"
         />
 
         {/* Quick actions (Reorder & Delete) */}
         <div className="flex items-center gap-0.5 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
           <button
             onClick={onMoveUp}
-            disabled={index === 0}
+            disabled={index === 0 || isRendering}
             className="w-6 h-6 rounded hover:bg-white/10 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-15 disabled:cursor-not-allowed"
             title="Di chuyển lên"
           >
@@ -135,7 +136,7 @@ export function ScriptBlockItem({
           </button>
           <button
             onClick={onMoveDown}
-            disabled={index === total - 1}
+            disabled={index === total - 1 || isRendering}
             className="w-6 h-6 rounded hover:bg-white/10 flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-15 disabled:cursor-not-allowed"
             title="Di chuyển xuống"
           >
@@ -143,7 +144,8 @@ export function ScriptBlockItem({
           </button>
           <button
             onClick={onDelete}
-            className="w-6 h-6 rounded hover:bg-rose-500/20 text-on-surface-variant hover:text-rose-400 flex items-center justify-center transition-colors"
+            disabled={isRendering}
+            className="w-6 h-6 rounded hover:bg-rose-500/20 text-on-surface-variant hover:text-rose-400 flex items-center justify-center transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
             title="Xóa phân đoạn này"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -157,9 +159,9 @@ export function ScriptBlockItem({
         <div className="flex flex-wrap items-center gap-2">
           {/* Status Badge */}
           {isRendering ? (
-            <span className="flex items-center gap-1 text-[11px] text-amber-400 font-mono-data animate-pulse">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Đang render
+            <span className="flex items-center gap-1.5 text-[11px] text-amber-400 font-mono-data font-medium bg-amber-400/10 px-2 py-0.5 rounded-md border border-amber-400/20">
+              <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+              Đang render...
             </span>
           ) : isReady ? (
             <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-mono-data">
@@ -301,17 +303,19 @@ export function ScriptBlockItem({
             type="button"
             onClick={onRender}
             disabled={isRendering || !block.text.trim()}
-            className={`px-3 py-1 rounded-lg text-[11px] font-label-caps flex items-center gap-1 transition-all shadow-sm ${
-              isReady
-                ? "bg-surface border border-white/10 text-on-surface-variant hover:text-on-surface hover:border-white/20"
-                : "bg-primary text-black font-semibold hover:shadow-md hover:shadow-primary/20"
-            } disabled:opacity-40 disabled:cursor-not-allowed`}
-            title={isReady ? "Render lại câu này" : "Render câu này"}
+            className={`px-3 py-1 rounded-lg text-[11px] font-label-caps flex items-center gap-1.5 transition-all shadow-sm ${
+              isRendering
+                ? "bg-amber-500/15 border border-amber-500/30 text-amber-300 font-medium cursor-wait"
+                : isReady
+                  ? "bg-surface border border-white/10 text-on-surface-variant hover:text-on-surface hover:border-white/20"
+                  : "bg-primary text-black font-semibold hover:shadow-md hover:shadow-primary/20"
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+            title={isRendering ? "Đang xử lý tạo âm thanh câu này..." : isReady ? "Render lại câu này" : "Render câu này"}
           >
             {isRendering ? (
               <>
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Đang tạo...
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                <span className="text-amber-300 font-semibold">Đang tạo...</span>
               </>
             ) : (
               <>

@@ -19,11 +19,14 @@ function getProjectPaths() {
   } else {
     // Khi đóng gói (Production)
     const possibleRoots = [
-      path.resolve(process.resourcesPath, "../../.."), // Khi test trực tiếp trong frontend/release/win-unpacked
-      path.resolve(process.resourcesPath, ".."),
+      path.resolve(process.resourcesPath, "../../../.."), // Khi chạy trực tiếp trong frontend/release/win-unpacked
+      path.resolve(process.resourcesPath, "../../.."),
+      path.resolve(process.resourcesPath, ".."),          // Khi cài đặt qua Inno Setup ({app})
       path.resolve(process.resourcesPath, "app.asar.unpacked"),
+      path.resolve(app.getAppPath(), "../../../.."),
       path.resolve(app.getAppPath(), ".."),
-      app.getAppPath()
+      app.getAppPath(),
+      process.cwd()
     ];
     for (const p of possibleRoots) {
       if (fs.existsSync(path.join(p, "backend")) || fs.existsSync(path.join(p, "python_runtime"))) {
@@ -274,12 +277,71 @@ async function createMainWindow() {
     }
   } catch (e) {}
 
+  // Lắng nghe sự kiện tải trang thất bại để hiển thị trang lỗi thay vì trắng màn hình
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription) => {
+    if (errorCode === -3) return; // Bỏ qua abort
+    console.error(`[Electron] Lỗi nạp trang (${errorCode}): ${errorDescription}`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Lỗi Kết Nối - VideoTranslate AI</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+            .card { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 16px; padding: 36px; max-width: 520px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+            h2 { color: #f87171; margin-top: 0; font-size: 20px; }
+            p { color: #94a3b8; font-size: 13.5px; line-height: 1.6; }
+            .btn { display: inline-block; margin-top: 18px; padding: 10px 24px; background: #3b82f6; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; font-size: 14px; transition: 0.2s; }
+            .btn:hover { background: #2563eb; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>⚠️ Không thể tải giao diện ứng dụng</h2>
+            <p>Hệ thống Backend AI tại <code>http://127.0.0.1:8000</code> chưa sẵn sàng hoặc gặp lỗi kết nối.<br>Mã lỗi: ${errorDescription} (${errorCode})</p>
+            <button class="btn" onclick="location.reload()">Thử lại (F5)</button>
+          </div>
+        </body>
+        </html>
+      `)}`);
+    }
+  });
+
   const loadOptions = {
     extraHeaders: "pragma: no-cache\ncache-control: no-cache\n"
   };
 
   if (mainWindow) {
-    mainWindow.loadURL("http://127.0.0.1:8000", loadOptions);
+    if (isReady) {
+      mainWindow.loadURL("http://127.0.0.1:8000", loadOptions);
+    } else {
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>VideoTranslate AI - Backend Chưa Sẵn Sàng</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+            .card { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 16px; padding: 36px; max-width: 520px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+            h2 { color: #f87171; margin-top: 0; font-size: 20px; }
+            p { color: #94a3b8; font-size: 13.5px; line-height: 1.6; }
+            .btn { display: inline-block; margin-top: 18px; padding: 10px 24px; background: #3b82f6; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; font-size: 14px; transition: 0.2s; }
+            .btn:hover { background: #2563eb; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>⚠️ Backend AI Chưa Phản Hồi</h2>
+            <p>Hệ thống đã đợi 45 giây nhưng Backend Python chưa hoàn tất khởi động.<br>Vui lòng thử bấm 'Tải lại' hoặc kiểm tra file nhật ký tại <code>logs/app.log</code>.</p>
+            <button class="btn" onclick="location.reload()">Tải lại (F5)</button>
+          </div>
+        </body>
+        </html>
+      `)}`);
+    }
   }
 
   mainWindow.on("closed", () => {

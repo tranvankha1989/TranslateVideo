@@ -16,6 +16,8 @@ from app.core.config import (
     R2_SECRET_ACCESS_KEY,
     R2_BUCKET_NAME,
     R2_PUBLIC_URL,
+    OUTPUTS_DIR,
+    AUDIOS_DIR,
     logger,
 )
 
@@ -123,6 +125,85 @@ def upload_audio_to_r2(
             return url
     except Exception as e:
         logger.error(f"⚠️ Không thể upload file lên Cloudflare R2 ({e}). Tiếp tục dùng URL local.")
+        return None
+
+
+def download_audio_from_r2(
+    filename: str,
+    session_id: Optional[str] = None,
+    target_path: Optional[Path] = None,
+) -> Optional[Path]:
+    """
+    Tải file âm thanh từ Cloudflare R2 bucket về local disk.
+    Kiểm tra lần lượt các candidate keys trên R2:
+    1. outputs/audios/{session_id}/{safe_name} (nếu có session_id)
+    2. outputs/{safe_name}
+    3. Quét tiền tố outputs/audios/ để tìm file trùng tên safe_name
+    Trả về Path của file local tải về thành công, hoặc None nếu không tìm thấy/lỗi.
+    """
+    client = get_r2_client()
+    if client is None:
+        return None
+
+    safe_name = os.path.basename(filename.strip().replace("\\", "/"))
+    if not safe_name:
+        return None
+
+    candidate_keys = []
+    if session_id and session_id.strip():
+        safe_sess = os.path.basename(session_id.strip())
+        candidate_keys.append(f"outputs/audios/{safe_sess}/{safe_name}")
+    candidate_keys.append(f"outputs/{safe_name}")
+
+    found_key = None
+    # 1. Thử kiểm tra trực tiếp các candidate keys
+    for k in candidate_keys:
+        try:
+            client.head_object(Bucket=R2_BUCKET_NAME, Key=k)
+            found_key = k
+            break
+        except Exception:
+            continue
+
+    # 2. Nếu chưa thấy, quét tìm trong outputs/audios/
+    if not found_key:
+        try:
+            paginator = client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix="outputs/audios/"):
+                for obj in page.get("Contents", []):
+                    k = obj.get("Key", "")
+                    if k.endswith(f"/{safe_name}"):
+                        found_key = k
+                        break
+                if found_key:
+                    break
+        except Exception as e:
+            logger.warning(f"Lỗi khi quét R2 tìm file {safe_name}: {e}")
+
+    if not found_key:
+        return None
+
+    # Xác định đường dẫn local đích
+    if target_path is not None:
+        dest = Path(target_path)
+    else:
+        parts = found_key.split("/")
+        if len(parts) >= 4 and parts[1] == "audios":
+            dest_sess = parts[2]
+            dest = AUDIOS_DIR / dest_sess / safe_name
+        elif session_id and session_id.strip():
+            safe_sess = os.path.basename(session_id.strip())
+            dest = AUDIOS_DIR / safe_sess / safe_name
+        else:
+            dest = OUTPUTS_DIR / safe_name
+
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        client.download_file(R2_BUCKET_NAME, found_key, str(dest))
+        logger.info(f"⬇️ [R2 Cloud Sync] Đã tự động tải file từ R2 về local: {found_key} -> {dest}")
+        return dest
+    except Exception as e:
+        logger.error(f"⚠️ Lỗi khi tải file từ R2 ({found_key}): {e}")
         return None
 
 

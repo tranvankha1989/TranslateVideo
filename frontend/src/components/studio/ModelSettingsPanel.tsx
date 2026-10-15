@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { createPortal } from "react-dom";
-import { FolderPlus, Plus, X } from "lucide-react";
+import { FolderPlus, Plus, X, Square } from "lucide-react";
 import { toast } from "sonner";
 import { useTTSStore, type Project } from "../../store/useTTSStore";
 
@@ -18,6 +18,7 @@ interface ModelSettingsPanelProps {
   projects: Project[];
   isLoading: boolean;
   onGenerate: () => void;
+  onStopGenerate?: () => void;
   onSaveConfig: () => void;
   configSaved: boolean;
 }
@@ -36,6 +37,7 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
   projects,
   isLoading,
   onGenerate,
+  onStopGenerate,
   onSaveConfig,
   configSaved,
 }) => {
@@ -246,34 +248,50 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
       </div>
 
       {/* Action Button */}
-      <div className="mt-4 2k:mt-6">
-        <button
-          type="button"
-          id="generate-btn"
-          className={`w-full py-4 2k:py-5 px-6 2k:px-8 font-label-caps text-label-caps 2k:text-base rounded-xl 2k:rounded-2xl flex items-center justify-center gap-2 overflow-hidden relative group transition-all duration-300 shadow-[0_4px_14px_0_rgba(245,158,11,0.2)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.3)] hover:-translate-y-0.5 ${isLoading ? "bg-surface-variant text-on-surface-variant cursor-not-allowed shadow-none hover:translate-y-0" : "bg-primary text-on-primary glow-button"}`}
-          onClick={onGenerate}
-          disabled={isLoading}
-        >
-          <span
-            className={`relative z-10 flex items-center gap-2 text-sm 2k:text-base font-bold ${isLoading ? "hidden" : ""}`}
+      <div className="mt-4 2k:mt-6 flex flex-col gap-2.5">
+        {!isLoading ? (
+          <button
+            type="button"
+            id="generate-btn"
+            className="w-full py-4 2k:py-5 px-6 2k:px-8 font-label-caps text-label-caps 2k:text-base rounded-xl 2k:rounded-2xl flex items-center justify-center gap-2 overflow-hidden relative group transition-all duration-300 shadow-[0_4px_14px_0_rgba(245,158,11,0.2)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.3)] hover:-translate-y-0.5 bg-primary text-on-primary glow-button cursor-pointer"
+            onClick={onGenerate}
           >
-            <span className="material-symbols-outlined 2k:text-2xl">
-              play_arrow
+            <span className="relative z-10 flex items-center gap-2 text-sm 2k:text-base font-bold">
+              <span className="material-symbols-outlined 2k:text-2xl">
+                play_arrow
+              </span>
+              TẠO GIỌNG NÓI
             </span>
-            TẠO GIỌNG NÓI
-          </span>
-          <div
-            className={`relative z-10 flex items-center gap-2 text-sm 2k:text-base ${isLoading ? "" : "hidden"}`}
-          >
-            <span className="material-symbols-outlined animate-spin 2k:text-2xl">
-              sync
-            </span>
-            ĐANG XỬ LÝ...
-          </div>
-          {!isLoading && (
             <div className="absolute inset-0 bg-white/20 transform -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out"></div>
-          )}
-        </button>
+          </button>
+        ) : (
+          <div className="flex flex-col gap-2 animate-in fade-in duration-200">
+            {/* Thanh trạng thái đang xử lý */}
+            <div className="w-full py-3 px-4 rounded-xl bg-surface-dim border border-primary/20 flex items-center justify-between text-xs font-label-caps">
+              <span className="flex items-center gap-2 text-primary font-semibold">
+                <span className="material-symbols-outlined animate-spin text-[18px]">
+                  sync
+                </span>
+                ĐANG XỬ LÝ...
+              </span>
+              <span className="font-mono-data text-on-surface-variant text-[11px]">
+                Vui lòng đợi
+              </span>
+            </div>
+
+            {/* Nút Dừng xử lý nổi bật */}
+            <button
+              type="button"
+              id="stop-generate-btn"
+              onClick={onStopGenerate}
+              className="w-full py-3.5 px-6 font-label-caps text-sm rounded-xl flex items-center justify-center gap-2 transition-all duration-200 bg-rose-500/15 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 hover:border-rose-500 shadow-md hover:shadow-rose-500/25 cursor-pointer font-bold group"
+              title="Dừng xử lý ngay lập tức và khôi phục trạng thái ban đầu"
+            >
+              <Square className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
+              <span>DỪNG XỬ LÝ (HỦY BỎ)</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Modal Tạo dự án mới nhanh */}

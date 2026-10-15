@@ -632,6 +632,15 @@ def _find_audio_file(filename: str, session_id: str | None = None) -> Path | Non
     if matches:
         return max(matches, key=os.path.getmtime)
 
+    # 4. Fallback: Nếu ổ đĩa local không có, tự động kéo file từ Cloudflare R2 về
+    try:
+        from app.core.storage_r2 import download_audio_from_r2
+        r2_file = download_audio_from_r2(safe_name, session_id=session_id)
+        if r2_file and r2_file.exists():
+            return r2_file
+    except Exception as re:
+        logger.warning(f"Lỗi khi tìm/tải file từ R2 ({safe_name}): {re}")
+
     return None
 
 
@@ -786,7 +795,7 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
         if not found_path:
             raise HTTPException(
                 status_code=404,
-                detail=f"Không tìm thấy file audio ở phân đoạn {idx + 1}: {safe_name}",
+                detail=f"Không tìm thấy file audio ở phân đoạn {idx + 1}: {safe_name}. Vui lòng bấm 'Render lại' phân đoạn này trước khi Cập nhật Audio chính.",
             )
 
     try:

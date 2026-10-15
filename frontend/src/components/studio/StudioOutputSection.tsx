@@ -12,7 +12,11 @@ import {
   Music,
 } from "lucide-react";
 import { ScriptBlockItem } from "../project/ScriptBlockItem";
-import { useTTSStore, type ScriptBlock, type Voice } from "../../store/useTTSStore";
+import {
+  useTTSStore,
+  type ScriptBlock,
+  type Voice,
+} from "../../store/useTTSStore";
 import { globalAudio } from "../../utils/audioCoordinator";
 import { toast } from "sonner";
 
@@ -74,16 +78,21 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
   onRedo,
 }) => {
   const masterAudioRef = useRef<HTMLAudioElement | null>(null);
-  const [activePlaybackBlockId, setActivePlaybackBlockId] = useState<string | null>(null);
+  const [activePlaybackBlockId, setActivePlaybackBlockId] = useState<
+    string | null
+  >(null);
   const isMasterPlayingRef = useRef(false);
   const syncStatus = useTTSStore((state) => state.syncStatus);
   const isCloudStorage = syncStatus?.mode === "cloud";
 
   const handleOpenOutputFolder = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/settings/open-output-directory", {
-        method: "POST",
-      });
+      const res = await fetch(
+        "http://localhost:8000/api/settings/open-output-directory",
+        {
+          method: "POST",
+        },
+      );
       if (res.ok) {
         toast.success("Đang mở thư mục lưu trữ trên máy tính...");
       } else {
@@ -233,7 +242,9 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
                 handleTimeUpdate(e.currentTarget.currentTime);
               }}
               onError={() => {
-                console.warn("File âm thanh chính không khả dụng hoặc đã hết hạn.");
+                console.warn(
+                  "File âm thanh chính không khả dụng hoặc đã hết hạn.",
+                );
               }}
             ></audio>
           </div>
@@ -257,9 +268,6 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
                     {studioBlocks.length} câu
                   </span>
                 </div>
-                <p className="text-[11px] text-on-surface-variant/70">
-                  Nghe thấy câu nào chưa vừa ý? Bạn có thể chỉnh sửa và render lại riêng câu đó bên dưới.
-                </p>
               </div>
             </div>
 
@@ -332,7 +340,11 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
                 type="button"
                 onClick={onToggleCollapseSegments}
                 className="p-1.5 rounded-lg hover:bg-white/10 text-on-surface-variant transition-colors"
-                title={isSegmentsCollapsed ? "Mở rộng danh sách" : "Thu gọn danh sách"}
+                title={
+                  isSegmentsCollapsed
+                    ? "Mở rộng danh sách"
+                    : "Thu gọn danh sách"
+                }
               >
                 {isSegmentsCollapsed ? (
                   <ChevronDown className="w-4 h-4" />
@@ -356,9 +368,14 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
                     voices={voices}
                     isPlaying={playingStudioBlockId === block.id}
                     isHighlighted={activePlaybackBlockId === block.id}
-                    onSeekToThisBlock={audioUrl ? () => handleSeekMaster(idx) : undefined}
+                    onSeekToThisBlock={
+                      audioUrl ? () => handleSeekMaster(idx) : undefined
+                    }
                     onPlay={() => {
-                      if (masterAudioRef.current && !masterAudioRef.current.paused) {
+                      if (
+                        masterAudioRef.current &&
+                        !masterAudioRef.current.paused
+                      ) {
                         masterAudioRef.current.pause();
                       }
                       onPlayBlock(block);

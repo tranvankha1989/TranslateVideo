@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { toast } from "sonner";
 
 import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
@@ -37,6 +38,14 @@ export function useStudioGenerate() {
     elapsedTime,
     setElapsedTime,
   } = useTTSStore();
+
+  const initialBlocksRef = useRef<ScriptBlock[]>([]);
+  const initialAudioUrlRef = useRef<string | null>(null);
+  const initialElapsedTimeRef = useRef<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isCancelledRef = useRef<boolean>(false);
+  const activeToastIdRef = useRef<string | number | null>(null);
+  const currentSessionIdRef = useRef<string | null>(null);
 
   const cleanupTimer = () => {
     if (globalStudioTimer) {
@@ -99,10 +108,18 @@ export function useStudioGenerate() {
       return;
     }
 
+    // Lưu snapshot trước khi bắt đầu để có thể khôi phục lại nguyên vẹn nếu bấm Dừng
+    initialBlocksRef.current = [...useTTSStore.getState().studioBlocks];
+    initialAudioUrlRef.current = useTTSStore.getState().audioUrl;
+    initialElapsedTimeRef.current = useTTSStore.getState().elapsedTime;
+    isCancelledRef.current = false;
+    abortControllerRef.current = new AbortController();
+
     setIsLoading(true);
     setAudioUrl(null);
 
     const toastId = toast.loading("Đang khởi tạo mô hình...", { duration: 30000 });
+    activeToastIdRef.current = toastId;
 
     setElapsedTime(0);
     try {
@@ -115,6 +132,7 @@ export function useStudioGenerate() {
 
     const currentSessionId =
       "aud_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 7);
+    currentSessionIdRef.current = currentSessionId;
     try {
       localStorage.setItem("tts_studio_session_id", currentSessionId);
     } catch {}
@@ -128,6 +146,7 @@ export function useStudioGenerate() {
         const response = await fetch(`${API_BASE_URL}/api/tts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: abortControllerRef.current.signal,
           body: JSON.stringify({
             text: sentences[0]?.text || processedText,
             mode,
@@ -145,12 +164,16 @@ export function useStudioGenerate() {
           }),
         });
 
+        if (isCancelledRef.current) return;
+
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.detail || "Lỗi kết nối đến máy chủ API");
         }
 
         const data = await response.json();
+        if (isCancelledRef.current) return;
+
         setAudioUrl(data.audio_url);
         try {
           localStorage.setItem("tts_master_elapsed_time", String(elapsedTime));
@@ -230,11 +253,13 @@ export function useStudioGenerate() {
 
         const processSentenceWorker = async () => {
           while (nextIndex < sentences.length) {
+            if (isCancelledRef.current) break;
             const i = nextIndex++;
             try {
               const res = await fetch(`${API_BASE_URL}/api/tts`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                signal: abortControllerRef.current?.signal,
                 body: JSON.stringify({
                   text: sentences[i].text,
                   mode,
@@ -252,8 +277,11 @@ export function useStudioGenerate() {
                 }),
               });
 
+              if (isCancelledRef.current) break;
+
               if (res.ok) {
                 const bData = await res.json();
+                if (isCancelledRef.current) break;
                 completedBlocks = completedBlocks.map((b, bIdx) =>
                   bIdx === i
                     ? {
@@ -271,10 +299,13 @@ export function useStudioGenerate() {
                 );
               }
             } catch (e: any) {
+              if (isCancelledRef.current || e.name === "AbortError") break;
               completedBlocks = completedBlocks.map((b, bIdx) =>
                 bIdx === i ? { ...b, status: "error" as const, error: e.message } : b,
               );
             }
+
+            if (isCancelledRef.current) break;
 
             finishedCount++;
             setProgress({ current: finishedCount, total: sentences.length });
@@ -290,6 +321,8 @@ export function useStudioGenerate() {
         );
         await Promise.all(workers);
 
+        if (isCancelledRef.current) return;
+
         const readyBlocks = completedBlocks.filter(
           (b) => b.status === "ready" && (b.filename || b.audioUrl),
         );
@@ -298,6 +331,7 @@ export function useStudioGenerate() {
           const stitchRes = await fetch(`${API_BASE_URL}/api/tts/stitch`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: abortControllerRef.current?.signal,
             body: JSON.stringify({
               blocks: readyBlocks.map((b) => ({
                 filename: b.filename || b.audioUrl!.split("/").pop()!,
@@ -313,8 +347,11 @@ export function useStudioGenerate() {
             }),
           });
 
+          if (isCancelledRef.current) return;
+
           if (stitchRes.ok) {
             const stitchData = await stitchRes.json();
+            if (isCancelledRef.current) return;
             setAudioUrl(stitchData.audio_url);
             try {
               localStorage.setItem("tts_master_elapsed_time", String(elapsedTime));
@@ -369,17 +406,73 @@ export function useStudioGenerate() {
         }
       }
     } catch (err: any) {
+      if (isCancelledRef.current || err.name === "AbortError") {
+        return;
+      }
       toast.error(`Tổng hợp thất bại: ${err.message}`, { id: toastId });
     } finally {
       cleanupTimer();
       setIsLoading(false);
+      if (!isCancelledRef.current) {
+        try {
+          localStorage.setItem(
+            "tts_master_elapsed_time",
+            String(useTTSStore.getState().elapsedTime),
+          );
+        } catch {}
+      }
+    }
+  };
+
+  // ── Dừng xử lý và khôi phục trạng thái ban đầu ─────────────────────────────
+  const handleStopGenerate = (
+    saveStudioBlocks?: (blocks: ScriptBlock[]) => void,
+  ) => {
+    isCancelledRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    if (activeToastIdRef.current) {
+      toast.dismiss(activeToastIdRef.current);
+      activeToastIdRef.current = null;
+    }
+
+    cleanupTimer();
+    setIsLoading(false);
+    useTTSStore.getState().setGenerationProgress({ current: 0, total: 0 });
+
+    // Hủy và dọn dẹp thư mục session dở dang trên server
+    const currentSess =
+      currentSessionIdRef.current ||
+      localStorage.getItem("tts_studio_session_id");
+    if (currentSess) {
+      fetch(`${API_BASE_URL}/api/tts/session/${currentSess}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    }
+
+    // Khôi phục hoàn toàn trạng thái ban đầu như lúc chưa bấm gì
+    const prevBlocks = initialBlocksRef.current || [];
+    if (saveStudioBlocks) {
+      saveStudioBlocks(prevBlocks);
+    }
+    useTTSStore.getState().setStudioBlocks(prevBlocks);
+    useTTSStore.getState().setAudioUrl(initialAudioUrlRef.current);
+    useTTSStore.getState().setElapsedTime(initialElapsedTimeRef.current);
+
+    if (initialAudioUrlRef.current) {
       try {
-        localStorage.setItem(
-          "tts_master_elapsed_time",
-          String(useTTSStore.getState().elapsedTime),
-        );
+        localStorage.setItem("tts_master_audio_url", initialAudioUrlRef.current);
+      } catch {}
+    } else {
+      try {
+        localStorage.removeItem("tts_master_audio_url");
       } catch {}
     }
+
+    toast.info("Đã dừng xử lý và khôi phục trạng thái ban đầu!");
   };
 
   return {
@@ -387,6 +480,7 @@ export function useStudioGenerate() {
     generationProgress,
     isLoading,
     handleGenerate,
+    handleStopGenerate,
     cleanupTimer,
   };
 }
