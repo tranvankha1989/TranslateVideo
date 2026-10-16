@@ -176,6 +176,17 @@ def load_model(force_local: bool = False) -> None:
         logger.info("Mô hình OmniVoice đã được tải trước đó, bỏ qua.")
         return
 
+    # ─── Interleaving Security Check (Ràng buộc khoá lõi) ─────────────────────
+    try:
+        from app.core.licensing.verifier import get_public_key_fingerprint
+        fp = get_public_key_fingerprint()
+        if fp != "1e60524a789995c8fd08dba9b32c4fe0dbe827523792ebca2a4d54d95b6f619d":
+            logger.error("🚨 [Interleaving] Tính toàn vẹn của module bản quyền bị xâm phạm!")
+            raise RuntimeError("Chữ ký an ninh hệ thống không khớp. Không thể nạp mô hình AI.")
+    except Exception as e:
+        logger.error(f"❌ Kiểm tra an ninh Interleaving thất bại: {e}")
+        raise
+
     # ─── Chế độ Cloud GPU Worker (Hugging Face / Colab) ───────────────────────────
     if not force_local and is_remote_gpu_enabled() and get_remote_gpu_url():
         target_health = _remote_url("health")

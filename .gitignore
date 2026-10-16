@@ -19,6 +19,10 @@ backend/presets/custom_voices_user.json
 backend/scratch_*.txt
 backend/*.scratch.*
 backend/.license_store.dat
+tools/*.pem
+tools/*.key
+*.pyd
+*.c
 
 # ── Node / Frontend ──────────────────────────────
 frontend/node_modules/

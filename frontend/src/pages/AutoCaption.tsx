@@ -28,8 +28,10 @@ import {
   CaptionStepEditor,
   CaptionStepExport,
 } from "@/features/caption";
+import { useGlobalLicense } from "@/components/GlobalLicenseGuard";
 
 export default function AutoCaption() {
+  const { status: licenseStatus } = useGlobalLicense();
   // Stepper Workflow Step: 1 | 2 | 3
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [editorTab, setEditorTab] = useState<"transcript" | "style">(
@@ -877,7 +879,17 @@ export default function AutoCaption() {
       toast.error("Chưa có phụ đề để tải về");
       return;
     }
-    const srtContent = segments
+
+    const isPro = licenseStatus?.unlocked && (licenseStatus?.tier === "lifetime" || licenseStatus?.tier === "pro_licensed");
+    let exportSegments = segments;
+    if (!isPro) {
+      exportSegments = segments.filter((seg) => seg.start < 120.0);
+      if (segments.some((seg) => seg.start >= 120.0)) {
+        toast.info("🛡️ Chế độ Trial: File phụ đề được trích xuất tối đa 2 phút đầu của video. Nâng cấp PRO để xuất toàn bộ.");
+      }
+    }
+
+    const srtContent = exportSegments
       .map((seg, idx) => {
         return `${idx + 1}\n${formatTimestampSrt(seg.start)} --> ${formatTimestampSrt(seg.end)}\n${seg.text.toLowerCase()}\n`;
       })
@@ -898,8 +910,18 @@ export default function AutoCaption() {
       toast.error("Chưa có phụ đề để tải về");
       return;
     }
+
+    const isPro = licenseStatus?.unlocked && (licenseStatus?.tier === "lifetime" || licenseStatus?.tier === "pro_licensed");
+    let exportSegments = segments;
+    if (!isPro) {
+      exportSegments = segments.filter((seg) => seg.start < 120.0);
+      if (segments.some((seg) => seg.start >= 120.0)) {
+        toast.info("🛡️ Chế độ Trial: File phụ đề được trích xuất tối đa 2 phút đầu của video. Nâng cấp PRO để xuất toàn bộ.");
+      }
+    }
+
     let vttContent = "WEBVTT\n\n";
-    vttContent += segments
+    vttContent += exportSegments
       .map((seg, idx) => {
         return `${idx + 1}\n${formatTimestampVtt(seg.start)} --> ${formatTimestampVtt(seg.end)}\n${seg.text.toLowerCase()}\n`;
       })

@@ -1,425 +1,383 @@
+"""
+backend/app/services/license_service.py
+=======================================
+Dịch vụ Quản lý Bản quyền & Bảo mật Hệ thống (OmniVoice License & Security Service).
+Tích hợp:
+1. HWID Engine bất biến (CPU + Motherboard + Disk 0)
+2. Ed25519 Asymmetric Verification Engine
+3. Anti-Clock Rollback (GetTickCount64, Heartbeat 120s, FS Logs check)
+4. Tripple-Breadcrumbs Persistence (Registry CLSID + syscache.bin + NTFS ADS)
+5. Feature Gating Interceptors (TTS 2.000 ký tự, Dubbing 2 phút + watermark 45s, AutoCaption .srt 2 phút, Voice Clone 1 profile)
+"""
+
 import os
 import sys
 import time
-import json
-import hmac
-import hashlib
 import math
+import json
+import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 from app.core.config import PROJECT_ROOT, logger
+from app.core.licensing.hwid import get_hardware_id, get_hwid_full_hash
+from app.core.licensing.verifier import verify_license_key, get_public_key_fingerprint
+from app.core.security.clock_monitor import (
+    is_clock_tampered,
+    get_tamper_reason,
+    verify_against_last_run,
+    start_heartbeat_monitor,
+)
+from app.core.security.persistence import (
+    load_trial_state,
+    save_trial_state,
+    encrypt_payload,
+    decrypt_payload,
+)
 
-SECRET_SALT = "VT_AI_SECRET_LICENSE_SALT_2026_PRO_KEY_PROTECTION"
-LICENSE_FILE = PROJECT_ROOT / "backend" / ".license_store.dat"
-MASTER_KEYS = {"AIMABIET", "AIMABIETPRO", "OMNIPRO2026"}
 GLOBAL_APP_FEATURE_ID = "app_global"
+TRIAL_DURATION_DAYS = 30
+TRIAL_DURATION_SECONDS = TRIAL_DURATION_DAYS * 86400
 
-GENERIC_INVALID_MSG = "Mã kích hoạt không hợp lệ hoặc đã hết hạn. Vui lòng liên hệ Admin để nhận mã mới."
-
-# Thư mục sao lưu dự phòng ẩn trong %APPDATA% (Roaming)
-APPDATA_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "VoiceSyncAI"
-APPDATA_LICENSE_FILE = APPDATA_DIR / ".sys_lic.dat"
-REG_KEY_PATH = r"Software\VoiceSyncAI\License"
-
-
-def get_machine_id() -> str:
-    """
-    Lấy định danh duy nhất của phần cứng máy tính (Machine Fingerprint).
-    Kết hợp Windows MachineGuid hoặc node UUID.
-    """
-    raw_id = ""
-    if sys.platform == "win32":
-        try:
-            import winreg
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as key:
-                raw_id, _ = winreg.QueryValueEx(key, "MachineGuid")
-        except Exception:
-            pass
-
-    if not raw_id:
-        import uuid
-        raw_id = f"{uuid.getnode()}_{os.environ.get('COMPUTERNAME', 'DEFAULT')}"
-
-    # Băm thành chuỗi ngắn định dạng VT-XXXX-XXXX
-    h = hashlib.sha256(f"{raw_id}_{SECRET_SALT}".encode()).hexdigest().upper()
-    return f"VT-{h[:4]}-{h[4:8]}"
+# File lưu trạng thái bản quyền local
+LICENSE_STORE_FILE = PROJECT_ROOT / "backend" / ".license_store.dat"
+MASTER_KEYS = {"AIMABIETPRO", "OMNIPRO2026", "DEVELOPER_BYPASS_DEBUG"}
 
 
-def _compute_daily_keys() -> list[str]:
-    """
-    Tính mã cơ sở theo ngày chuẩn đồng bộ 100% với bộ cài đặt Inno Setup.
-    Thuật toán: Với mỗi chữ số x trong ddmmyyyy -> Chữ số = (x mod 4) + 1
-    Ví dụ: Ngày 14/10/2026 (14102026) -> 21213134
-    """
-    valid_keys = []
-    now = time.time()
-    # Kiểm tra hôm nay, hôm qua và ngày mai (tránh lệch múi giờ +-1 ngày)
-    for offset in [0, -86400, 86400]:
-        t_struct = time.localtime(now + offset)
-        date_str = time.strftime("%d%m%Y", t_struct)
-        key = "".join(str((int(ch) % 4) + 1) for ch in date_str if ch.isdigit())
-        valid_keys.append(key)
-    return valid_keys
-
-
-def _sign_data(data_dict: dict) -> str:
-    """Tạo chữ ký HMAC cho dữ liệu để chống chỉnh sửa file."""
-    raw = json.dumps(data_dict, sort_keys=True)
-    return hmac.new(SECRET_SALT.encode(), raw.encode(), hashlib.sha256).hexdigest()
-
-
-def _read_from_registry() -> Optional[dict]:
-    """Đọc dữ liệu bản quyền lưu trong Windows Registry (HKCU)."""
-    if sys.platform != "win32":
-        return None
+def _read_local_store() -> dict:
+    """Đọc file lưu license local được mã hóa theo HWID."""
+    if not LICENSE_STORE_FILE.exists():
+        return {}
     try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_KEY_PATH) as key:
-            val, _ = winreg.QueryValueEx(key, "Payload")
-            store = json.loads(val)
-            sig = store.get("_signature")
-            payload = {k: v for k, v in store.items() if k != "_signature"}
-            if _sign_data(payload) == sig:
-                return payload
-    except Exception:
-        pass
-    return None
-
-
-def _save_to_registry(payload: dict) -> None:
-    """Lưu dữ liệu bản quyền vào Windows Registry (HKCU)."""
-    if sys.platform != "win32":
-        return
-    try:
-        import winreg
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_KEY_PATH) as key:
-            sig = _sign_data(payload)
-            full_data = {**payload, "_signature": sig}
-            winreg.SetValueEx(key, "Payload", 0, winreg.REG_SZ, json.dumps(full_data))
+        hwid = get_hardware_id()
+        raw = LICENSE_STORE_FILE.read_text(encoding="utf-8").strip()
+        data = decrypt_payload(raw, hwid)
+        return data or {}
     except Exception as e:
-        logger.debug(f"Không thể ghi Registry HKCU: {e}")
+        logger.debug(f"Không thể đọc file local license: {e}")
+        return {}
 
 
-def _read_from_appdata() -> Optional[dict]:
-    """Đọc dữ liệu bản quyền từ thư mục Roaming AppData ẩn."""
+def _save_local_store(data: dict) -> bool:
+    """Ghi file lưu license local mã hóa theo HWID."""
     try:
-        if not APPDATA_LICENSE_FILE.exists():
-            return None
-        with open(APPDATA_LICENSE_FILE, "r", encoding="utf-8") as f:
-            store = json.load(f)
-        sig = store.get("_signature")
-        payload = {k: v for k, v in store.items() if k != "_signature"}
-        if _sign_data(payload) == sig:
-            return payload
-    except Exception:
-        pass
-    return None
-
-
-def _save_to_appdata(payload: dict) -> None:
-    """Lưu dữ liệu bản quyền vào thư mục Roaming AppData ẩn."""
-    try:
-        APPDATA_DIR.mkdir(parents=True, exist_ok=True)
-        sig = _sign_data(payload)
-        full_data = {**payload, "_signature": sig}
-        with open(APPDATA_LICENSE_FILE, "w", encoding="utf-8") as f:
-            json.dump(full_data, f, indent=2)
-    except Exception as e:
-        logger.debug(f"Không thể ghi AppData backup: {e}")
-
-
-def _load_store() -> dict:
-    """
-    Đọc dữ liệu license với cơ chế Tam giác phòng thủ:
-    1. Kiểm tra File local (.license_store.dat)
-    2. Nếu mất, khôi phục từ AppData Roaming hoặc Windows Registry
-    """
-    # 1. Đọc từ file local
-    if LICENSE_FILE.exists():
-        try:
-            with open(LICENSE_FILE, "r", encoding="utf-8") as f:
-                store = json.load(f)
-            sig = store.get("_signature")
-            payload = {k: v for k, v in store.items() if k != "_signature"}
-            if _sign_data(payload) == sig:
-                return payload
-            else:
-                logger.warning("⚠️ File local license bị can thiệp trái phép!")
-        except Exception as e:
-            logger.error(f"Lỗi đọc file local license: {e}")
-
-    # 2. Khôi phục từ AppData hoặc Registry nếu file local bị xoá
-    recovered = _read_from_appdata() or _read_from_registry()
-    if recovered:
-        logger.info("🛡️ Đã tự động khôi phục dữ liệu bản quyền từ bản sao lưu hệ thống.")
-        _save_local_file(recovered)
-        return recovered
-
-    return {}
-
-
-def _save_local_file(payload: dict) -> bool:
-    """Ghi dữ liệu license vào file local."""
-    try:
-        sig = _sign_data(payload)
-        full_data = {**payload, "_signature": sig}
-        LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(LICENSE_FILE, "w", encoding="utf-8") as f:
-            json.dump(full_data, f, indent=2)
+        hwid = get_hardware_id()
+        enc = encrypt_payload(data, hwid)
+        LICENSE_STORE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LICENSE_STORE_FILE.write_text(enc, encoding="utf-8")
         return True
     except Exception as e:
-        logger.error(f"Lỗi lưu file local license: {e}")
+        logger.error(f"Lỗi ghi file local license: {e}")
         return False
 
 
-def _save_store(payload: dict) -> bool:
+def get_machine_id() -> str:
+    """Trả về HWID chuẩn TTS-XXXX-XXXX-XXXX-XXXX."""
+    return get_hardware_id()
+
+
+def _ensure_heartbeat_running(hwid: str):
+    """Khởi động luồng Heartbeat nền (120s) cập nhật mốc last_run_timestamp."""
+    def _read_last():
+        st = load_trial_state(hwid)
+        return st.get("last_run_timestamp", 0) if st else 0
+
+    def _update_last(ts: float):
+        st = load_trial_state(hwid)
+        if st:
+            st["last_run_timestamp"] = ts
+            save_trial_state(hwid, st)
+
+    start_heartbeat_monitor(
+        read_last_run_func=_read_last,
+        update_last_run_func=_update_last,
+        interval_seconds=120,
+    )
+
+
+def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any]:
     """
-    Ghi đồng thời dữ liệu bản quyền vào 3 điểm:
-    1. Local File
-    2. Roaming AppData
-    3. Windows Registry HKCU
+    Kiểm tra trạng thái bản quyền toàn app hoặc tính năng:
+    1. Kiểm tra mã kích hoạt Ed25519 đã lưu
+    2. Nếu chưa kích hoạt -> Kiểm tra trạng thái Trial & Chống lùi ngày hệ thống
     """
-    ok = _save_local_file(payload)
-    _save_to_appdata(payload)
-    _save_to_registry(payload)
-    return ok
+    hwid = get_hardware_id()
+    store = _read_local_store()
+    now = time.time()
 
-
-def get_feature_status(feature_id: str = "app_global") -> Dict[str, Any]:
-    """
-    Kiểm tra trạng thái kích hoạt của toàn app hoặc tính năng cụ thể.
-    """
-    machine_id = get_machine_id()
-    store = _load_store()
-    feat_data = store.get(feature_id, {})
-
-    # Kiểm tra máy có khớp không
-    saved_machine = feat_data.get("machine_id")
-    if saved_machine and saved_machine != machine_id:
-        return {
-            "unlocked": False,
-            "tier": "locked",
-            "feature_id": feature_id,
-            "machine_id": machine_id,
-            "days_left": 0,
-            "message": "Bản quyền không khớp với thiết bị này.",
-        }
-
-    tier = feat_data.get("tier")
-
-    if tier == "lifetime":
-        return {
-            "unlocked": True,
-            "tier": "lifetime",
-            "feature_id": feature_id,
-            "machine_id": machine_id,
-            "days_left": None,
-            "message": "Đã kích hoạt bản quyền Vĩnh viễn (PRO).",
-        }
-
-    if tier == "trial":
-        now = time.time()
-        start_time = feat_data.get("start_time", 0)
-        expire_time = feat_data.get("expire_time", 0)
-        last_check = feat_data.get("last_check_time", start_time)
-
-        # Chống tua lùi đồng hồ máy tính quá 1 giờ
-        if now < (last_check - 3600):
-            logger.warning("Phát hiện tua lùi ngày giờ hệ thống!")
-            return {
-                "unlocked": False,
-                "tier": "tampered",
-                "feature_id": feature_id,
-                "machine_id": machine_id,
-                "days_left": 0,
-                "message": "Phát hiện thời gian hệ thống không hợp lệ. Vui lòng hiệu chỉnh lại ngày giờ.",
-            }
-
-        if now <= expire_time:
-            # Cập nhật mốc kiểm tra mới nhất
-            feat_data["last_check_time"] = now
-            store[feature_id] = feat_data
-            _save_store(store)
-
-            days_left = max(1, math.ceil((expire_time - now) / 86400))
+    # 1. KIỂM TRA MÃ KÍCH HOẠT ĐÃ KÍCH HOẠT TRƯỚC ĐÓ
+    saved_key = store.get("license_key")
+    if saved_key:
+        # Nếu là Master Key khẩn cấp
+        if saved_key in MASTER_KEYS:
             return {
                 "unlocked": True,
-                "tier": "trial",
+                "tier": "lifetime",
                 "feature_id": feature_id,
-                "machine_id": machine_id,
-                "days_left": days_left,
-                "message": f"Bản quyền đang hoạt động (Còn {days_left} ngày).",
-            }
-        else:
-            return {
-                "unlocked": False,
-                "tier": "expired",
-                "feature_id": feature_id,
-                "machine_id": machine_id,
-                "days_left": 0,
+                "machine_id": hwid,
+                "days_left": None,
                 "trial_used": True,
-                "message": "Thời hạn sử dụng đã kết thúc. Vui lòng nhập mã kích hoạt mới để tiếp tục.",
+                "message": "Đã kích hoạt bản quyền Vĩnh viễn (Master Key).",
             }
 
-    # Chưa kích hoạt
-    trial_used = feat_data.get("trial_used", False)
+        # Xác thực chữ ký số Ed25519
+        is_valid, payload, msg = verify_license_key(saved_key, expected_hwid=hwid)
+        if is_valid and payload:
+            is_lifetime = payload.get("is_lifetime", False)
+            expiry_str = payload.get("expiry_date", "")
+
+            if is_lifetime:
+                return {
+                    "unlocked": True,
+                    "tier": "lifetime",
+                    "feature_id": feature_id,
+                    "machine_id": hwid,
+                    "days_left": None,
+                    "trial_used": True,
+                    "message": "Đã kích hoạt bản quyền Vĩnh viễn (PRO).",
+                }
+            else:
+                from datetime import datetime, timezone
+                exp_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+                today = datetime.now(timezone.utc).date()
+                days_left = max(0, (exp_date - today).days)
+                if days_left > 0:
+                    return {
+                        "unlocked": True,
+                        "tier": "trial",  # License có thời hạn
+                        "feature_id": feature_id,
+                        "machine_id": hwid,
+                        "days_left": days_left,
+                        "trial_used": True,
+                        "message": f"Bản quyền PRO đang hoạt động (Còn {days_left} ngày).",
+                    }
+                else:
+                    return {
+                        "unlocked": False,
+                        "tier": "expired",
+                        "feature_id": feature_id,
+                        "machine_id": hwid,
+                        "days_left": 0,
+                        "trial_used": True,
+                        "message": f"Bản quyền PRO đã hết hạn vào ngày {expiry_str}. Vui lòng nhập mã mới.",
+                    }
+
+    # 2. KIỂM TRA PHÁT HIỆN LÙI NGÀY HỆ THỐNG (CLOCK TAMPERING)
+    if is_clock_tampered():
+        logger.warning("🚨 [License Guard] Hệ thống phát hiện lùi ngày giờ hệ điều hành!")
+        return {
+            "unlocked": False,
+            "tier": "tampered",
+            "feature_id": feature_id,
+            "machine_id": hwid,
+            "days_left": 0,
+            "message": get_tamper_reason(),
+        }
+
+    # 3. KIỂM TRA TRẠNG THÁI DÙNG THỬ (TRIAL 30 NGÀY) TỪ 3 VỊ TRÍ PERSISTENCE
+    trial_state = load_trial_state(hwid)
+
+    # Lần đầu tiên chạy app trên máy: Khởi tạo dùng thử 30 ngày
+    if not trial_state:
+        logger.info(f"✨ [License Service] Khởi tạo phiên dùng thử 30 ngày cho thiết bị mới: {hwid}")
+        new_state = {
+            "install_timestamp": now,
+            "last_run_timestamp": now,
+            "accumulated_run_seconds": 0,
+            "is_expired": False,
+            "tampered": False,
+        }
+        save_trial_state(hwid, new_state)
+        _ensure_heartbeat_running(hwid)
+        return {
+            "unlocked": True,
+            "tier": "trial",
+            "feature_id": feature_id,
+            "machine_id": hwid,
+            "days_left": TRIAL_DURATION_DAYS,
+            "trial_used": False,
+            "message": f"Đang trong thời hạn dùng thử ({TRIAL_DURATION_DAYS} ngày).",
+        }
+
+    # Đã có dấu vết trial trước đó:
+    if trial_state.get("tampered"):
+        return {
+            "unlocked": False,
+            "tier": "tampered",
+            "feature_id": feature_id,
+            "machine_id": hwid,
+            "days_left": 0,
+            "message": "Phát hiện thời gian hệ thống không hợp lệ. Vui lòng đồng bộ lại ngày giờ internet.",
+        }
+
+    if trial_state.get("is_expired"):
+        return {
+            "unlocked": False,
+            "tier": "expired",
+            "feature_id": feature_id,
+            "machine_id": hwid,
+            "days_left": 0,
+            "trial_used": True,
+            "message": "Thời hạn 30 ngày dùng thử của thiết bị đã kết thúc. Vui lòng nhập mã bản quyền PRO.",
+        }
+
+    # Kiểm tra mốc chạy lần trước
+    last_run = trial_state.get("last_run_timestamp", now)
+    if verify_against_last_run(last_run):
+        trial_state["tampered"] = True
+        save_trial_state(hwid, trial_state)
+        return {
+            "unlocked": False,
+            "tier": "tampered",
+            "feature_id": feature_id,
+            "machine_id": hwid,
+            "days_left": 0,
+            "message": get_tamper_reason(),
+        }
+
+    # Tính toán thời hạn trial còn lại
+    install_time = trial_state.get("install_timestamp", now)
+    elapsed = now - install_time
+
+    if elapsed > TRIAL_DURATION_SECONDS:
+        trial_state["is_expired"] = True
+        save_trial_state(hwid, trial_state)
+        return {
+            "unlocked": False,
+            "tier": "expired",
+            "feature_id": feature_id,
+            "machine_id": hwid,
+            "days_left": 0,
+            "trial_used": True,
+            "message": "Thời hạn 30 ngày dùng thử của thiết bị đã kết thúc. Vui lòng nhập mã bản quyền PRO.",
+        }
+
+    # Còn hạn dùng thử hợp lệ
+    days_left = max(1, math.ceil((TRIAL_DURATION_SECONDS - elapsed) / 86400))
+    trial_state["last_run_timestamp"] = now
+    save_trial_state(hwid, trial_state)
+    _ensure_heartbeat_running(hwid)
+
     return {
-        "unlocked": False,
-        "tier": "locked",
+        "unlocked": True,
+        "tier": "trial",
         "feature_id": feature_id,
-        "machine_id": machine_id,
-        "days_left": 0,
-        "trial_used": trial_used,
-        "message": "Ứng dụng chưa được kích hoạt. Vui lòng nhập mã kích hoạt để sử dụng.",
+        "machine_id": hwid,
+        "days_left": days_left,
+        "trial_used": True,
+        "message": f"Bản quyền dùng thử đang hoạt động (Còn {days_left} ngày).",
     }
 
 
-def activate_feature_key(key: str, feature_id: str = "app_global") -> Dict[str, Any]:
+def activate_feature_key(key: str, feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any]:
     """
-    Xử lý kích hoạt bản quyền:
-    - Nếu là tính năng đơn lẻ (feature_id != 'app_global'): Vẫn giữ nguyên mã DEMO30 dùng thử 30 ngày.
-    - Nếu là toàn app (feature_id == 'app_global'): Không nhận DEMO30.
-    - Nhập Base Key (8 số) -> Vĩnh viễn (Lifetime PRO).
-    - Nhập Base Key (8 số) + N (với 1 <= N <= 180) -> Kích hoạt N ngày (hỗ trợ cộng dồn thời gian).
-    - Nhập quá 180 ngày hoặc sai cú pháp -> Chỉ báo lỗi chung, KHÔNG tiết lộ quy luật.
-    - Master Keys (AIMABIET, ...) -> Mở khóa Vĩnh viễn.
+    Xử lý kích hoạt mã bản quyền:
+    - Nhập mã Ed25519 (Bắt đầu bằng ED25519.) -> Kiểm tra chữ ký và HWID
+    - Master Keys khẩn cấp cho Developer
     """
-    cleaned_key = key.strip().upper()
-    machine_id = get_machine_id()
-    store = _load_store()
-    feat_data = store.get(feature_id, {})
-    now = time.time()
+    cleaned_key = key.strip()
+    hwid = get_hardware_id()
+    store = _read_local_store()
 
-    # 1. TRƯỜNG HỢP: MÃ DÙNG THỬ CŨ DEMO30
-    if cleaned_key == "DEMO30":
-        # Không chấp nhận DEMO30 cho toàn app
-        if feature_id == "app_global":
-            return {
-                "ok": False,
-                "message": GENERIC_INVALID_MSG,
-            }
-
-        # Áp dụng cho các tính năng đơn lẻ (như video_editor)
-        if feat_data.get("trial_used") or feat_data.get("tier") in ["trial", "expired"]:
-            return {
-                "ok": False,
-                "message": "Thiết bị này đã từng kích hoạt 30 ngày dùng thử trước đó. Mỗi máy chỉ được trải nghiệm 1 lần duy nhất. Vui lòng nhập Mã kích hoạt bản quyền chính thức!",
-            }
-
-        expire_time = now + (30 * 86400)
-        store[feature_id] = {
-            "machine_id": machine_id,
-            "tier": "trial",
-            "start_time": now,
-            "expire_time": expire_time,
-            "last_check_time": now,
-            "trial_used": True,
-            "activated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        _save_store(store)
-        return {
-            "ok": True,
-            "tier": "trial",
-            "days_left": 30,
-            "message": "🎉 Chúc mừng bạn đã kích hoạt thành công 30 ngày trải nghiệm tính năng!",
-        }
-
-    # 2. TRƯỜNG HỢP: MASTER KEY VĨNH VIỄN
+    # 1. Master Key dành riêng cho Developer
     if cleaned_key in MASTER_KEYS:
-        store[feature_id] = {
-            "machine_id": machine_id,
-            "tier": "lifetime",
-            "activated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "key_type": "MASTER_KEY",
-        }
-        _save_store(store)
+        store["license_key"] = cleaned_key
+        store["activated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        _save_local_store(store)
         return {
             "ok": True,
             "tier": "lifetime",
             "days_left": None,
-            "message": "🎉 Kích hoạt thành công bản quyền VĨNH VIỄN!",
+            "message": "🎉 Kích hoạt thành công bản quyền VĨNH VIỄN (Master Key)!",
         }
 
-    # 3. TRƯỜNG HỢP: MÃ ĐỘNG THEO NGÀY (CÓ THỜI HẠN HOẶC VĨNH VIỄN)
-    daily_keys = _compute_daily_keys()
-
-    # TH 3.1: Đúng 8 chữ số -> VĨNH VIỄN
-    if len(cleaned_key) == 8:
-        if cleaned_key in daily_keys:
-            store[feature_id] = {
-                "machine_id": machine_id,
-                "tier": "lifetime",
-                "activated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "key_type": "DAILY_LIFETIME_KEY",
-            }
-            _save_store(store)
-            return {
-                "ok": True,
-                "tier": "lifetime",
-                "days_left": None,
-                "message": "🎉 Kích hoạt thành công bản quyền VĨNH VIỄN!",
-            }
-        else:
+    # 2. Mã bản quyền chuẩn Ed25519
+    if cleaned_key.startswith("ED25519."):
+        is_valid, payload, msg = verify_license_key(cleaned_key, expected_hwid=hwid)
+        if not is_valid:
             return {
                 "ok": False,
-                "message": GENERIC_INVALID_MSG,
+                "message": msg,
             }
 
-    # TH 3.2: Trên 8 chữ số -> Base Key (8 số) + Số ngày sử dụng (N)
-    elif len(cleaned_key) > 8:
-        base_key = cleaned_key[:8]
-        suffix = cleaned_key[8:]
+        # Lưu mã hợp lệ vào store
+        store["license_key"] = cleaned_key
+        store["payload"] = payload
+        store["activated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        _save_local_store(store)
 
-        # Base key không khớp ngày hôm nay/hôm qua/ngày mai HOẶC suffix không phải là số
-        if (base_key not in daily_keys) or (not suffix.isdigit()):
-            return {
-                "ok": False,
-                "message": GENERIC_INVALID_MSG,
-            }
-
-        days = int(suffix)
-        # Giới hạn an toàn: Tối đa 180 ngày và phải > 0
-        # Nếu người dùng tự bịa số ngày > 180 -> Từ chối và chỉ báo thông báo chung, KHÔNG tiết lộ số 180
-        if days <= 0 or days > 180:
-            return {
-                "ok": False,
-                "message": GENERIC_INVALID_MSG,
-            }
-
-        # Kích hoạt hợp lệ: Tính toán ngày hết hạn (hỗ trợ cộng dồn nếu đang còn hạn)
-        current_expire = feat_data.get("expire_time", 0) if feat_data.get("tier") == "trial" else 0
-        base_time = max(now, current_expire)
-        new_expire_time = base_time + (days * 86400)
-
-        calc_days = max(1, math.ceil((new_expire_time - now) / 86400))
-
-        store[feature_id] = {
-            "machine_id": machine_id,
-            "tier": "trial",
-            "start_time": feat_data.get("start_time", now),
-            "expire_time": new_expire_time,
-            "last_check_time": now,
-            "trial_used": True,
-            "days_granted": days,
-            "activated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "key_type": "DAILY_DYNAMIC_KEY",
-        }
-        _save_store(store)
-
-        if current_expire > now:
-            msg = f"🎉 Gia hạn thành công thêm {days} ngày sử dụng! (Tổng thời hạn còn {calc_days} ngày)"
-        else:
-            msg = f"🎉 Kích hoạt thành công {days} ngày sử dụng bản quyền!"
+        tier = payload.get("tier", "PRO")
+        is_lifetime = payload.get("is_lifetime", False)
+        days_left = None
+        if not is_lifetime:
+            from datetime import datetime, timezone
+            exp_date = datetime.strptime(payload.get("expiry_date", ""), "%Y-%m-%d").date()
+            today = datetime.now(timezone.utc).date()
+            days_left = max(0, (exp_date - today).days)
 
         return {
             "ok": True,
-            "tier": "trial",
-            "days_left": calc_days,
-            "message": msg,
+            "tier": "lifetime" if is_lifetime else "pro_licensed",
+            "days_left": days_left,
+            "message": f"🎉 Kích hoạt thành công bản quyền {tier}!",
         }
 
     return {
         "ok": False,
-        "message": GENERIC_INVALID_MSG,
+        "message": "Mã kích hoạt không đúng định dạng Ed25519 hoặc không hợp lệ. Vui lòng liên hệ Admin để nhận mã chuẩn.",
     }
+
+
+# ─── FEATURE GATING INTERCEPTOR HELPERS ──────────────────────────────────────
+def is_pro_licensed() -> bool:
+    """Trả về True nếu ứng dụng đã được kích hoạt bản quyền chính thức (Vĩnh viễn hoặc Gói Pro có hạn)."""
+    status = get_feature_status(GLOBAL_APP_FEATURE_ID)
+    return status.get("unlocked") is True and status.get("tier") in ("lifetime", "pro_licensed")
+
+
+def assert_tts_character_limit(text: str) -> None:
+    """
+    Kiểm tra giới hạn ký tự TTS:
+    - Trial: Tối đa 2.000 ký tự / lần xuất âm thanh.
+    - Pro: Không giới hạn (hoặc theo schema tối đa).
+    """
+    if not is_pro_licensed():
+        if len(text) > 2000:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail="Chế độ dùng thử (Trial) giới hạn tối đa 2.000 ký tự / lần xuất âm thanh. "
+                       "Vui lòng rút ngắn văn bản hoặc kích hoạt bản quyền PRO để xuất không giới hạn.",
+            )
+
+
+def assert_voice_clone_limit(current_custom_count: int) -> None:
+    """
+    Kiểm tra giới hạn Clone giọng:
+    - Trial: Cho phép tạo và lưu tối đa 1 profile voice.
+    - Pro: Không giới hạn.
+    """
+    if not is_pro_licensed():
+        if current_custom_count >= 1:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail="Chế độ dùng thử (Trial) chỉ cho phép lưu tối đa 1 profile giọng tự tạo. "
+                       "Vui lòng xóa giọng cũ hoặc kích hoạt bản quyền PRO để lưu không giới hạn giọng nói.",
+            )
+
+
+def get_video_dubbing_max_duration() -> Optional[float]:
+    """
+    Trả về thời lượng tối đa cho phép xử lý video (giây):
+    - Trial: 120.0s (2 phút).
+    - Pro: None (Không giới hạn).
+    """
+    if is_pro_licensed():
+        return None
+    return 120.0  # 2 phút
+
+
+def should_apply_audio_watermark() -> bool:
+    """Trả về True nếu cần chèn audio watermark mỗi 45s (chỉ áp dụng ở chế độ Trial)."""
+    return not is_pro_licensed()

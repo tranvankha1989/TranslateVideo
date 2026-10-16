@@ -133,6 +133,12 @@ async def clone_custom_voice(
     Ghép các mẫu âm thanh kèm khoảng lặng phân tách 250ms, chuẩn hóa biên độ
     và trích xuất đặc trưng giọng nói toàn diện cho mô hình OmniVoice.
     """
+    from app.services.license_service import assert_voice_clone_limit
+
+    # Feature Gating: Chế độ Trial chỉ cho phép tạo tối đa 1 profile voice
+    custom_count = len(list(CUSTOM_VOICES_DIR.glob("*.pt"))) if CUSTOM_VOICES_DIR.exists() else 0
+    assert_voice_clone_limit(custom_count)
+
     # Chuẩn hóa danh sách files (hỗ trợ cả 1 file lẻ lẫn danh sách nhiều files)
     file_list: list[UploadFile] = files if isinstance(files, list) else [files]
     if not file_list:

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 export interface LicenseStatus {
   unlocked: boolean;
-  tier: "lifetime" | "trial" | "locked" | "expired" | "tampered";
+  tier: "lifetime" | "pro_licensed" | "trial" | "locked" | "expired" | "tampered";
   feature_id: string;
   machine_id: string;
   days_left?: number | null;
@@ -74,7 +74,7 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!status?.machine_id) return;
     navigator.clipboard.writeText(status.machine_id);
     setCopied(true);
-    toast.success("Đã sao chép Mã máy vào bộ nhớ tạm!");
+    toast.success("Đã sao chép Mã thiết bị (HWID) vào bộ nhớ tạm!");
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -171,11 +171,27 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
 
               <p className="text-sm text-zinc-400 max-w-sm mx-auto leading-relaxed">
                 {isExpired
-                  ? "Bản quyền dùng thử của thiết bị đã hết hạn. Vui lòng nhập mã kích hoạt mới để tiếp tục sử dụng."
+                  ? "Bản quyền dùng thử của thiết bị đã hết hạn. Vui lòng gửi mã máy bên dưới cho Admin để nhận mã bản quyền mới."
                   : isTampered
-                    ? "Hệ thống phát hiện sai lệch ngày giờ hệ điều hành. Vui lòng hiệu chỉnh lại giờ máy tính hoặc nhập mã bản quyền mới."
-                    : "Ứng dụng cần mã kích hoạt để sử dụng. Vui lòng liên hệ Quản trị viên để nhận mã bản quyền."}
+                    ? "Hệ thống phát hiện sai lệch ngày giờ hệ điều hành hoặc can thiệp thời gian. Vui lòng đồng bộ lại ngày giờ internet hoặc kích hoạt bản quyền."
+                    : "Ứng dụng cần mã kích hoạt để sử dụng. Vui lòng sao chép mã thiết bị bên dưới và gửi cho Quản trị viên."}
               </p>
+            </div>
+
+            {/* Khối hiển thị HWID kèm nút Copy */}
+            <div className="bg-surface-variant/30 border border-white/10 rounded-2xl p-3.5 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] text-zinc-400 font-medium">Mã thiết bị phần cứng (HWID):</div>
+                <div className="text-sm font-mono font-bold text-primary tracking-wider">{status?.machine_id}</div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyMachineId}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs text-white font-medium transition-colors cursor-pointer"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copied ? "Đã sao chép" : "Sao chép mã"}</span>
+              </button>
             </div>
 
             {/* Form nhập mã kích hoạt */}
@@ -184,18 +200,15 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
                     <KeyRound className="w-3.5 h-3.5 text-primary" />
-                    Mã kích hoạt bản quyền
+                    Mã kích hoạt bản quyền (Ed25519)
                   </label>
-                  <span className="text-[11px] text-zinc-500 font-mono">
-                    Thiết bị: {status?.machine_id}
-                  </span>
                 </div>
-                <input
-                  type="text"
+                <textarea
+                  rows={3}
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
-                  placeholder="Nhập mã kích hoạt do Admin cấp (Ví dụ: 21213133)..."
-                  className="w-full px-4 py-3 bg-black/40 border border-white/15 focus:border-primary rounded-xl text-white placeholder-zinc-500 text-sm font-mono tracking-wider focus:outline-none transition-colors"
+                  placeholder="Dán chuỗi bản quyền do Admin cấp (Bắt đầu bằng ED25519.)..."
+                  className="w-full px-4 py-3 bg-black/40 border border-white/15 focus:border-primary rounded-xl text-white placeholder-zinc-500 text-xs font-mono tracking-wider focus:outline-none transition-colors resize-none"
                   autoFocus
                 />
               </div>
@@ -213,12 +226,12 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
                 {submitting ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                    <span>Đang kiểm tra mã...</span>
+                    <span>Đang kiểm tra chữ ký số...</span>
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    <span>Kích Hoạt Ngay</span>
+                    <span>Xác Thực & Kích Hoạt</span>
                   </>
                 )}
               </button>
@@ -226,7 +239,7 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
 
             <div className="pt-2 text-center border-t border-white/5">
               <span className="text-[11px] text-zinc-500">
-                OmniVoice Studio &bull; VideoTranslate AI &bull; Bảo mật đa tầng
+                OmniVoice Studio &bull; VideoTranslate AI &bull; Bảo mật Offline Ed25519
               </span>
             </div>
           </div>
@@ -284,13 +297,13 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
             {/* Key Input Form */}
             <form onSubmit={handleActivate} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Nhập mã kích hoạt</label>
-                <input
-                  type="text"
+                <label className="text-xs font-medium text-zinc-300">Nhập mã kích hoạt (Ed25519)</label>
+                <textarea
+                  rows={3}
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
-                  placeholder="Nhập mã do Admin cấp..."
-                  className="w-full px-4 py-2.5 bg-black/40 border border-white/15 focus:border-primary rounded-xl text-white placeholder-zinc-500 text-sm font-mono tracking-wider focus:outline-none"
+                  placeholder="Dán chuỗi bản quyền do Admin cấp..."
+                  className="w-full px-4 py-2.5 bg-black/40 border border-white/15 focus:border-primary rounded-xl text-white placeholder-zinc-500 text-xs font-mono tracking-wider focus:outline-none resize-none"
                   autoFocus
                 />
               </div>
@@ -327,18 +340,21 @@ export const LicenseBadge: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed 
 
   if (!status || !status.unlocked) return null;
 
-  // Bản quyền Vĩnh viễn
-  if (status.tier === "lifetime") {
+  // Bản quyền Vĩnh viễn hoặc Bản quyền PRO có thời hạn
+  if (status.tier === "lifetime" || status.tier === "pro_licensed") {
+    const isLifetime = status.tier === "lifetime";
+    const days = status.days_left;
+
     if (isCollapsed) {
       return (
         <button
           onClick={openModal}
           className="w-11 h-11 mx-auto rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 flex items-center justify-center text-emerald-400 transition-all cursor-pointer group relative"
-          title="Bản quyền Vĩnh viễn (PRO)"
+          title={isLifetime ? "Bản quyền Vĩnh viễn (PRO)" : `Bản quyền PRO (Còn ${days} ngày)`}
         >
           <Crown className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
           <div className="absolute left-full ml-3 px-3 py-1.5 bg-black/95 text-white text-xs font-medium rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 whitespace-nowrap z-50 border border-white/10">
-            Bản quyền Vĩnh viễn (PRO)
+            {isLifetime ? "Bản quyền Vĩnh viễn (PRO)" : `Bản quyền PRO (Còn ${days} ngày)`}
           </div>
         </button>
       );
@@ -355,7 +371,7 @@ export const LicenseBadge: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed 
           <span className="font-semibold text-emerald-200">Bản Quyền PRO</span>
         </div>
         <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
-          Vĩnh viễn
+          {isLifetime ? "Vĩnh viễn" : `Còn ${days} ngày`}
         </span>
       </button>
     );

@@ -43,6 +43,9 @@ from app.services.video_translation.subtitles import (
 from app.services.video_translation.task_manager import VideoTranslationTaskManager
 
 
+from app.services.license_service import get_video_dubbing_max_duration, should_apply_audio_watermark
+from audio_processor import apply_watermark_to_file
+
 class AutomatedPipelineRunner:
     """Điều phối quy trình dịch và lồng tiếng video tự động khép kín."""
 
@@ -85,6 +88,13 @@ class AutomatedPipelineRunner:
         try:
             task_dir = TRANSLATE_OUTPUT_DIR / task_id
             task_dir.mkdir(parents=True, exist_ok=True)
+
+            # Feature Gating: Chế độ Trial giới hạn tối đa 2 phút (120s) đầu của video
+            max_trial_dur = get_video_dubbing_max_duration()
+            if max_trial_dur:
+                if clip_end is None or clip_end > max_trial_dur:
+                    clip_end = max_trial_dur
+                    logger.info(f"🛡️ [Feature Gate] Chế độ Trial tự động giới hạn xử lý tối đa {max_trial_dur}s đầu của video.")
 
             # Cắt đoạn video nếu người dùng chỉ định thời gian bắt đầu / kết thúc
             if (clip_start and clip_start > 0.0) or (clip_end and clip_end > 0.0):
@@ -671,6 +681,10 @@ class AutomatedPipelineRunner:
                 sub_filter = f"subtitles='{srt_escaped}':charenc=UTF-8:force_style='{style_str}'"
                 scale_filter = get_ffmpeg_scale_filter(output_resolution)
                 vf_filter = f"{scale_filter},{sub_filter}" if scale_filter else sub_filter
+
+                # Feature Gating: Chèn audio watermark mỗi 45s nếu đang ở chế độ Trial
+                if should_apply_audio_watermark() and final_audio_path.exists():
+                    apply_watermark_to_file(final_audio_path, interval_sec=45.0)
 
                 ffmpeg_cmd = [
                     "ffmpeg", "-y",

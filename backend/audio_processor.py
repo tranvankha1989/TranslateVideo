@@ -13,6 +13,7 @@ Mô-đun xử lý tín hiệu âm thanh chuyên nghiệp (DSP) cho giọng đọ
 """
 
 import logging
+from pathlib import Path
 import numpy as np
 import scipy.signal as signal
 
@@ -352,6 +353,60 @@ def mix_voice_with_bgm_ducking(
             return False
     except Exception as e:
         logger.error(f"❌ Ngoại lệ khi thực thi Auto-Ducking: {e}")
+        return False
+
+
+def apply_trial_audio_watermark(audio: np.ndarray, sr: int, interval_sec: float = 45.0) -> np.ndarray:
+    """
+    Chèn audio watermark âm thanh nhẹ nhàng (soft chime) mỗi interval_sec (45 giây)
+    khi ứng dụng đang ở chế độ Dùng thử (Trial).
+    """
+    total_duration = len(audio) / sr
+    if total_duration < interval_sec:
+        return audio
+
+    watermarked = audio.copy()
+    chime_duration = 0.5  # 500ms
+    chime_samples = int(sr * chime_duration)
+    t = np.linspace(0, chime_duration, chime_samples, endpoint=False)
+
+    # Chime 2 âm kết hợp (880Hz + 1320Hz) với envelope mượt mà
+    chime = 0.25 * np.sin(2 * np.pi * 880.0 * t) + 0.15 * np.sin(2 * np.pi * 1320.0 * t)
+    window = np.hanning(chime_samples)
+    chime = (chime * window).astype(np.float32)
+
+    current_t = interval_sec
+    while current_t + chime_duration <= total_duration:
+        start_idx = int(current_t * sr)
+        end_idx = start_idx + chime_samples
+        watermarked[start_idx:end_idx] = 0.5 * watermarked[start_idx:end_idx] + chime
+        current_t += interval_sec
+
+    logger.info(f"🛡️ [Audio Watermark] Đã chèn audio watermark vào các mốc 45s cho bản Trial.")
+    return watermarked
+
+
+def apply_watermark_to_file(audio_path: Path, interval_sec: float = 45.0) -> bool:
+    """Đọc file audio, chèn watermark mỗi 45s và ghi đè lại file."""
+    try:
+        import soundfile as sf
+        audio, sr = sf.read(str(audio_path), dtype="float32")
+        total_duration = len(audio) / sr
+        if total_duration < interval_sec:
+            return True
+
+        if audio.ndim == 1:
+            watermarked = apply_trial_audio_watermark(audio, sr, interval_sec)
+        else:
+            # Stereo: Áp dụng watermark cho cả 2 kênh
+            watermarked = audio.copy()
+            for ch in range(audio.shape[1]):
+                watermarked[:, ch] = apply_trial_audio_watermark(audio[:, ch], sr, interval_sec)
+
+        sf.write(str(audio_path), watermarked, sr)
+        return True
+    except Exception as e:
+        logger.warning(f"Không thể chèn audio watermark: {e}")
         return False
 
 

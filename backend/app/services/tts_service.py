@@ -133,7 +133,12 @@ def format_srt_time(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
+from app.services.license_service import assert_tts_character_limit
+
 async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTasks) -> TTSResponse:
+    # Feature Gating: Giới hạn tối đa 2.000 ký tự khi ở chế độ Trial
+    assert_tts_character_limit(request.text)
+
     env_step = int(os.getenv("DEFAULT_NUM_STEP", str(DEFAULT_NUM_STEP)))
     steps = request.inference_timesteps or request.num_step or env_step
 
