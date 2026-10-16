@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
 import { API_BASE_URL } from "../constants/api";
+import { useGlobalLicense } from "@/components/GlobalLicenseGuard";
 
 interface ParsedSentence {
   text: string;
@@ -17,6 +18,7 @@ interface GenerateOptions {
 let globalStudioTimer: NodeJS.Timeout | null = null;
 
 export function useStudioGenerate() {
+  const { status: licenseStatus, openModal } = useGlobalLicense();
   const {
     text,
     mode,
@@ -105,6 +107,17 @@ export function useStudioGenerate() {
   ) => {
     if (!text.trim()) {
       toast.error("Vui lòng nhập văn bản cần đọc");
+      return;
+    }
+
+    // Feature Gating: Kiểm tra giới hạn 2.000 ký tự ở chế độ dùng thử (Trial)
+    const isPro = licenseStatus?.unlocked && (licenseStatus?.tier === "lifetime" || licenseStatus?.tier === "pro_licensed");
+    if (!isPro && text.trim().length > 2000) {
+      toast.error(
+        "Chế độ dùng thử (Trial) giới hạn tối đa 2.000 ký tự / lần xuất âm thanh. Vui lòng rút ngắn văn bản hoặc nâng cấp bản quyền PRO!",
+        { duration: 5000 }
+      );
+      openModal();
       return;
     }
 

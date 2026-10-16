@@ -9,6 +9,7 @@ import CloningVoice from "./pages/CloningVoice";
 import AutoCaption from "./pages/AutoCaption";
 import VideoTranslate from "./pages/VideoTranslate";
 import Settings from "./pages/Settings";
+import AdminLicense from "./pages/AdminLicense";
 
 import { useAutoCloseOnExit } from "./hooks/useAutoCloseOnExit";
 import { GlobalLicenseGuard } from "./components/GlobalLicenseGuard";
@@ -20,6 +21,9 @@ export default function App() {
     <GlobalLicenseGuard>
       <BrowserRouter>
         <Routes>
+          {/* Admin Web Tools (không hiện sidebar) */}
+          <Route path="/admin/license" element={<AdminLicense />} />
+
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Studio />} />
             <Route path="video-translate" element={<VideoTranslate />} />

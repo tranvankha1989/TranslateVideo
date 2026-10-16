@@ -794,6 +794,11 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
     if not request.blocks:
         raise HTTPException(status_code=400, detail="Danh sách phân đoạn rỗng")
 
+    # Feature Gating: Kiểm tra giới hạn 2.000 ký tự ở chế độ dùng thử (Trial)
+    total_text = "".join(b.text or "" for b in request.blocks)
+    if total_text:
+        assert_tts_character_limit(total_text)
+
     for idx, block in enumerate(request.blocks):
         safe_name = os.path.basename(block.filename)
         found_path = _find_audio_file(block.filename, request.session_id)

@@ -4,6 +4,7 @@ import { FileUp, CheckCircle2, UploadCloud, Square } from "lucide-react";
 import { NON_VERBAL_SYMBOLS } from "../../constants/studio";
 import { parseScriptFile } from "../../utils/scriptImporter";
 import type { PauseSettings, PronunciationWord } from "../../store/useTTSStore";
+import { useGlobalLicense } from "@/components/GlobalLicenseGuard";
 
 interface StudioTextInputProps {
   text: string;
@@ -36,6 +37,10 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
   onStopGenerate,
   blocksCount = 0,
 }) => {
+  const { status: licenseStatus } = useGlobalLicense();
+  const isPro = licenseStatus?.unlocked && (licenseStatus?.tier === "lifetime" || licenseStatus?.tier === "pro_licensed");
+  const isOverTrialLimit = !isPro && text.length > 2000;
+
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
@@ -402,10 +407,19 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
           )}
           <span
             className={`font-mono-data text-mono-data text-xs 2k:text-sm ${
-              text.length > 4500 ? "text-error" : "text-on-surface-variant"
+              isOverTrialLimit
+                ? "text-amber-400 font-bold"
+                : text.length > (isPro ? 4500 : 1800)
+                  ? "text-error"
+                  : "text-on-surface-variant"
             }`}
           >
-            {text.length} / 5000 chars
+            {text.length} / {isPro ? "5000" : "2000"} chars
+            {isOverTrialLimit && (
+              <span className="ml-1 text-[10px] text-amber-400/90 font-normal">
+                (Trial tối đa 2.000)
+              </span>
+            )}
           </span>
         </div>
       </div>

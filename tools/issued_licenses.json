@@ -1,0 +1,13 @@
+[
+  {
+    "id": "lic_7ecd3987",
+    "license_key": "ED25519.eyJjbGllbnQiOiJTdHVkaW8gU2FpZ29uIFBybyIsImV4cGlyeV9kYXRlIjoiMjA5OS0xMi0zMSIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLUtILTk5OTktODg4OC03Nzc3IiwiaXNfbGlmZXRpbWUiOnRydWUsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTYgMTY6NTE6NDIgVVRDIiwidGllciI6IlBSTyJ9.D2ER_ctl_THv5qSs1aLrD9XVxtymWw7hdtFoCu5p-1892qkbePG9IvTWkf3mvy7t_APoy6nfPdljIRL3E6F8AQ",
+    "hwid": "TTS-KH-9999-8888-7777",
+    "tier": "PRO",
+    "days": 0,
+    "is_lifetime": true,
+    "expiry_date": "2099-12-31",
+    "client_name": "Studio Saigon Pro",
+    "issued_at": "2026-10-16 16:51:42 UTC"
+  }
+]

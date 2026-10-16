@@ -10,6 +10,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { API_BASE_URL } from "@/constants/api";
 
 interface LicenseStatus {
   unlocked: boolean;
@@ -43,7 +44,7 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
   const fetchStatus = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/license/status?feature_id=${featureId}`);
+      const res = await fetch(`${API_BASE_URL}/api/license/status?feature_id=${featureId}`);
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
@@ -76,7 +77,7 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
 
     try {
       setSubmitting(true);
-      const res = await fetch("/api/license/activate", {
+      const res = await fetch(`${API_BASE_URL}/api/license/activate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

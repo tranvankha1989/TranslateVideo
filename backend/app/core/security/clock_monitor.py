@@ -52,8 +52,6 @@ def check_monotonic_drift() -> bool:
     Trả về True nếu bị can thiệp (Tampered).
     """
     global _IS_TAMPERED, _TAMPER_REASON
-    if _IS_TAMPERED:
-        return True
 
     now_wall = time.time()
     now_tick = get_system_uptime_ms()
@@ -78,8 +76,6 @@ def check_filesystem_timestamps() -> bool:
     Nếu giờ hiện tại nhỏ hơn thời gian sửa đổi của System.evtx quá 300s -> Phát hiện chỉnh lùi giờ trước khi mở máy.
     """
     global _IS_TAMPERED, _TAMPER_REASON
-    if _IS_TAMPERED:
-        return True
 
     now = time.time()
     system_log_candidates = [
@@ -92,8 +88,9 @@ def check_filesystem_timestamps() -> bool:
         if os.path.exists(log_path):
             try:
                 mtime = os.path.getmtime(log_path)
-                # Nếu thời gian hệ thống nhỏ hơn mtime của file nhật ký Windows quá 300 giây (5 phút)
-                if now < (mtime - 300):
+                # Nếu thời gian hệ thống nhỏ hơn mtime của file nhật ký Windows quá 48 giờ (2 ngày)
+                # Ngăn chặn gian lận lùi tháng/năm mà không gây khóa nhầm do lệch múi giờ hoặc chỉnh ngày trong phiên
+                if now < (mtime - 172800):
                     diff_hours = (mtime - now) / 3600.0
                     _IS_TAMPERED = True
                     _TAMPER_REASON = (
@@ -114,8 +111,6 @@ def verify_against_last_run(last_run_timestamp: float) -> bool:
     Nếu now < last_run - 180s -> Đánh dấu gian lận.
     """
     global _IS_TAMPERED, _TAMPER_REASON
-    if _IS_TAMPERED:
-        return True
 
     if last_run_timestamp <= 0:
         return False
@@ -132,13 +127,17 @@ def verify_against_last_run(last_run_timestamp: float) -> bool:
 
 
 def is_clock_tampered() -> bool:
-    """Kiểm tra tổng hợp trạng thái an toàn thời gian."""
-    if _IS_TAMPERED:
-        return True
+    """Kiểm tra tổng hợp trạng thái an toàn thời gian động theo thời gian thực."""
+    global _IS_TAMPERED, _TAMPER_REASON
+
     if check_monotonic_drift():
         return True
     if check_filesystem_timestamps():
         return True
+
+    # Khi không có vi phạm thời gian: tự động giải phóng cờ tampered
+    _IS_TAMPERED = False
+    _TAMPER_REASON = ""
     return False
 
 

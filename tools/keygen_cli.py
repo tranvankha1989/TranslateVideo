@@ -169,6 +169,7 @@ def main():
     parser.add_argument("--tier", type=str, default="PRO", help="Gói bản quyền (PRO, ENTERPRISE, TRIAL)")
     parser.add_argument("--client", type=str, default="", help="Tên hoặc ghi chú khách hàng")
     parser.add_argument("--verify", type=str, help="Kiểm tra tính hợp lệ của một License String")
+    parser.add_argument("--reset-state", action="store_true", help="Reset mốc thời gian last_run và cờ cảnh báo về hiện tại (cho QA test)")
 
     args = parser.parse_args()
 
@@ -219,6 +220,41 @@ def main():
         except Exception as e:
             print(f"\n❌ LICENSE KHÔNG HỢP LỆ: {e}\n")
             sys.exit(1)
+        return
+
+    if args.reset_state:
+        import time
+        # Thêm backend vào sys.path để import modules bảo mật
+        backend_dir = TOOLS_DIR.parent / "backend"
+        if str(backend_dir) not in sys.path:
+            sys.path.insert(0, str(backend_dir))
+        try:
+            from app.services.license_service import _read_local_store, _save_local_store, get_machine_id
+            from app.core.security.persistence import load_trial_state, save_trial_state
+            
+            hwid = get_machine_id()
+            store = _read_local_store()
+            trial = load_trial_state(hwid)
+            now = time.time()
+            
+            if store:
+                store["last_run_timestamp"] = now
+                _save_local_store(store)
+            
+            if trial:
+                trial["tampered"] = False
+                trial["last_run_timestamp"] = now
+                save_trial_state(hwid, trial)
+                
+            print("\n" + "=" * 60)
+            print("✨ ĐÃ RESET TRẠNG THÁI KIỂM TRA THỜI GIAN VỀ HIỆN TẠI")
+            print("=" * 60)
+            print(f"HWID                   : {hwid}")
+            print(f"Mốc thời gian chuẩn hóa: {time.ctime(now)}")
+            print("Cờ tampered            : Đã giải phóng (False)")
+            print("=" * 60 + "\n")
+        except Exception as e:
+            print(f"[LỖI] Không thể reset trạng thái: {e}")
         return
 
     if args.init:

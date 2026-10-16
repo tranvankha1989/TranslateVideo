@@ -238,3 +238,61 @@ def save_trial_state(hwid: str, data: dict) -> bool:
     r2 = _write_to_system_cache(data, hwid)
     r3 = _write_to_ads(data, hwid)
     return r1 or r2 or r3
+
+
+def clear_all_trial_traces() -> list[str]:
+    """
+    Xóa sạch hoàn toàn toàn bộ dấu vết bản quyền ở cả 3 vị trí độc lập:
+    1. Registry CLSID
+    2. File hệ thống ẩn syscache.bin
+    3. Alternate Data Stream NTFS (ADS)
+    Trả về danh sách các mục đã xóa thành công.
+    """
+    cleared = []
+
+    # 1. Xóa Registry
+    if sys.platform == "win32":
+        try:
+            import winreg
+            try:
+                # Xóa value Data trước
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_COM_PATH, 0, winreg.KEY_SET_VALUE) as k:
+                    winreg.DeleteValue(k, REG_COM_VALUE_NAME)
+                cleared.append(f"Registry Value: {REG_COM_PATH}\\{REG_COM_VALUE_NAME}")
+            except Exception:
+                pass
+
+            try:
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, REG_COM_PATH)
+                cleared.append(f"Registry Key: {REG_COM_PATH}")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Lỗi khi xóa Registry: {e}")
+
+    # 2. Xóa các file syscache.bin
+    for p in _get_system_cache_paths():
+        try:
+            if p.exists():
+                p.unlink()
+                cleared.append(f"System File: {p}")
+        except Exception as e:
+            logger.debug(f"Không thể xóa file {p}: {e}")
+
+    # 3. Xóa NTFS ADS stream
+    if sys.platform == "win32":
+        ads_path = _get_ads_path()
+        if ads_path:
+            try:
+                if os.path.exists(str(ads_path)):
+                    # Ghi rỗng hoặc xóa
+                    try:
+                        os.remove(str(ads_path))
+                    except Exception:
+                        with open(str(ads_path), "w", encoding="ascii") as f:
+                            f.write("")
+                    cleared.append(f"NTFS ADS: {ads_path}")
+            except Exception as e:
+                logger.debug(f"Không thể xóa ADS stream: {e}")
+
+    return cleared

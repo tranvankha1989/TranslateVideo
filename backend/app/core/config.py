@@ -160,7 +160,7 @@ LOGS_DIR = PROJECT_ROOT / "logs" if PROJECT_ROOT.exists() else BASE_DIR / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 APP_LOG_FILE = LOGS_DIR / "app.log"
 
-DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "32"))
+DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "32"))  # reload trigger
 
 # Cấu hình Đồng bộ Đa thiết bị (Cloud Storage & Database)
 MONGODB_URI = os.getenv("MONGODB_URI", "").strip()

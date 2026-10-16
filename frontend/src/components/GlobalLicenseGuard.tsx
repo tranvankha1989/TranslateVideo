@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { API_BASE_URL } from "@/constants/api";
 
 export interface LicenseStatus {
   unlocked: boolean;
@@ -47,22 +48,40 @@ export const useGlobalLicense = () => useContext(LicenseContext);
 export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (retryCount = 0) => {
     try {
-      const res = await fetch("/api/license/status?feature_id=app_global");
+      if (retryCount === 0) {
+        setLoading(true);
+        setConnectionError(null);
+      }
+      const res = await fetch(`${API_BASE_URL}/api/license/status?feature_id=app_global`);
       if (res.ok) {
         const data: LicenseStatus = await res.json();
-        setStatus(data);
+        if (data && typeof data.unlocked === "boolean") {
+          setStatus(data);
+          setConnectionError(null);
+          setLoading(false);
+          return;
+        }
       }
-    } catch (err) {
-      console.error("Lỗi kiểm tra bản quyền toàn app:", err);
-    } finally {
-      setLoading(false);
+      throw new Error(`Máy chủ phản hồi mã lỗi HTTP ${res.status}`);
+    } catch (err: any) {
+      console.warn(`Lỗi kiểm tra bản quyền toàn app (lần ${retryCount + 1}/5):`, err?.message || err);
+      // Tự động retry tối đa 4 lần (mỗi lần 1.2s) để chờ FastAPI backend khởi động xong
+      if (retryCount < 4) {
+        setTimeout(() => {
+          fetchStatus(retryCount + 1);
+        }, 1200);
+      } else {
+        setConnectionError("Không thể kết nối đến máy chủ AI (Backend). Vui lòng đảm bảo backend (cửa sổ Terminal) đang chạy ổn định.");
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -88,7 +107,7 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
       setSubmitting(true);
-      const res = await fetch("/api/license/activate", {
+      const res = await fetch(`${API_BASE_URL}/api/license/activate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -102,7 +121,7 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
         toast.success(data.message || "Kích hoạt bản quyền thành công!");
         setKeyInput("");
         setIsModalOpen(false);
-        await fetchStatus();
+        await fetchStatus(0);
       } else {
         toast.error(data.message || "Mã kích hoạt không hợp lệ!");
       }
@@ -116,7 +135,7 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
   const contextValue: LicenseContextValue = {
     status,
     loading,
-    refreshLicense: fetchStatus,
+    refreshLicense: () => fetchStatus(0),
     openModal: () => setIsModalOpen(true),
     closeModal: () => setIsModalOpen(false),
     isModalOpen,
@@ -134,6 +153,42 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({ ch
           Đang xác thực hệ thống bản quyền...
         </p>
       </div>
+    );
+  }
+
+  // TRƯỜNG HỢP LỖI KẾT NỐI BACKEND (Không phải do bị khóa bản quyền)
+  if (!status && connectionError) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-[#070a12]/95 backdrop-blur-xl flex items-center justify-center p-4 select-none">
+        <div className="relative w-full max-w-md bg-[#0d1322] border border-rose-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
+            <AlertTriangle className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold text-white">Chưa Thể Kết Nối Máy Chủ AI</h2>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              {connectionError}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchStatus(0)}
+            className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-primary to-primary-hover text-on-primary font-semibold text-sm shadow-lg hover:shadow-primary/20 active:scale-[0.99] transition cursor-pointer"
+          >
+            Thử Kết Nối Lại
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Cho phép trang Quản trị Admin được truy cập trên Web mà không bị chặn bởi LicenseGuard
+  const isAdminPath = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
+  if (isAdminPath) {
+    return (
+      <LicenseContext.Provider value={contextValue}>
+        {children}
+      </LicenseContext.Provider>
     );
   }
 

@@ -27,6 +27,7 @@ from app.core.security.clock_monitor import (
     get_tamper_reason,
     verify_against_last_run,
     start_heartbeat_monitor,
+    stop_heartbeat_monitor,
 )
 from app.core.security.persistence import (
     load_trial_state,
@@ -103,13 +104,90 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
     """
     hwid = get_hardware_id()
     store = _read_local_store()
+    trial_state = load_trial_state(hwid) or {}
     now = time.time()
 
-    # 1. KIỂM TRA MÃ KÍCH HOẠT ĐÃ KÍCH HOẠT TRƯỚC ĐÓ
     saved_key = store.get("license_key")
+    key_payload = None
+    key_issued_ts = 0
+
+    # Nếu có mã kích hoạt Ed25519 đã lưu, giải mã payload để lấy mốc cấp key (issued_at)
+    if saved_key and saved_key.startswith("ED25519."):
+        is_valid, key_payload, _ = verify_license_key(saved_key, expected_hwid=hwid)
+        if is_valid and key_payload:
+            issued_str = key_payload.get("issued_at", "")
+            if issued_str:
+                try:
+                    from datetime import datetime, timezone
+                    clean_issued = issued_str.replace(" UTC", "").strip()
+                    dt = datetime.strptime(clean_issued, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                    key_issued_ts = dt.timestamp()
+                except Exception:
+                    pass
+
+    # 1. KIỂM TRA PHÁT HIỆN LÙI NGÀY HỆ THỐNG (CLOCK TAMPERING) TOÀN CỤC
+    last_run = max(trial_state.get("last_run_timestamp", 0), store.get("last_run_timestamp", 0))
+
+    # Sanitize: Nếu last_run cách now quá xa về tương lai (>30 ngày),
+    # đó là dấu hiệu last_run bị "ô nhiễm" bởi thời gian ảo (VD: user từng dời ngày sang tương lai rồi quay về).
+    # Tự động reset last_run về hiện tại thay vì block user.
+    MAX_FUTURE_DRIFT_SECONDS = 30 * 86400  # 30 ngày
+    if last_run > 0 and (last_run - now) > MAX_FUTURE_DRIFT_SECONDS:
+        logger.warning(
+            f"⚠️ [License Guard] Phát hiện last_run_timestamp ({last_run:.0f}) cách hiện tại ({now:.0f}) "
+            f"quá {MAX_FUTURE_DRIFT_SECONDS // 86400} ngày về tương lai. Tự động sanitize về hiện tại."
+        )
+        last_run = now
+        # Cập nhật lại last_run đã sanitize vào cả trial_state và store
+        if trial_state:
+            trial_state["last_run_timestamp"] = now
+            save_trial_state(hwid, trial_state)
+        if store:
+            store["last_run_timestamp"] = now
+            _save_local_store(store)
+
+    is_drifted = is_clock_tampered()
+    is_before_key_issue = (key_issued_ts > 0 and (now < key_issued_ts - 180))
+
+    # Kiểm tra lùi ngày so với last_run (mốc chạy hợp lệ gần nhất):
+    is_before_last_run = (last_run > 0 and verify_against_last_run(last_run))
+
+    is_currently_tampered = is_drifted or is_before_last_run or is_before_key_issue
+
+    if is_currently_tampered:
+        tamper_msg = get_tamper_reason()
+        if is_before_last_run and not tamper_msg:
+            from datetime import datetime
+            last_dt = datetime.fromtimestamp(last_run).strftime("%d/%m/%Y %H:%M")
+            tamper_msg = f"Phát hiện đồng hồ hệ thống bị tua ngược so với mốc sử dụng gần nhất ({last_dt})."
+        elif is_before_key_issue and not tamper_msg:
+            tamper_msg = f"Thời gian hệ thống bị chỉnh lùi về trước thời điểm cấp bản quyền ({key_payload.get('issued_at')})."
+        logger.warning(f"🚨 [License Guard] Hệ thống phát hiện lùi ngày giờ hệ điều hành! ({tamper_msg})")
+        if trial_state:
+            trial_state["tampered"] = True
+            save_trial_state(hwid, trial_state)
+        return {
+            "unlocked": False,
+            "tier": "tampered",
+            "feature_id": feature_id,
+            "machine_id": hwid,
+            "days_left": 0,
+            "message": tamper_msg or "Phát hiện thời gian hệ điều hành bị điều chỉnh lùi. Vui lòng đồng bộ lại ngày giờ internet.",
+        }
+
+    # Nếu hiện tại đồng hồ đã chuẩn hóa lại: tự động gỡ bỏ cờ tampered
+    if trial_state.get("tampered"):
+        logger.info("✨ [License Guard] Đồng hồ hệ thống đã được đồng bộ chuẩn lại. Tự động khôi phục bản quyền.")
+        trial_state["tampered"] = False
+        trial_state["last_run_timestamp"] = now
+        save_trial_state(hwid, trial_state)
+
+    # 2. XỬ LÝ NẾU ĐÃ KÍCH HOẠT LICENSE KEY HỢP LỆ
     if saved_key:
-        # Nếu là Master Key khẩn cấp
         if saved_key in MASTER_KEYS:
+            store["last_run_timestamp"] = now
+            _save_local_store(store)
+            _ensure_heartbeat_running(hwid)
             return {
                 "unlocked": True,
                 "tier": "lifetime",
@@ -120,13 +198,14 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
                 "message": "Đã kích hoạt bản quyền Vĩnh viễn (Master Key).",
             }
 
-        # Xác thực chữ ký số Ed25519
-        is_valid, payload, msg = verify_license_key(saved_key, expected_hwid=hwid)
-        if is_valid and payload:
-            is_lifetime = payload.get("is_lifetime", False)
-            expiry_str = payload.get("expiry_date", "")
+        if key_payload:
+            is_lifetime = key_payload.get("is_lifetime", False)
+            expiry_str = key_payload.get("expiry_date", "")
 
             if is_lifetime:
+                store["last_run_timestamp"] = now
+                _save_local_store(store)
+                _ensure_heartbeat_running(hwid)
                 return {
                     "unlocked": True,
                     "tier": "lifetime",
@@ -142,9 +221,13 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
                 today = datetime.now(timezone.utc).date()
                 days_left = max(0, (exp_date - today).days)
                 if days_left > 0:
+                    # Chỉ cập nhật mốc chạy khi bản quyền hợp lệ và còn hạn
+                    store["last_run_timestamp"] = now
+                    _save_local_store(store)
+                    _ensure_heartbeat_running(hwid)
                     return {
                         "unlocked": True,
-                        "tier": "trial",  # License có thời hạn
+                        "tier": "pro_licensed",
                         "feature_id": feature_id,
                         "machine_id": hwid,
                         "days_left": days_left,
@@ -152,6 +235,8 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
                         "message": f"Bản quyền PRO đang hoạt động (Còn {days_left} ngày).",
                     }
                 else:
+                    # Key hết hạn: Dừng heartbeat để ngừng ghi last_run với thời gian có thể sai
+                    stop_heartbeat_monitor()
                     return {
                         "unlocked": False,
                         "tier": "expired",
@@ -162,23 +247,9 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
                         "message": f"Bản quyền PRO đã hết hạn vào ngày {expiry_str}. Vui lòng nhập mã mới.",
                     }
 
-    # 2. KIỂM TRA PHÁT HIỆN LÙI NGÀY HỆ THỐNG (CLOCK TAMPERING)
-    if is_clock_tampered():
-        logger.warning("🚨 [License Guard] Hệ thống phát hiện lùi ngày giờ hệ điều hành!")
-        return {
-            "unlocked": False,
-            "tier": "tampered",
-            "feature_id": feature_id,
-            "machine_id": hwid,
-            "days_left": 0,
-            "message": get_tamper_reason(),
-        }
-
-    # 3. KIỂM TRA TRẠNG THÁI DÙNG THỬ (TRIAL 30 NGÀY) TỪ 3 VỊ TRÍ PERSISTENCE
-    trial_state = load_trial_state(hwid)
-
+    # 3. XỬ LÝ CHẾ ĐỘ DÙNG THỬ (TRIAL 30 NGÀY)
     # Lần đầu tiên chạy app trên máy: Khởi tạo dùng thử 30 ngày
-    if not trial_state:
+    if not trial_state or not trial_state.get("install_timestamp"):
         logger.info(f"✨ [License Service] Khởi tạo phiên dùng thử 30 ngày cho thiết bị mới: {hwid}")
         new_state = {
             "install_timestamp": now,
@@ -188,7 +259,6 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
             "tampered": False,
         }
         save_trial_state(hwid, new_state)
-        _ensure_heartbeat_running(hwid)
         return {
             "unlocked": True,
             "tier": "trial",
@@ -197,17 +267,6 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
             "days_left": TRIAL_DURATION_DAYS,
             "trial_used": False,
             "message": f"Đang trong thời hạn dùng thử ({TRIAL_DURATION_DAYS} ngày).",
-        }
-
-    # Đã có dấu vết trial trước đó:
-    if trial_state.get("tampered"):
-        return {
-            "unlocked": False,
-            "tier": "tampered",
-            "feature_id": feature_id,
-            "machine_id": hwid,
-            "days_left": 0,
-            "message": "Phát hiện thời gian hệ thống không hợp lệ. Vui lòng đồng bộ lại ngày giờ internet.",
         }
 
     if trial_state.get("is_expired"):
@@ -219,20 +278,6 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
             "days_left": 0,
             "trial_used": True,
             "message": "Thời hạn 30 ngày dùng thử của thiết bị đã kết thúc. Vui lòng nhập mã bản quyền PRO.",
-        }
-
-    # Kiểm tra mốc chạy lần trước
-    last_run = trial_state.get("last_run_timestamp", now)
-    if verify_against_last_run(last_run):
-        trial_state["tampered"] = True
-        save_trial_state(hwid, trial_state)
-        return {
-            "unlocked": False,
-            "tier": "tampered",
-            "feature_id": feature_id,
-            "machine_id": hwid,
-            "days_left": 0,
-            "message": get_tamper_reason(),
         }
 
     # Tính toán thời hạn trial còn lại
@@ -256,7 +301,6 @@ def get_feature_status(feature_id: str = GLOBAL_APP_FEATURE_ID) -> Dict[str, Any
     days_left = max(1, math.ceil((TRIAL_DURATION_SECONDS - elapsed) / 86400))
     trial_state["last_run_timestamp"] = now
     save_trial_state(hwid, trial_state)
-    _ensure_heartbeat_running(hwid)
 
     return {
         "unlocked": True,
@@ -281,9 +325,16 @@ def activate_feature_key(key: str, feature_id: str = GLOBAL_APP_FEATURE_ID) -> D
 
     # 1. Master Key dành riêng cho Developer
     if cleaned_key in MASTER_KEYS:
+        now_ts = time.time()
         store["license_key"] = cleaned_key
         store["activated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        store["last_run_timestamp"] = now_ts
         _save_local_store(store)
+        trial_state = load_trial_state(hwid)
+        if trial_state and trial_state.get("tampered"):
+            trial_state["tampered"] = False
+            trial_state["last_run_timestamp"] = now_ts
+            save_trial_state(hwid, trial_state)
         return {
             "ok": True,
             "tier": "lifetime",
@@ -301,10 +352,18 @@ def activate_feature_key(key: str, feature_id: str = GLOBAL_APP_FEATURE_ID) -> D
             }
 
         # Lưu mã hợp lệ vào store
+        now_ts = time.time()
         store["license_key"] = cleaned_key
         store["payload"] = payload
         store["activated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        store["last_run_timestamp"] = now_ts
         _save_local_store(store)
+
+        trial_state = load_trial_state(hwid)
+        if trial_state:
+            trial_state["tampered"] = False
+            trial_state["last_run_timestamp"] = now_ts
+            save_trial_state(hwid, trial_state)
 
         tier = payload.get("tier", "PRO")
         is_lifetime = payload.get("is_lifetime", False)

@@ -98,7 +98,10 @@ app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
 app.mount("/presets", StaticFiles(directory=str(PRESETS_DIR)), name="presets")
 
 # ─── Include API Routers ──────────────────────────────────────────────────────
+from app.routers.admin_license import router as admin_license_router
+
 app.include_router(api_router)
+app.include_router(admin_license_router)
 
 # ─── Frontend SPA Static Files (Hỗ trợ truy cập trực tiếp http://localhost:8000) ─
 from app.core.config import FRONTEND_DIST
@@ -131,5 +134,4 @@ if FRONTEND_DIST and FRONTEND_DIST.exists():
             return FileResponse(index_file)
         raise HTTPException(status_code=404, detail="Not Found")
 
-# Trigger reload for storage and output endpoints
-
+# Trigger reload for admin license endpoints
