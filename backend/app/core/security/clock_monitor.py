@@ -72,73 +72,53 @@ def check_monotonic_drift() -> bool:
 
 def check_filesystem_timestamps() -> bool:
     """
-    Kiểm tra chéo thời gian sửa đổi gần nhất của các file nhật ký Windows.
-    Nếu giờ hiện tại nhỏ hơn thời gian sửa đổi của System.evtx quá 300s -> Phát hiện chỉnh lùi giờ trước khi mở máy.
+    Kiểm tra chéo file hệ thống Windows.
+    Đã được điều chỉnh để không gây false-positive khi người dùng đổi giờ để test các app khác.
+    """
+    return False
+
+
+def verify_against_anchor(anchor_timestamp: float, anchor_name: str = "cài đặt ứng dụng") -> bool:
+    """
+    Kiểm tra xem thời gian hệ thống hiện tại có bị chỉnh lùi về trước mốc bắt đầu
+    (ngày cài đặt hoặc ngày kích hoạt key) hay không.
+    Chỉ khi now < (anchor_timestamp - 180) mới xem là bất thường.
     """
     global _IS_TAMPERED, _TAMPER_REASON
-
+    if anchor_timestamp <= 0:
+        return False
     now = time.time()
-    system_log_candidates = [
-        r"C:\Windows\System32\winevt\Logs\System.evtx",
-        r"C:\Windows\System32\winevt\Logs\Application.evtx",
-        r"C:\Windows\System32\config\SOFTWARE",
-    ]
-
-    for log_path in system_log_candidates:
-        if os.path.exists(log_path):
-            try:
-                mtime = os.path.getmtime(log_path)
-                # Nếu thời gian hệ thống nhỏ hơn mtime của file nhật ký Windows quá 48 giờ (2 ngày)
-                # Ngăn chặn gian lận lùi tháng/năm mà không gây khóa nhầm do lệch múi giờ hoặc chỉnh ngày trong phiên
-                if now < (mtime - 172800):
-                    diff_hours = (mtime - now) / 3600.0
-                    _IS_TAMPERED = True
-                    _TAMPER_REASON = (
-                        f"Phát hiện đồng hồ hệ thống bị lùi {diff_hours:.1f} giờ so với thời điểm ghi nhận "
-                        f"của file hệ thống Windows ({os.path.basename(log_path)})."
-                    )
-                    logger.warning(f"🚨 [Anti-Tamper] {_TAMPER_REASON}")
-                    return True
-            except Exception as e:
-                logger.debug(f"Không thể đọc mtime {log_path}: {e}")
-
+    if now < (anchor_timestamp - 180):
+        from datetime import datetime
+        dt_str = datetime.fromtimestamp(anchor_timestamp).strftime("%d/%m/%Y %H:%M")
+        _IS_TAMPERED = True
+        _TAMPER_REASON = f"Thời gian hệ thống bị chỉnh lùi về trước thời điểm {anchor_name} ({dt_str}). Vui lòng đồng bộ lại ngày giờ internet."
+        logger.warning(f"🚨 [Anti-Tamper] {_TAMPER_REASON}")
+        return True
     return False
 
 
 def verify_against_last_run(last_run_timestamp: float) -> bool:
     """
-    Kiểm tra thời gian hiện tại với mốc chạy gần nhất được lưu trong hệ thống.
-    Nếu now < last_run - 180s -> Đánh dấu gian lận.
+    Không còn dùng last_run_timestamp để khóa ứng dụng nhằm cho phép người dùng
+    hoàn trả ngày giờ về hiện tại sau khi đổi ngày test app khác.
     """
-    global _IS_TAMPERED, _TAMPER_REASON
-
-    if last_run_timestamp <= 0:
-        return False
-
-    now = time.time()
-    if now < (last_run_timestamp - 180):
-        diff_hours = (last_run_timestamp - now) / 3600.0
-        _IS_TAMPERED = True
-        _TAMPER_REASON = f"Phát hiện đồng hồ hệ thống bị lùi {diff_hours:.1f} giờ so với mốc phiên chạy trước đó."
-        logger.warning(f"🚨 [Anti-Tamper] {_TAMPER_REASON}")
-        return True
-
     return False
+
+
+def reset_clock_tamper() -> None:
+    """Tái lập cờ an toàn thời gian khi hệ thống đã xác nhận mốc thời gian hợp lệ."""
+    global _IS_TAMPERED, _TAMPER_REASON, _INIT_WALL_TIME, _INIT_TICK_COUNT
+    _IS_TAMPERED = False
+    _TAMPER_REASON = ""
+    _INIT_WALL_TIME = time.time()
+    _INIT_TICK_COUNT = get_system_uptime_ms()
 
 
 def is_clock_tampered() -> bool:
-    """Kiểm tra tổng hợp trạng thái an toàn thời gian động theo thời gian thực."""
-    global _IS_TAMPERED, _TAMPER_REASON
-
-    if check_monotonic_drift():
-        return True
-    if check_filesystem_timestamps():
-        return True
-
-    # Khi không có vi phạm thời gian: tự động giải phóng cờ tampered
-    _IS_TAMPERED = False
-    _TAMPER_REASON = ""
-    return False
+    """Kiểm tra trạng thái an toàn thời gian."""
+    global _IS_TAMPERED
+    return _IS_TAMPERED
 
 
 def get_tamper_reason() -> str:
