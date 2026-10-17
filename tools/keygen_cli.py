@@ -232,7 +232,9 @@ def main():
         if str(backend_dir) not in sys.path:
             sys.path.insert(0, str(backend_dir))
         try:
+            # pyrefly: ignore[missing-import]
             from app.services.license_service import _read_local_store, _save_local_store, get_machine_id
+            # pyrefly: ignore[missing-import]
             from app.core.security.persistence import load_trial_state, save_trial_state
             
             hwid = get_machine_id()

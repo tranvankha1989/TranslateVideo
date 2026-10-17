@@ -4,14 +4,15 @@ tools/keygen_gui.py
 Ứng dụng Desktop Độc Lập Quản Trị & Cấp Mã Bản Quyền (VideoTranslate AI).
 - Giao diện trực quan (Tkinter Dark Mode hiện đại)
 - Hoạt động 100% độc lập, không cần khởi động backend hay web app
-- Ký số bảo mật Ed25519 với khóa bí mật nội bộ (tools/ed25519_private.pem)
+- Bảo mật thông tin kỹ thuật, không làm lộ cơ chế mã hóa ra giao diện
 - Tự động lưu trữ và quản lý danh sách key (tools/issued_licenses.json)
+- Hỗ trợ: Sắp xếp theo cột, đánh dấu đã gửi khách, tự động dọn dẹp key hết hạn
 """
 
 import os
 import sys
 import json
-import base64
+import uuid
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta, timezone
@@ -29,11 +30,8 @@ try:
         ensure_keypair,
         issue_license,
         verify_license,
-        PRIVATE_KEY_FILE,
-        PUBLIC_KEY_FILE,
         DEFAULT_FEATURES,
     )
-    from cryptography.hazmat.primitives.asymmetric import ed25519
 except ImportError as err:
     messagebox.showerror(
         "Thiếu thư viện",
@@ -64,8 +62,8 @@ class KeygenAdminApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("VideoTranslate AI - KeyGen Admin & License Manager")
-        self.geometry("960 tender" if False else "980x720")
-        self.minsize(860, 640)
+        self.geometry("1060x740")
+        self.minsize(920, 640)
         self.configure(bg=THEME["bg"])
 
         # Thiết lập Icon nếu có
@@ -76,11 +74,15 @@ class KeygenAdminApp(tk.Tk):
             except Exception:
                 pass
 
-        # Đảm bảo khóa Ed25519 đã sẵn sàng
+        # Đảm bảo khóa bảo mật sẵn sàng
         try:
             ensure_keypair()
         except Exception as e:
-            messagebox.showerror("Lỗi Khóa Bảo Mật", f"Không thể tải hoặc tạo cặp khóa Ed25519: {e}")
+            messagebox.showerror("Lỗi Khởi Tạo", f"Không thể tải hoặc tạo cấu hình bảo mật: {e}")
+
+        # Trạng thái sắp xếp cột
+        self.sort_directions = {}
+        self.active_filter = "ALL"
 
         self._init_styles()
         self._build_ui()
@@ -102,7 +104,7 @@ class KeygenAdminApp(tk.Tk):
             background=THEME["card_bg"],
             foreground=THEME["text_muted"],
             font=("Segoe UI", 10, "bold"),
-            padding=[16, 8],
+            padding=[18, 9],
             borderwidth=0,
         )
         style.map(
@@ -118,7 +120,7 @@ class KeygenAdminApp(tk.Tk):
             foreground=THEME["text_main"],
             fieldbackground=THEME["card_bg"],
             font=("Segoe UI", 9),
-            rowheight=30,
+            rowheight=32,
             borderwidth=0,
         )
         style.configure(
@@ -137,28 +139,28 @@ class KeygenAdminApp(tk.Tk):
         )
 
     def _build_ui(self):
-        # Header Banner
-        header = tk.Frame(self, bg=THEME["card_bg"], height=65)
+        # Header Banner (Ẩn hoàn toàn thông tin thuật toán/công nghệ nhạy cảm)
+        header = tk.Frame(self, bg=THEME["card_bg"], height=62)
         header.pack(fill="x", side="top")
         header.pack_propagate(False)
 
         title_lbl = tk.Label(
             header,
-            text="⚡ VideoTranslate AI — Bộ Tạo & Quản Lý Bản Quyền Nội Bộ",
+            text="⚡ VideoTranslate AI — Bộ Quản Trị & Cấp Bản Quyền Nội Bộ",
             font=("Segoe UI", 13, "bold"),
             bg=THEME["card_bg"],
             fg=THEME["text_main"],
         )
-        title_lbl.pack(side="left", padx=20, pady=12)
+        title_lbl.pack(side="left", padx=20, pady=14)
 
         status_lbl = tk.Label(
             header,
-            text="🔒 Thuật toán: Ed25519 Digital Signature (Offline)",
-            font=("Segoe UI", 9),
+            text="🛡️ Chế độ: Quản trị viên (Ngoại tuyến)",
+            font=("Segoe UI", 9, "bold"),
             bg=THEME["card_bg"],
             fg=THEME["accent_green"],
         )
-        status_lbl.pack(side="right", padx=20, pady=12)
+        status_lbl.pack(side="right", padx=20, pady=14)
 
         # Tab Control
         self.notebook = ttk.Notebook(self)
@@ -347,7 +349,7 @@ class KeygenAdminApp(tk.Tk):
         # Mã Key
         tk.Label(
             right_card,
-            text="Chuỗi Mã Kích Hoạt (License Key):",
+            text="Mã Kích Hoạt (License Key):",
             font=("Segoe UI", 9, "bold"),
             bg=THEME["card_bg"],
             fg=THEME["text_main"],
@@ -424,7 +426,7 @@ class KeygenAdminApp(tk.Tk):
             activebackground=THEME["accent_blue"],
             activeforeground="#fff",
             relief="flat",
-            pady=5,
+            pady=6,
             cursor="hand2",
             command=self._copy_message,
         )
@@ -459,6 +461,7 @@ class KeygenAdminApp(tk.Tk):
             tier = "PRO"
             plan_name = "Vĩnh Viễn (Lifetime PRO)"
             expiry_str = "Vĩnh viễn (2099-12-31)"
+            expiry_val = "2099-12-31"
         elif choice == "custom":
             try:
                 days = int(self.custom_days_entry.get().strip())
@@ -471,15 +474,17 @@ class KeygenAdminApp(tk.Tk):
             plan_name = f"{days} Ngày"
             exp_date = datetime.now() + timedelta(days=days)
             expiry_str = exp_date.strftime("%d/%m/%Y")
+            expiry_val = exp_date.strftime("%Y-%m-%d")
         else:
             days = int(choice)
             tier = "TRIAL" if days == 7 else "PRO"
             plan_name = f"{days} Ngày"
             exp_date = datetime.now() + timedelta(days=days)
             expiry_str = exp_date.strftime("%d/%m/%Y")
+            expiry_val = exp_date.strftime("%Y-%m-%d")
 
         try:
-            # Ký số Ed25519
+            # Sinh mã bản quyền
             license_key = issue_license(
                 hwid=hwid,
                 days=days,
@@ -488,8 +493,7 @@ class KeygenAdminApp(tk.Tk):
                 client_name=client,
             )
 
-            # Lưu vào file issued_licenses.json
-            import uuid
+            # Lưu vào file issued_licenses.json (kèm cờ is_sent = False)
             new_record = {
                 "id": f"lic_{uuid.uuid4().hex[:8]}",
                 "license_key": license_key,
@@ -497,9 +501,10 @@ class KeygenAdminApp(tk.Tk):
                 "tier": tier,
                 "days": days,
                 "is_lifetime": (days <= 0),
-                "expiry_date": "2099-12-31" if days <= 0 else (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d"),
+                "expiry_date": expiry_val,
                 "client_name": client,
                 "issued_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "is_sent": False,
             }
 
             records = []
@@ -509,6 +514,7 @@ class KeygenAdminApp(tk.Tk):
                         records = json.load(f)
                 except Exception:
                     records = []
+
             records.append(new_record)
             try:
                 with open(ISSUED_LICENSES_FILE, "w", encoding="utf-8") as f:
@@ -567,16 +573,17 @@ class KeygenAdminApp(tk.Tk):
             messagebox.showinfo("Thành Công", "Đã sao chép toàn bộ tin nhắn gửi khách vào Clipboard!")
 
     # ──────────────────────────────────────────────────────────────────────────
-    # TAB 2: LỊCH SỬ & QUẢN LÝ
+    # TAB 2: LỊCH SỬ & QUẢN LÝ (SẮP XẾP, ĐÁNH DẤU GỬI, TỰ XÓA HẾT HẠN)
     # ──────────────────────────────────────────────────────────────────────────
     def _build_history_tab(self):
         container = tk.Frame(self.tab_history, bg=THEME["bg"])
         container.pack(fill="both", expand=True, padx=16, pady=12)
 
-        # Thanh tìm kiếm & thống kê
+        # Thanh công cụ trên
         toolbar = tk.Frame(container, bg=THEME["card_bg"], padx=12, pady=10)
         toolbar.pack(fill="x", pady=(0, 10))
 
+        # 1. Tìm kiếm
         tk.Label(
             toolbar,
             text="🔍 Tìm kiếm:",
@@ -593,11 +600,48 @@ class KeygenAdminApp(tk.Tk):
             insertbackground="white",
             relief="flat",
             bd=4,
-            width=30,
+            width=24,
         )
         self.search_entry.pack(side="left", padx=8)
-        self.search_entry.bind("<KeyRelease>", self._on_search)
+        self.search_entry.bind("<KeyRelease>", lambda e: self._apply_filter_and_search())
 
+        # 2. Bộ lọc trạng thái
+        tk.Label(
+            toolbar,
+            text="Bộ lọc:",
+            font=("Segoe UI", 9, "bold"),
+            bg=THEME["card_bg"],
+            fg=THEME["text_muted"],
+        ).pack(side="left", padx=(10, 4))
+
+        self.filter_combobox = ttk.Combobox(
+            toolbar,
+            values=["Tất Cả", "Chưa Gửi Khách", "Đã Gửi Khách", "Còn Hạn", "Đã Hết Hạn"],
+            state="readonly",
+            width=15,
+            font=("Segoe UI", 9),
+        )
+        self.filter_combobox.set("Tất Cả")
+        self.filter_combobox.pack(side="left", padx=4)
+        self.filter_combobox.bind("<<ComboboxSelected>>", lambda e: self._apply_filter_and_search())
+
+        # 3. Nút Dọn Dẹp Key Hết Hạn
+        clean_exp_btn = tk.Button(
+            toolbar,
+            text="🧹 Tự Động Xóa Key Hết Hạn",
+            font=("Segoe UI", 9, "bold"),
+            bg="#7f1d1d",
+            fg="#fecaca",
+            activebackground=THEME["accent_red"],
+            activeforeground="#fff",
+            relief="flat",
+            padx=10,
+            cursor="hand2",
+            command=self._clean_expired_licenses,
+        )
+        clean_exp_btn.pack(side="left", padx=10)
+
+        # 4. Nút Làm Mới
         refresh_btn = tk.Button(
             toolbar,
             text="🔄 Làm Mới",
@@ -609,8 +653,9 @@ class KeygenAdminApp(tk.Tk):
             cursor="hand2",
             command=self._load_licenses_data,
         )
-        refresh_btn.pack(side="left", padx=5)
+        refresh_btn.pack(side="left", padx=4)
 
+        # Thống kê bên phải
         self.summary_lbl = tk.Label(
             toolbar,
             text="",
@@ -620,11 +665,11 @@ class KeygenAdminApp(tk.Tk):
         )
         self.summary_lbl.pack(side="right")
 
-        # Bảng dữ liệu Treeview
+        # Bảng dữ liệu Treeview (Có sắp xếp cột bằng cách click Header)
         tree_frame = tk.Frame(container, bg=THEME["card_bg"])
         tree_frame.pack(fill="both", expand=True)
 
-        columns = ("client", "hwid", "plan", "expiry", "issued_at")
+        columns = ("sent_status", "client", "hwid", "plan", "expiry", "time_status", "issued_at")
         self.tree = ttk.Treeview(
             tree_frame,
             columns=columns,
@@ -632,17 +677,24 @@ class KeygenAdminApp(tk.Tk):
             selectmode="browse",
         )
 
-        self.tree.heading("client", text="Khách Hàng")
-        self.tree.heading("hwid", text="Mã Máy (HWID)")
-        self.tree.heading("plan", text="Gói Bản Quyền")
-        self.tree.heading("expiry", text="Ngày Hết Hạn")
-        self.tree.heading("issued_at", text="Thời Gian Cấp")
+        # Cấu hình Header và Gán sự kiện Sort khi click vào cột
+        headers = [
+            ("sent_status", "Gửi Khách", 110, "center"),
+            ("client", "Khách Hàng (Click để xếp)", 170, "w"),
+            ("hwid", "Mã Máy HWID (Click để xếp)", 210, "w"),
+            ("plan", "Gói Bản Quyền", 120, "center"),
+            ("expiry", "Ngày Hết Hạn (Click xếp)", 125, "center"),
+            ("time_status", "Hiệu Lực", 110, "center"),
+            ("issued_at", "Thời Gian Cấp", 160, "center"),
+        ]
 
-        self.tree.column("client", width=160, anchor="w")
-        self.tree.column("hwid", width=220, anchor="w")
-        self.tree.column("plan", width=120, anchor="center")
-        self.tree.column("expiry", width=120, anchor="center")
-        self.tree.column("issued_at", width=160, anchor="center")
+        for col_id, col_text, col_w, col_anchor in headers:
+            self.tree.heading(
+                col_id,
+                text=col_text,
+                command=lambda c=col_id: self._sort_by_column(c),
+            )
+            self.tree.column(col_id, width=col_w, anchor=col_anchor)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -650,9 +702,39 @@ class KeygenAdminApp(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Thanh thao tác dưới bảng
-        action_bar = tk.Frame(container, bg=THEME["bg"], pady=8)
+        # Sự kiện click đúp để Toggle Đã gửi / Chưa gửi
+        self.tree.bind("<Double-1>", lambda e: self._toggle_sent_status())
+
+        # Gợi ý thao tác & Thanh nút bấm dưới bảng
+        hint_bar = tk.Frame(container, bg=THEME["bg"], pady=4)
+        hint_bar.pack(fill="x")
+
+        tk.Label(
+            hint_bar,
+            text="💡 Mẹo: Nhấp vào TIÊU ĐỀ CỘT để sắp xếp (A-Z / Z-A) | NHẤP ĐÚP vào dòng để đổi trạng thái 'Đã gửi' ↔ 'Chưa gửi'",
+            font=("Segoe UI", 8, "italic"),
+            bg=THEME["bg"],
+            fg=THEME["text_muted"],
+        ).pack(side="left")
+
+        action_bar = tk.Frame(container, bg=THEME["bg"], pady=6)
         action_bar.pack(fill="x")
+
+        toggle_sent_btn = tk.Button(
+            action_bar,
+            text="✅/⏳ Đổi Trạng Thái 'Đã Gửi'",
+            font=("Segoe UI", 9, "bold"),
+            bg=THEME["card_border"],
+            fg=THEME["accent_amber"],
+            activebackground=THEME["accent_amber"],
+            activeforeground="#000",
+            relief="flat",
+            padx=12,
+            pady=6,
+            cursor="hand2",
+            command=self._toggle_sent_status,
+        )
+        toggle_sent_btn.pack(side="left", padx=(0, 8))
 
         copy_selected_btn = tk.Button(
             action_bar,
@@ -668,11 +750,11 @@ class KeygenAdminApp(tk.Tk):
             cursor="hand2",
             command=self._copy_selected_license,
         )
-        copy_selected_btn.pack(side="left", padx=(0, 10))
+        copy_selected_btn.pack(side="left", padx=(0, 8))
 
         delete_btn = tk.Button(
             action_bar,
-            text="🗑️ Xóa Bản Ghi",
+            text="🗑️ Xóa Bản Ghi Này",
             font=("Segoe UI", 9),
             bg=THEME["card_border"],
             fg=THEME["accent_red"],
@@ -686,10 +768,20 @@ class KeygenAdminApp(tk.Tk):
         )
         delete_btn.pack(side="left")
 
-    def _load_licenses_data(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+    def _is_expired(self, lic: dict) -> bool:
+        """Kiểm tra xem key đã hết hạn chưa."""
+        if lic.get("is_lifetime"):
+            return False
+        exp_str = lic.get("expiry_date", "")
+        if not exp_str:
+            return False
+        try:
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            return exp_str < today_str
+        except Exception:
+            return False
 
+    def _load_licenses_data(self):
         self.all_licenses = []
         if ISSUED_LICENSES_FILE.exists():
             try:
@@ -700,18 +792,22 @@ class KeygenAdminApp(tk.Tk):
 
         # Thống kê
         total = len(self.all_licenses)
-        lifetime_count = sum(1 for lic in self.all_licenses if lic.get("is_lifetime"))
+        sent_count = sum(1 for lic in self.all_licenses if lic.get("is_sent"))
+        expired_count = sum(1 for lic in self.all_licenses if self._is_expired(lic))
+
         self.summary_lbl.config(
-            text=f"Tổng cộng: {total} key  |  Vĩnh viễn: {lifetime_count}  |  Có thời hạn: {total - lifetime_count}"
+            text=f"Tổng: {total} key  |  Đã gửi: {sent_count}  |  Chưa gửi: {total - sent_count}  |  Hết hạn: {expired_count}"
         )
 
-        self._render_tree(self.all_licenses)
+        self._apply_filter_and_search()
 
     def _render_tree(self, data_list):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        for lic in reversed(data_list):
+        for lic in data_list:
+            is_sent = lic.get("is_sent", False)
+            sent_str = "✅ Đã gửi" if is_sent else "⏳ Chưa gửi"
             client = lic.get("client_name") or "Quý Khách"
             hwid = lic.get("hwid") or ""
             is_life = lic.get("is_lifetime")
@@ -719,29 +815,125 @@ class KeygenAdminApp(tk.Tk):
             plan = "⭐ Vĩnh Viễn" if is_life else f"{days} Ngày ({lic.get('tier', 'PRO')})"
             expiry = lic.get("expiry_date") or ""
             issued_at = lic.get("issued_at") or ""
-            lic_key = lic.get("license_key") or ""
+
+            # Trạng thái hiệu lực
+            if is_life:
+                time_status = "⭐ Vĩnh Viễn"
+            elif self._is_expired(lic):
+                time_status = "⛔ Hết Hạn"
+            else:
+                time_status = "🟢 Còn Hạn"
 
             item_id = self.tree.insert(
                 "",
                 "end",
-                values=(client, hwid, plan, expiry, issued_at),
+                values=(sent_str, client, hwid, plan, expiry, time_status, issued_at),
             )
-            # Lưu trữ license_key và id vào dictionary để lấy lại
-            self.tree.set(item_id, column="client", value=client)
+            # Gắn id bản ghi để tiện tra cứu
+            self.tree.set(item_id, column="hwid", value=hwid)
 
-    def _on_search(self, event=None):
+    def _apply_filter_and_search(self):
         query = self.search_entry.get().strip().lower()
-        if not query:
-            self._render_tree(self.all_licenses)
+        filter_mode = self.filter_combobox.get()
+
+        data = list(self.all_licenses)
+
+        # 1. Lọc theo trạng thái
+        if filter_mode == "Chưa Gửi Khách":
+            data = [lic for lic in data if not lic.get("is_sent")]
+        elif filter_mode == "Đã Gửi Khách":
+            data = [lic for lic in data if lic.get("is_sent")]
+        elif filter_mode == "Còn Hạn":
+            data = [lic for lic in data if not self._is_expired(lic)]
+        elif filter_mode == "Đã Hết Hạn":
+            data = [lic for lic in data if self._is_expired(lic)]
+
+        # 2. Tìm kiếm theo từ khóa
+        if query:
+            data = [
+                lic for lic in data
+                if query in (lic.get("client_name") or "").lower()
+                or query in (lic.get("hwid") or "").lower()
+                or query in (lic.get("expiry_date") or "").lower()
+            ]
+
+        self._render_tree(data)
+
+    def _sort_by_column(self, col):
+        """Sắp xếp dữ liệu theo cột được bấm trên Header (Lần đầu: A-Z, Lần hai: Z-A)."""
+        current_direction = self.sort_directions.get(col, True)
+        reverse = not current_direction
+        self.sort_directions[col] = reverse
+
+        # Key map giữa column name và dict key
+        col_map = {
+            "sent_status": lambda lic: 1 if lic.get("is_sent") else 0,
+            "client": lambda lic: (lic.get("client_name") or "").lower(),
+            "hwid": lambda lic: (lic.get("hwid") or "").lower(),
+            "plan": lambda lic: 999999 if lic.get("is_lifetime") else lic.get("days", 0),
+            "expiry": lambda lic: lic.get("expiry_date") or "",
+            "time_status": lambda lic: 0 if self._is_expired(lic) else 1,
+            "issued_at": lambda lic: lic.get("issued_at") or "",
+        }
+
+        sort_func = col_map.get(col, lambda lic: "")
+        self.all_licenses.sort(key=sort_func, reverse=reverse)
+        self._apply_filter_and_search()
+
+    def _toggle_sent_status(self):
+        """Đổi trạng thái Đã gửi <-> Chưa gửi cho dòng đang chọn."""
+        selected_item = self.tree.selection()
+        if not selected_item:
+            messagebox.showinfo("Chưa Chọn", "Vui lòng chọn một dòng khách hàng trong bảng!")
             return
 
-        filtered = [
-            lic for lic in self.all_licenses
-            if query in (lic.get("client_name") or "").lower()
-            or query in (lic.get("hwid") or "").lower()
-            or query in (lic.get("expiry_date") or "").lower()
-        ]
-        self._render_tree(filtered)
+        item_vals = self.tree.item(selected_item[0], "values")
+        client_name = item_vals[1]
+        hwid = item_vals[2]
+
+        found = False
+        for lic in self.all_licenses:
+            if lic.get("hwid") == hwid and (lic.get("client_name") or "Quý Khách") == client_name:
+                curr_status = lic.get("is_sent", False)
+                lic["is_sent"] = not curr_status
+                found = True
+                break
+
+        if found:
+            try:
+                with open(ISSUED_LICENSES_FILE, "w", encoding="utf-8") as f:
+                    json.dump(self.all_licenses, f, indent=2, ensure_ascii=False)
+                self._load_licenses_data()
+            except Exception as e:
+                messagebox.showerror("Lỗi Lưu", f"Không thể lưu trạng thái: {e}")
+
+    def _clean_expired_licenses(self):
+        """Tự động tìm và xóa tất cả các key đã hết hạn."""
+        expired_list = [lic for lic in self.all_licenses if self._is_expired(lic)]
+        count = len(expired_list)
+
+        if count == 0:
+            messagebox.showinfo("Thông Báo", "Tuyệt vời! Hiện tại không có key nào bị hết hạn trong danh sách.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Xác Nhận Dọn Dẹp",
+            f"Phát hiện {count} mã key đã HẾT HẠN sử dụng.\n\n"
+            f"Bạn có muốn tự động XÓA TOÀN BỘ {count} key hết hạn này để làm sạch danh sách không?",
+        )
+        if not confirm:
+            return
+
+        # Giữ lại các key chưa hết hạn
+        self.all_licenses = [lic for lic in self.all_licenses if not self._is_expired(lic)]
+
+        try:
+            with open(ISSUED_LICENSES_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.all_licenses, f, indent=2, ensure_ascii=False)
+            self._load_licenses_data()
+            messagebox.showinfo("Hoàn Tất", f"Đã xóa thành công {count} key hết hạn khỏi hệ thống!")
+        except Exception as e:
+            messagebox.showerror("Lỗi Lưu File", f"Không thể cập nhật danh sách: {e}")
 
     def _copy_selected_license(self):
         selected_item = self.tree.selection()
@@ -750,10 +942,9 @@ class KeygenAdminApp(tk.Tk):
             return
 
         item_vals = self.tree.item(selected_item[0], "values")
-        client_name = item_vals[0]
-        hwid = item_vals[1]
+        client_name = item_vals[1]
+        hwid = item_vals[2]
 
-        # Tìm trong danh sách
         for lic in self.all_licenses:
             if lic.get("hwid") == hwid and (lic.get("client_name") or "Quý Khách") == client_name:
                 key = lic.get("license_key")
@@ -771,8 +962,8 @@ class KeygenAdminApp(tk.Tk):
             return
 
         item_vals = self.tree.item(selected_item[0], "values")
-        client_name = item_vals[0]
-        hwid = item_vals[1]
+        client_name = item_vals[1]
+        hwid = item_vals[2]
 
         if not messagebox.askyesno("Xác Nhận Xóa", f"Bạn có chắc muốn xóa bản ghi của '{client_name}' ({hwid})?"):
             return

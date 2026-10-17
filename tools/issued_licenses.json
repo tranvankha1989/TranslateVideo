@@ -1,46 +1,23 @@
 [
   {
-    "id": "lic_7ecd3987",
-    "license_key": "ED25519.eyJjbGllbnQiOiJTdHVkaW8gU2FpZ29uIFBybyIsImV4cGlyeV9kYXRlIjoiMjA5OS0xMi0zMSIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLUtILTk5OTktODg4OC03Nzc3IiwiaXNfbGlmZXRpbWUiOnRydWUsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTYgMTY6NTE6NDIgVVRDIiwidGllciI6IlBSTyJ9.D2ER_ctl_THv5qSs1aLrD9XVxtymWw7hdtFoCu5p-1892qkbePG9IvTWkf3mvy7t_APoy6nfPdljIRL3E6F8AQ",
-    "hwid": "TTS-KH-9999-8888-7777",
-    "tier": "PRO",
+    "client_name": "Alice",
+    "hwid": "TTS-1111",
+    "days": 90,
+    "is_lifetime": false,
+    "is_sent": false
+  },
+  {
+    "client_name": "Bob",
+    "hwid": "TTS-2222",
     "days": 0,
     "is_lifetime": true,
-    "expiry_date": "2099-12-31",
-    "client_name": "Studio Saigon Pro",
-    "issued_at": "2026-10-16 16:51:42 UTC"
+    "is_sent": false
   },
   {
-    "id": "lic_710c4a31",
-    "license_key": "ED25519.eyJjbGllbnQiOiJLaFx1MDBlMW5oIFRpXHUwMGVhdSIsImV4cGlyeV9kYXRlIjoiMjAyNi0xMC0yNCIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLUNEQjAtNzFGRS1EMjg0LTQxNzYiLCJpc19saWZldGltZSI6ZmFsc2UsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTcgMDg6MzU6MDQgVVRDIiwidGllciI6IlBSTyJ9.tigJKDaDStBXYZH985dWrZg1dVmnC4jdBpl5k7KlWItpwRG5SxSdlzDQ55Pwh7XILg9vqhRpnuJgaC76xcq8Dw",
-    "hwid": "TTS-CDB0-71FE-D284-4176",
-    "tier": "PRO",
-    "days": 7,
-    "is_lifetime": false,
-    "expiry_date": "2026-10-24",
-    "client_name": "Khánh Tiêu",
-    "issued_at": "2026-10-17 08:35:04 UTC"
-  },
-  {
-    "id": "lic_0898bdbb",
-    "license_key": "ED25519.eyJjbGllbnQiOiJLaFx1MDBlMW5oIFRpXHUwMGVhdSIsImV4cGlyeV9kYXRlIjoiMjAyNi0xMC0yNCIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLUNEQjAtNzFGRS1EMjg0LTQxNzYiLCJpc19saWZldGltZSI6ZmFsc2UsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTcgMTI6Mjc6MDAgVVRDIiwidGllciI6IlBSTyJ9.UuYzjpwVZkn-39UJgQDz5viLvJ3AmKAVDY8kf0kVD6RaBkqje-s9PkVqW85oR75mX7WeTI6E16t6mR0MoJOPAQ",
-    "hwid": "TTS-CDB0-71FE-D284-4176",
-    "tier": "PRO",
-    "days": 7,
-    "is_lifetime": false,
-    "expiry_date": "2026-10-24",
-    "client_name": "Khánh Tiêu",
-    "issued_at": "2026-10-17 12:27:00 UTC"
-  },
-  {
-    "id": "lic_5082a9a6",
-    "license_key": "ED25519.eyJjbGllbnQiOiJLaGEgVGVzdCBBdXRvbWF0aW9uIiwiZXhwaXJ5X2RhdGUiOiIyMDI2LTExLTE2IiwiZmVhdHVyZXMiOlsidHRzX3VubGltaXRlZCIsInZpZGVvX2R1YiIsInZvaWNlX2Nsb25lIiwiYXV0b19jYXB0aW9uIl0sImh3aWQiOiJUVFMtQVVUTy1URVNULUhXSUQtMDAxIiwiaXNfbGlmZXRpbWUiOmZhbHNlLCJpc3N1ZWRfYXQiOiIyMDI2LTEwLTE3IDEyOjM5OjQ1IFVUQyIsInRpZXIiOiJQUk8ifQ.Swn-idLUHXolUSl6_xl6YgykHhLVbetN8r9et3oXfL9ly0WMsRJRdAcvGGzpYtOGZbhd6SsEngL3CZNvjvqjBQ",
-    "hwid": "TTS-AUTO-TEST-HWID-001",
-    "tier": "PRO",
+    "client_name": "Zack",
+    "hwid": "TTS-3333",
     "days": 30,
     "is_lifetime": false,
-    "expiry_date": "2026-11-16",
-    "client_name": "Kha Test Automation",
-    "issued_at": "2026-10-17 12:39:45 UTC"
+    "is_sent": false
   }
 ]
