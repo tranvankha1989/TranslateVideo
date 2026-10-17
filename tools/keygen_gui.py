@@ -62,8 +62,8 @@ class KeygenAdminApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("VideoTranslate AI - KeyGen Admin & License Manager")
-        self.geometry("1060x740")
-        self.minsize(920, 640)
+        self.geometry("1200x850")
+        self.minsize(1080, 780)
         self.configure(bg=THEME["bg"])
 
         # Thiết lập Icon nếu có
@@ -677,21 +677,21 @@ class KeygenAdminApp(tk.Tk):
             selectmode="browse",
         )
 
-        # Cấu hình Header và Gán sự kiện Sort khi click vào cột
-        headers = [
-            ("sent_status", "Gửi Khách", 110, "center"),
-            ("client", "Khách Hàng (Click để xếp)", 170, "w"),
-            ("hwid", "Mã Máy HWID (Click để xếp)", 210, "w"),
-            ("plan", "Gói Bản Quyền", 120, "center"),
-            ("expiry", "Ngày Hết Hạn (Click xếp)", 125, "center"),
-            ("time_status", "Hiệu Lực", 110, "center"),
-            ("issued_at", "Thời Gian Cấp", 160, "center"),
-        ]
+        # Cấu hình Header và Gán sự kiện Sort kèm Icon ↕
+        self.column_headers = {
+            "sent_status": ("Gửi Khách", 110, "center"),
+            "client": ("Khách Hàng", 170, "w"),
+            "hwid": ("Mã Máy (HWID)", 210, "w"),
+            "plan": ("Gói Bản Quyền", 120, "center"),
+            "expiry": ("Ngày Hết Hạn", 125, "center"),
+            "time_status": ("Hiệu Lực", 110, "center"),
+            "issued_at": ("Thời Gian Cấp", 160, "center"),
+        }
 
-        for col_id, col_text, col_w, col_anchor in headers:
+        for col_id, (base_title, col_w, col_anchor) in self.column_headers.items():
             self.tree.heading(
                 col_id,
-                text=col_text,
+                text=f"{base_title} ↕",
                 command=lambda c=col_id: self._sort_by_column(c),
             )
             self.tree.column(col_id, width=col_w, anchor=col_anchor)
@@ -711,7 +711,7 @@ class KeygenAdminApp(tk.Tk):
 
         tk.Label(
             hint_bar,
-            text="💡 Mẹo: Nhấp vào TIÊU ĐỀ CỘT để sắp xếp (A-Z / Z-A) | NHẤP ĐÚP vào dòng để đổi trạng thái 'Đã gửi' ↔ 'Chưa gửi'",
+            text="💡 Mẹo: Nhấp vào TIÊU ĐỀ CỘT (icon ↕) để sắp xếp | NHẤP ĐÚP vào dòng để đổi trạng thái 'Đã gửi' ↔ 'Chưa gửi'",
             font=("Segoe UI", 8, "italic"),
             bg=THEME["bg"],
             fg=THEME["text_muted"],
@@ -860,10 +860,18 @@ class KeygenAdminApp(tk.Tk):
         self._render_tree(data)
 
     def _sort_by_column(self, col):
-        """Sắp xếp dữ liệu theo cột được bấm trên Header (Lần đầu: A-Z, Lần hai: Z-A)."""
+        """Sắp xếp dữ liệu theo cột được bấm trên Header (Lần đầu: A-Z, Lần hai: Z-A) kèm icon."""
         current_direction = self.sort_directions.get(col, True)
         reverse = not current_direction
         self.sort_directions[col] = reverse
+
+        # Cập nhật icon động trên các Header (▲ tăng dần, ▼ giảm dần, ↕ chưa xếp)
+        indicator = " ▼" if reverse else " ▲"
+        for c_id, (base_title, _, _) in self.column_headers.items():
+            if c_id == col:
+                self.tree.heading(c_id, text=f"{base_title}{indicator}")
+            else:
+                self.tree.heading(c_id, text=f"{base_title} ↕")
 
         # Key map giữa column name và dict key
         col_map = {

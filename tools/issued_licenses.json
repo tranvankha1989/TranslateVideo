@@ -1,23 +1,14 @@
 [
   {
-    "client_name": "Alice",
-    "hwid": "TTS-1111",
-    "days": 90,
-    "is_lifetime": false,
-    "is_sent": false
-  },
-  {
-    "client_name": "Bob",
-    "hwid": "TTS-2222",
-    "days": 0,
-    "is_lifetime": true,
-    "is_sent": false
-  },
-  {
-    "client_name": "Zack",
-    "hwid": "TTS-3333",
+    "id": "lic_bf63b8b5",
+    "license_key": "ED25519.eyJjbGllbnQiOiJUZXN0MSIsImV4cGlyeV9kYXRlIjoiMjAyNi0xMS0xNiIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLTI5RjgtQ0MwNi1EMDJDLTZCQzciLCJpc19saWZldGltZSI6ZmFsc2UsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTcgMTM6MDU6NTIgVVRDIiwidGllciI6IlBSTyJ9.irM8FUdjTd79-hvERNAF6o6yJtyb6d8mQBr8bT7EFU9-8OKy7uohI0ZsX_3pAY2n_JARVIII7ca4Qkt7tqRZCg",
+    "hwid": "TTS-29F8-CC06-D02C-6BC7",
+    "tier": "PRO",
     "days": 30,
     "is_lifetime": false,
+    "expiry_date": "2026-11-16",
+    "client_name": "Test1",
+    "issued_at": "2026-10-17 13:05:52 UTC",
     "is_sent": false
   }
 ]
