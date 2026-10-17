@@ -48,12 +48,6 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process -ErrorAction Silen
 :: Cho he thong giai phong hoan toan Socket TCP va Mutex
 timeout /t 1 /nobreak >nul
 
-:: Tu dong tao Shortcut ngoai Desktop neu chua co
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\create_desktop_shortcut.ps1" -Silent >nul 2>&1
-
-:: Kiem tra ket noi GPU Online (Colab/Ngrok/HF) neu co cau hinh
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\check_online_gpu.ps1"
-
 cd /d "%~dp0frontend"
 call pnpm run start:all
 

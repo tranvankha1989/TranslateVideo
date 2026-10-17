@@ -9,5 +9,16 @@
     "expiry_date": "2099-12-31",
     "client_name": "Studio Saigon Pro",
     "issued_at": "2026-10-16 16:51:42 UTC"
+  },
+  {
+    "id": "lic_710c4a31",
+    "license_key": "ED25519.eyJjbGllbnQiOiJLaFx1MDBlMW5oIFRpXHUwMGVhdSIsImV4cGlyeV9kYXRlIjoiMjAyNi0xMC0yNCIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLUNEQjAtNzFGRS1EMjg0LTQxNzYiLCJpc19saWZldGltZSI6ZmFsc2UsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTcgMDg6MzU6MDQgVVRDIiwidGllciI6IlBSTyJ9.tigJKDaDStBXYZH985dWrZg1dVmnC4jdBpl5k7KlWItpwRG5SxSdlzDQ55Pwh7XILg9vqhRpnuJgaC76xcq8Dw",
+    "hwid": "TTS-CDB0-71FE-D284-4176",
+    "tier": "PRO",
+    "days": 7,
+    "is_lifetime": false,
+    "expiry_date": "2026-10-24",
+    "client_name": "Khánh Tiêu",
+    "issued_at": "2026-10-17 08:35:04 UTC"
   }
 ]

@@ -27,6 +27,7 @@ ISSUED_LICENSES_FILE = TOOLS_DIR / "issued_licenses.json"
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
+# pyrefly: ignore[missing-import]
 from keygen_cli import issue_license, verify_license, ensure_keypair
 
 router = APIRouter(prefix="/api/admin/license", tags=["Admin License"])

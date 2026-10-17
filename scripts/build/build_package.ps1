@@ -1,38 +1,35 @@
-# VideoTranslate AI - 1-Click Build and Package Script (PowerShell)
-param(
-    [switch]$SkipFrontendBuild = $false
-)
+# Luon build day du Frontend + Backend + Electron + Inno Setup
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$Root = if ($PSScriptRoot) { (Resolve-Path "$PSScriptRoot\..").Path } else { (Get-Location).Path }
+$Root = if ($PSScriptRoot) { (Resolve-Path "$PSScriptRoot\..\..").Path } else { (Get-Location).Path }
 Set-Location $Root
 
 Write-Host "====================================================================" -ForegroundColor Cyan
-Write-Host "   QUY TRINH DONG GOI UNG DUNG ELECTRON DESKTOP (STANDALONE + KEY)" -ForegroundColor Cyan
+Write-Host "   QUY TRINH DONG GOI UNG DUNG ELECTRON DESKTOP (1-CLICK SETUP)" -ForegroundColor Cyan
 Write-Host "====================================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # 1. Build Frontend & Electron App
-if (-not $SkipFrontendBuild) {
-    Write-Host "[1/5] Dang build Frontend Vite & Electron Desktop App..." -ForegroundColor Yellow
-    Set-Location "$Root\frontend"
-    & pnpm.cmd run build
-    if ($LASTEXITCODE -ne 0) { throw "Build Frontend that bai!" }
+Write-Host "[1/5] Dang don dep va build Frontend Vite & Electron Desktop App..." -ForegroundColor Yellow
+Set-Location "$Root\frontend"
 
-    # Xoa release folder cu neu co
-    if (Test-Path "$Root\frontend\release") {
-        Remove-Item "$Root\frontend\release" -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    
-    & pnpm.cmd run electron:pack
-    if ($LASTEXITCODE -ne 0) { throw "Dong goi Electron that bai!" }
-    Set-Location $Root
-    Write-Host "[OK] Frontend va Electron Native Binaries da san sang!" -ForegroundColor Green
-} else {
-    Write-Host "[1/5] Bo qua buoc build Frontend (theo tham so -SkipFrontendBuild)." -ForegroundColor Yellow
+# Xoa dist va release folder cu de dam bao luon la ban build moi nhat
+if (Test-Path "$Root\frontend\dist") {
+    Remove-Item "$Root\frontend\dist" -Recurse -Force -ErrorAction SilentlyContinue
 }
+if (Test-Path "$Root\frontend\release") {
+    Remove-Item "$Root\frontend\release" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+& pnpm.cmd run build
+if ($LASTEXITCODE -ne 0) { throw "Build Frontend that bai!" }
+
+& pnpm.cmd run electron:pack
+if ($LASTEXITCODE -ne 0) { throw "Dong goi Electron that bai!" }
+Set-Location $Root
+Write-Host "[OK] Frontend va Electron Native Binaries da duoc build moi nhat!" -ForegroundColor Green
 
 # 2. Kiem tra Python Portable Runtime
 Write-Host ""
@@ -40,7 +37,7 @@ Write-Host "[2/5] Kiem tra Python Portable Runtime..." -ForegroundColor Yellow
 $pyExe = "$Root\python_runtime\python.exe"
 if (-not (Test-Path $pyExe)) {
     Write-Host "Dang khoi tao Python Runtime moi..." -ForegroundColor Cyan
-    & powershell -NoProfile -ExecutionPolicy Bypass -File "$Root\scripts\setup_runtime.ps1"
+    & powershell -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\setup_runtime.ps1"
 } else {
     Write-Host "[OK] Python Runtime da san sang ($pyExe)." -ForegroundColor Green
 }
@@ -71,13 +68,14 @@ if (Test-Path "$Root\build_staging") {
 }
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
 
-Get-ChildItem -Path "$Root\backend" -Exclude @('venv', '.git', '.vscode', '__pycache__', 'logs', 'outputs', 'local_models', '.env') | ForEach-Object {
-    Copy-Item -Path $_.FullName -Destination $staging -Recurse -Force
-}
+# Su dung robocopy native sieu toc thay cho Copy-Item
+robocopy "$Root\backend" $staging /E /XD venv .git .vscode __pycache__ logs outputs local_models /XF .env *.pyc /NDL /NFL /NJH /NJS /nc /ns /np | Out-Null
 
 # Bien dich sang .pyc
 if (Test-Path $pyExe) {
     & $pyExe -O -m compileall -b $staging | Out-Null
+} elseif (Test-Path "$Root\backend\venv\Scripts\python.exe") {
+    & "$Root\backend\venv\Scripts\python.exe" -O -m compileall -b $staging | Out-Null
 } else {
     & python -O -m compileall -b $staging | Out-Null
 }
@@ -91,7 +89,7 @@ Write-Host "[OK] Backend da duoc bien dich sang bytecode .pyc (100% chong lo ma 
 
 # 5. Bien dich Inno Setup
 Write-Host ""
-Write-Host "[5/5] Dang bien dich bo cai dat voi Inno Setup 7..." -ForegroundColor Yellow
+Write-Host "[5/5] Dang bien dich bo cai dat voi Inno Setup 7 (Cai dat 1-Click tu do)..." -ForegroundColor Yellow
 
 $isccCandidates = @(
     "C:\Program Files\Inno Setup 7\ISCC.exe",
@@ -118,7 +116,7 @@ if (-not $iscc) {
 }
 
 Write-Host "Su dung Inno Setup: $iscc" -ForegroundColor Cyan
-& "$iscc" "$Root\scripts\installer.iss"
+& "$iscc" "$PSScriptRoot\installer.iss"
 
 if ($LASTEXITCODE -ne 0) {
     throw "Bien dich Inno Setup that bai!"
@@ -143,8 +141,7 @@ Write-Host "====================================================================
 Write-Host "[HOAN TAT XUAT SAC] Bo cai dat da san sang tai:" -ForegroundColor Green
 Write-Host "$Root\installer_output\VideoTranslateAI_v$($vName)_Setup.exe" -ForegroundColor White
 Write-Host ""
-Write-Host "- CHONG DICH NGUOC: 100% backend da duoc bien dich sang bytecode .pyc" -ForegroundColor Cyan
-Write-Host "- UPDATE HYBRID: Ho tro cap nhat OTA truc tiep tu GitHub ZIP" -ForegroundColor Cyan
-Write-Host "- KEY DONG THEO NGAY: Tu dong doi ma moi ngay" -ForegroundColor Cyan
-Write-Host "- MASTER KEY: Aimabiet" -ForegroundColor Cyan
+Write-Host "- CAI DAT 1-CLICK: Cai dat nhanh chong khong can nhap key." -ForegroundColor Cyan
+Write-Host "- TRIAL 7 NGAY: Tu dong kich hoat va khoa may bang HWID chong cai lai." -ForegroundColor Cyan
+Write-Host "- CHONG DICH NGUOC: 100% backend da duoc bien dich sang bytecode .pyc." -ForegroundColor Cyan
 Write-Host "====================================================================" -ForegroundColor Green

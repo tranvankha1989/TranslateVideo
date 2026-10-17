@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$Root = if ($PSScriptRoot) { (Resolve-Path "$PSScriptRoot\..").Path } else { (Get-Location).Path }
+$Root = if ($PSScriptRoot) { (Resolve-Path "$PSScriptRoot\..\..").Path } else { (Get-Location).Path }
 Set-Location $Root
 
 Write-Host "====================================================================" -ForegroundColor Cyan

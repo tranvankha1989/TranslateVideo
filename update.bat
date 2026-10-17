@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
-title CẬP NHẬT PHẦN MỀM VIDEOSYNC AI - PRO AUTO UPDATE
+title CẬP NHẬT PHẦN MỀM VIDEOTRANSLATE AI - AUTO UPDATE
 echo ===================================================================
-echo     🚀 TIẾN HÀNH CẬP NHẬT PHIÊN BẢN MỚI CHO VIDEOSYNC AI...
+echo     🚀 TIẾN HÀNH CẬP NHẬT PHIÊN BẢN MỚI CHO VIDEOTRANSLATE AI...
 echo ===================================================================
 echo.
 
@@ -43,18 +43,12 @@ if exist "frontend\package.json" (
     cd frontend
     where pnpm >nul 2>&1
     if %ERRORLEVEL% EQU 0 (
-        call pnpm install --silent
+        call pnpm install
         call pnpm run build
     ) else (
-        call npm install --silent
-        call npm run build
+        echo [CẢNH BÁO] Chưa cài đặt pnpm! Vui lòng cài đặt: npm install -g pnpm
     )
     cd ..
-    if exist "frontend\dist" (
-        if not exist "dist" mkdir "dist"
-        xcopy /E /I /Y "frontend\dist\*" "dist\" >nul 2>&1
-        echo [INFO] Đã đồng bộ giao diện bundle mới sang thư mục dist.
-    )
 )
 echo.
 

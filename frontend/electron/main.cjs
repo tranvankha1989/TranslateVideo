@@ -36,10 +36,10 @@ function getProjectPaths() {
     }
   }
 
-  // Đường dẫn Python Runtime
-  let pythonExe = path.join(rootDir, "python_runtime", "python.exe");
+  // Đường dẫn Python Runtime: Ưu tiên backend/venv (môi trường dev), sau đó đến python_runtime (standalone package)
+  let pythonExe = path.join(rootDir, "backend", "venv", "Scripts", "python.exe");
   if (!fs.existsSync(pythonExe)) {
-    pythonExe = path.join(rootDir, "backend", "venv", "Scripts", "python.exe");
+    pythonExe = path.join(rootDir, "python_runtime", "python.exe");
   }
   if (!fs.existsSync(pythonExe)) {
     pythonExe = "python.exe"; // Fallback sang PATH hệ thống

@@ -1,7 +1,7 @@
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-$root = (Get-Item $PSScriptRoot).Parent.FullName
+$root = if ($PSScriptRoot) { (Resolve-Path "$PSScriptRoot\..\..").Path } else { (Get-Location).Path }
 $runtimeDir = Join-Path $root "python_runtime"
 $zipPath = Join-Path $root "python_embed.zip"
 $zipUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"

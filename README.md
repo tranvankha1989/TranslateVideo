@@ -135,8 +135,6 @@ Sau khi hoàn tất cài đặt lần đầu, bạn chỉ cần:
 2. **Thu nhỏ xuống khay hệ thống:**
    - Nhấn nút thu nhỏ (`_`) trên cửa sổ Terminal, ứng dụng sẽ ẩn vào khay hệ thống cạnh đồng hồ.
    - Click đúp vào icon để mở lại cửa sổ, hoặc click chuột phải để truy cập menu tiện ích.
-3. **Tạo lại Shortcut Desktop (nếu cần):**
-   - Chạy file **`start.bat`** hoặc script `scripts/create_desktop_shortcut.ps1` để tự động tạo shortcut app ngoài Desktop với icon chuyên nghiệp.
 
 ---
 
@@ -171,11 +169,18 @@ Sau khi hoàn tất cài đặt lần đầu, bạn chỉ cần:
 │   ├── src/pages/          # Các trang (Studio, Library, Projects, CloningVoice)
 │   ├── src/store/          # Zustand State Management (useTTSStore.ts)
 │   └── src/components/     # UI components (Header, Sidebar, Player, v.v.)
-├── scripts/                # Scripts tiện ích
-│   ├── tray_manager.ps1    # Quản lý ẩn khay hệ thống (System Tray) & auto-open
-│   ├── create_desktop_shortcut.ps1 # Tạo shortcut ngoài Desktop với app icon
-│   └── generate_icon.py    # Script sinh icon ứng dụng chuẩn đa kích thước
-└── start.bat               # Trình khởi chạy 1-click toàn bộ hệ thống
+├── scripts/                # Scripts tiện ích hệ thống
+│   ├── build/              # Nhóm công cụ đóng gói phát hành (1-Click Setup)
+│   │   ├── build_package.bat   # Script 1-click đóng gói app Windows
+│   │   ├── build_package.ps1   # PowerShell đóng gói tự động
+│   │   ├── installer.iss       # Cấu hình Inno Setup Compiler
+│   │   ├── setup_runtime.ps1   # Tự động cấu hình Python embeddable runtime
+│   │   └── create_patch.ps1    # Đóng gói bản vá OTA patch
+│   ├── bump_version.py     # Tự động đồng bộ phiên bản toàn dự án
+│   ├── kill_ports.ps1      # Giải phóng cổng mạng 8000 & 5173 bị kẹt
+│   ├── push_github.ps1     # Tự động đẩy code lên GitHub
+│   └── tray_manager.ps1    # Quản lý ẩn khay hệ thống (System Tray) & auto-open
+└── start.bat               # Trình khởi chạy 1-click môi trường dev (Backend + Frontend + Tray)
 ```
 
 ---

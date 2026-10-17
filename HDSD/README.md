@@ -23,7 +23,6 @@ Chào mừng bạn đến với tài liệu hướng dẫn toàn diện từ A -
    * 2.2. [Kéo code về máy Mac](#22-kéo-code-từ-github-về-máy-mac)
    * 2.3. [Cài đặt Backend Python trên Mac](#23-cài-đặt-backend-python-trên-macos)
    * 2.4. [Cài đặt Frontend React trên Mac](#24-cài-đặt-frontend-react)
-   * 2.5. [Khởi chạy Double-Click start.command](#25-khởi-chạy-ứng-dụng-trên-mac)
 3. [Phần 3: Cách Cập Nhật Code Khi Có Bản Mới (Git Pull)](#-phần-3-cách-cập-nhật-code-khi-có-bản-mới-git-pull)
 4. [Phần 4: Bảng Khắc Phục Mọi Lỗi Thường Gặp (Troubleshooting)](#-phần-4-bảng-khắc-phục-mọi-lỗi-thường-gặp)
 
@@ -208,40 +207,18 @@ pnpm install
 pnpm build
 ```
 
----
-
-### 2.5. Khởi Chạy Ứng Dụng Trên Mac
-
-1. **Cấp quyền thực thi file script (làm 1 lần duy nhất):**
-   ```bash
-   cd ~/Documents/TranslateVideo
-   chmod +x start.command start.sh
-   ```
-2. **Khởi chạy:**
-   * 👉 Trong Finder, chỉ cần **nhấp đúp vào file `start.command`**.
-   * Hệ thống tự khởi động và tự động mở trình duyệt Safari/Chrome tại `http://localhost:5173`.
-   * Khi muốn tắt ứng dụng, chỉ cần nhấn `Ctrl + C` trên Terminal.
-
----
-
 # 🔄 PHẦN 3: CÁCH CẬP NHẬT CODE KHI CÓ BẢN MỚI (GIT PULL)
 
 Mỗi khi repository GitHub có cập nhật tính năng hoặc sửa lỗi, bạn chỉ cần mở Terminal tại thư mục dự án và chạy:
 
 ```bash
-# 1. Kéo code mới nhất về
+# Cách 1: Chạy file update.bat (Khuyến nghị cho Windows)
+update.bat
+
+# Hoặc cách 2: Cập nhật thủ công bằng dòng lệnh
 git pull origin main
-
-# 2. Cập nhật thư viện Backend
-cd backend
-# Windows: .\venv\Scripts\activate  |  macOS: source venv/bin/activate
-pip install -r requirements.txt
-
-# 3. Cập nhật gói Frontend
-cd ../frontend
-pnpm install
-
-# 4. Khởi chạy lại app (Windows: start.bat | macOS: ./start.sh)
+cd backend && .\venv\Scripts\activate && pip install -r requirements.txt
+cd ../frontend && pnpm install && pnpm run build
 ```
 
 ---
@@ -250,10 +227,8 @@ pnpm install
 
 | Hiện Tượng / Lỗi | Hệ Điều Hành | Nguyên Nhân | Cách Xử Lý Triệt Để |
 | :--- | :--- | :--- | :--- |
-| `'pnpm' is not recognized` | Windows / Mac | Chưa cài đặt pnpm toàn cục | Chạy lệnh `npm install -g pnpm`. |
+| `'pnpm' is not recognized` | Windows | Chưa cài đặt pnpm toàn cục | Chạy lệnh `npm install -g pnpm`. |
 | `cannot be loaded because running scripts is disabled` | Windows | Chính sách bảo mật PowerShell | Mở PowerShell Admin chạy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`. |
-| `ffmpeg: command not found` | Windows / Mac | Chưa cài đặt FFmpeg | Windows: `winget install Gyan.FFmpeg`.<br>macOS: `brew install ffmpeg`. |
-| `Unidentified developer` khi mở `start.command` | macOS | Cơ chế bảo vệ Gatekeeper của Apple | Chuột phải vào `start.command` ➔ Chọn **Open** ➔ Bấm **Open** xác nhận. |
-| `Permission denied` | macOS | Chưa cấp quyền chạy file `.sh` | Chạy lệnh `chmod +x start.command start.sh`. |
-| `Port 8000 or 5173 already in use` | Windows / Mac | Tiến trình phiên trước còn chạy ngầm | Windows: Mở Task Manager tắt python/node.<br>macOS: Chạy `killall python3; killall node`. |
-| `CUDA out of memory` | Windows | GPU không đủ VRAM | Trong `.env`: chỉnh `DEFAULT_NUM_STEP=16`, `OMNIVOICE_DTYPE=float16` hoặc bật `USE_REMOTE_GPU=true`. |
+| `ffmpeg: command not found` | Windows | Chưa cài đặt FFmpeg | Chạy: `winget install Gyan.FFmpeg`. |
+| `Port 8000 or 5173 already in use` | Windows | Tiến trình phiên trước còn chạy ngầm | Chạy file `scripts/kill_ports.ps1` hoặc chạy lại `start.bat`. |
+| `CUDA out of memory` | Windows | GPU không đủ VRAM | Trong `.env`: chỉnh `DEFAULT_NUM_STEP=16` hoặc bật `USE_REMOTE_GPU=true`. |

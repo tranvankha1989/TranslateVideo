@@ -68,15 +68,15 @@ def bump_version(new_version: str, description: str = ""):
         except Exception as e:
             print(f"[!] Cảnh báo khi cập nhật package.json: {e}")
 
-    # 3. Cập nhật scripts/installer.iss
-    iss_file = ROOT_DIR / "scripts" / "installer.iss"
+    # 3. Cập nhật scripts/build/installer.iss
+    iss_file = ROOT_DIR / "scripts" / "build" / "installer.iss"
     if iss_file.exists():
         try:
             iss_text = iss_file.read_text(encoding="utf-8")
             iss_text = re.sub(r'#define\s+MyAppVersion\s+"[^"]+"', f'#define MyAppVersion "{new_version}"', iss_text)
             iss_text = re.sub(r';\s*Phien ban:\s*[\d\.]+', f'; Phien ban: {new_version}', iss_text)
             iss_file.write_text(iss_text, encoding="utf-8")
-            print(f"✅ Đã cập nhật scripts/installer.iss -> {new_version}")
+            print(f"✅ Đã cập nhật scripts/build/installer.iss -> {new_version}")
         except Exception as e:
             print(f"[!] Cảnh báo khi cập nhật installer.iss: {e}")
 
