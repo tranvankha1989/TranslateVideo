@@ -1,24 +1,14 @@
 [
   {
-    "id": "lic_7ecd3987",
-    "license_key": "ED25519.eyJjbGllbnQiOiJTdHVkaW8gU2FpZ29uIFBybyIsImV4cGlyeV9kYXRlIjoiMjA5OS0xMi0zMSIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLUtILTk5OTktODg4OC03Nzc3IiwiaXNfbGlmZXRpbWUiOnRydWUsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTYgMTY6NTE6NDIgVVRDIiwidGllciI6IlBSTyJ9.D2ER_ctl_THv5qSs1aLrD9XVxtymWw7hdtFoCu5p-1892qkbePG9IvTWkf3mvy7t_APoy6nfPdljIRL3E6F8AQ",
-    "hwid": "TTS-KH-9999-8888-7777",
+    "id": "lic_bf63b8b5",
+    "license_key": "ED25519.eyJjbGllbnQiOiJUZXN0MSIsImV4cGlyeV9kYXRlIjoiMjAyNi0xMS0xNiIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLTI5RjgtQ0MwNi1EMDJDLTZCQzciLCJpc19saWZldGltZSI6ZmFsc2UsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTcgMTM6MDU6NTIgVVRDIiwidGllciI6IlBSTyJ9.irM8FUdjTd79-hvERNAF6o6yJtyb6d8mQBr8bT7EFU9-8OKy7uohI0ZsX_3pAY2n_JARVIII7ca4Qkt7tqRZCg",
+    "hwid": "TTS-29F8-CC06-D02C-6BC7",
     "tier": "PRO",
-    "days": 0,
-    "is_lifetime": true,
-    "expiry_date": "2099-12-31",
-    "client_name": "Studio Saigon Pro",
-    "issued_at": "2026-10-16 16:51:42 UTC"
-  },
-  {
-    "id": "lic_710c4a31",
-    "license_key": "ED25519.eyJjbGllbnQiOiJLaFx1MDBlMW5oIFRpXHUwMGVhdSIsImV4cGlyeV9kYXRlIjoiMjAyNi0xMC0yNCIsImZlYXR1cmVzIjpbInR0c191bmxpbWl0ZWQiLCJ2aWRlb19kdWIiLCJ2b2ljZV9jbG9uZSIsImF1dG9fY2FwdGlvbiJdLCJod2lkIjoiVFRTLUNEQjAtNzFGRS1EMjg0LTQxNzYiLCJpc19saWZldGltZSI6ZmFsc2UsImlzc3VlZF9hdCI6IjIwMjYtMTAtMTcgMDg6MzU6MDQgVVRDIiwidGllciI6IlBSTyJ9.tigJKDaDStBXYZH985dWrZg1dVmnC4jdBpl5k7KlWItpwRG5SxSdlzDQ55Pwh7XILg9vqhRpnuJgaC76xcq8Dw",
-    "hwid": "TTS-CDB0-71FE-D284-4176",
-    "tier": "PRO",
-    "days": 7,
+    "days": 30,
     "is_lifetime": false,
-    "expiry_date": "2026-10-24",
-    "client_name": "Khánh Tiêu",
-    "issued_at": "2026-10-17 08:35:04 UTC"
+    "expiry_date": "2026-11-16",
+    "client_name": "Test1",
+    "issued_at": "2026-10-17 13:05:52 UTC",
+    "is_sent": false
   }
 ]

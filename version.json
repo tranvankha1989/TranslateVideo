@@ -1,6 +1,6 @@
 {
-  "version": "3.13.0",
+  "version": "3.14.0",
   "name": "VideoTranslate AI",
-  "release_date": "2026-10-15",
-  "description": "Nâng cấp V3.13.0: Tái cấu trúc trang Auto Caption theo quy trình 3 bước, tự động điều chỉnh timeline caption thông minh khi chỉnh sửa, chuẩn hoá chữ thường cho caption"
+  "release_date": "2026-10-17",
+  "description": "Nâng cấp V3.14.0: Tách rời KeyGen VideoTranslateAI thành Desktop app độc lập, bảo mật mã nguồn Client, hỗ trợ xuất nhập đồng bộ key offline"
 }

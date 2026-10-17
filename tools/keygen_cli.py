@@ -35,7 +35,11 @@ except ImportError:
     print("Vui lòng chạy: pip install cryptography")
     sys.exit(1)
 
-TOOLS_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    TOOLS_DIR = Path(sys.executable).resolve().parent
+else:
+    TOOLS_DIR = Path(__file__).resolve().parent
+
 PRIVATE_KEY_FILE = TOOLS_DIR / "ed25519_private.pem"
 PUBLIC_KEY_FILE = TOOLS_DIR / "ed25519_public.pem"
 
@@ -134,8 +138,11 @@ def issue_license(
     return license_key
 
 
-def verify_license(license_key: str, public_key: ed25519.Ed25519PublicKey) -> dict:
+def verify_license(license_key: str, public_key: ed25519.Ed25519PublicKey | None = None) -> dict:
     """Xác thực license key và trả về payload nếu hợp lệ."""
+    if public_key is None:
+        _, public_key = ensure_keypair()
+
     clean_key = license_key.strip()
     if not clean_key.startswith("ED25519."):
         raise ValueError("Định dạng license không hợp lệ (thiếu tiền tố ED25519)")
@@ -229,7 +236,9 @@ def main():
         if str(backend_dir) not in sys.path:
             sys.path.insert(0, str(backend_dir))
         try:
+            # pyrefly: ignore[missing-import]
             from app.services.license_service import _read_local_store, _save_local_store, get_machine_id
+            # pyrefly: ignore[missing-import]
             from app.core.security.persistence import load_trial_state, save_trial_state
             
             hwid = get_machine_id()
