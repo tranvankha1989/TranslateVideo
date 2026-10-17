@@ -134,8 +134,11 @@ def issue_license(
     return license_key
 
 
-def verify_license(license_key: str, public_key: ed25519.Ed25519PublicKey) -> dict:
+def verify_license(license_key: str, public_key: ed25519.Ed25519PublicKey | None = None) -> dict:
     """Xác thực license key và trả về payload nếu hợp lệ."""
+    if public_key is None:
+        _, public_key = ensure_keypair()
+
     clean_key = license_key.strip()
     if not clean_key.startswith("ED25519."):
         raise ValueError("Định dạng license không hợp lệ (thiếu tiền tố ED25519)")
