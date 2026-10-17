@@ -35,7 +35,11 @@ except ImportError:
     print("Vui lòng chạy: pip install cryptography")
     sys.exit(1)
 
-TOOLS_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    TOOLS_DIR = Path(sys.executable).resolve().parent
+else:
+    TOOLS_DIR = Path(__file__).resolve().parent
+
 PRIVATE_KEY_FILE = TOOLS_DIR / "ed25519_private.pem"
 PUBLIC_KEY_FILE = TOOLS_DIR / "ed25519_public.pem"
 

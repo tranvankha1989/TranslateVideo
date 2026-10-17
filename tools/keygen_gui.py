@@ -14,13 +14,18 @@ import sys
 import json
 import uuid
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Đảm bảo import được module trong tools/
-TOOLS_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = TOOLS_DIR.parent
+if getattr(sys, "frozen", False):
+    TOOLS_DIR = Path(sys.executable).resolve().parent
+    PROJECT_DIR = TOOLS_DIR
+else:
+    TOOLS_DIR = Path(__file__).resolve().parent
+    PROJECT_DIR = TOOLS_DIR.parent
+
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
@@ -61,13 +66,23 @@ THEME = {
 class KeygenAdminApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("VideoTranslate AI - KeyGen Admin & License Manager")
+        self.title("KeyGen VideoTranslateAI")
         self.geometry("1200x850")
         self.minsize(1080, 780)
         self.configure(bg=THEME["bg"])
 
         # Thiết lập Icon nếu có
-        icon_path = PROJECT_DIR / "assets" / "app.ico"
+        icon_path = TOOLS_DIR / "license-key-icon.ico"
+        if not icon_path.exists():
+            icon_path = PROJECT_DIR / "assets" / "license-key-icon.ico"
+        if not icon_path.exists():
+            icon_path = TOOLS_DIR / "keygen.ico"
+        if not icon_path.exists():
+            icon_path = PROJECT_DIR / "assets" / "keygen.ico"
+        if not icon_path.exists():
+            icon_path = TOOLS_DIR / "app.ico"
+        if not icon_path.exists():
+            icon_path = PROJECT_DIR / "assets" / "app.ico"
         if icon_path.exists():
             try:
                 self.iconbitmap(str(icon_path))
@@ -768,6 +783,39 @@ class KeygenAdminApp(tk.Tk):
         )
         delete_btn.pack(side="left")
 
+        # Nhóm nút Đồng bộ / Xuất / Nhập dữ liệu cho 2 dev
+        import_btn = tk.Button(
+            action_bar,
+            text="📥 Nhập & Hợp Nhất (Sync)",
+            font=("Segoe UI", 9, "bold"),
+            bg="#065f46",
+            fg="#a7f3d0",
+            activebackground=THEME["accent_green"],
+            activeforeground="#000",
+            relief="flat",
+            padx=12,
+            pady=6,
+            cursor="hand2",
+            command=self._import_and_merge_licenses,
+        )
+        import_btn.pack(side="right", padx=(6, 0))
+
+        export_btn = tk.Button(
+            action_bar,
+            text="📤 Xuất Dữ Liệu (Backup/Chia Sẻ)",
+            font=("Segoe UI", 9, "bold"),
+            bg="#1e3a8a",
+            fg="#bfdbfe",
+            activebackground=THEME["accent_blue"],
+            activeforeground="#fff",
+            relief="flat",
+            padx=12,
+            pady=6,
+            cursor="hand2",
+            command=self._export_licenses,
+        )
+        export_btn.pack(side="right", padx=(6, 0))
+
     def _is_expired(self, lic: dict) -> bool:
         """Kiểm tra xem key đã hết hạn chưa."""
         if lic.get("is_lifetime"):
@@ -988,6 +1036,128 @@ class KeygenAdminApp(tk.Tk):
             messagebox.showinfo("Thành Công", "Đã xóa bản ghi thành công.")
         except Exception as e:
             messagebox.showerror("Lỗi Lưu File", f"Không thể cập nhật danh sách: {e}")
+
+    def _export_licenses(self):
+        """Xuất danh sách license ra file JSON để sao lưu hoặc chia sẻ cho cộng sự."""
+        if not self.all_licenses:
+            messagebox.showwarning("Dữ Liệu Trống", "Hiện chưa có mã bản quyền nào trong danh sách để xuất!")
+            return
+
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"licenses_export_{now_str}.json"
+
+        file_path = filedialog.asksaveasfilename(
+            title="Chọn nơi lưu file bản quyền xuất ra",
+            initialfile=default_filename,
+            defaultextension=".json",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(self.all_licenses, f, indent=2, ensure_ascii=False)
+            messagebox.showinfo(
+                "Xuất Dữ Liệu Thành Công",
+                f"Đã xuất thành công {len(self.all_licenses)} mã bản quyền ra file:\n\n{file_path}\n\n"
+                f"💡 Bạn có thể gửi file này cho bạn của bạn để họ bấm 'Nhập & Hợp Nhất' vào ứng dụng của họ!"
+            )
+        except Exception as e:
+            messagebox.showerror("Lỗi Xuất File", f"Không thể lưu file: {e}")
+
+    def _import_and_merge_licenses(self):
+        """Nhập file JSON từ máy khác và hợp nhất thông minh vào cơ sở dữ liệu hiện tại."""
+        file_path = filedialog.askopenfilename(
+            title="Chọn file JSON bản quyền để Nhập & Hợp nhất",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                incoming_data = json.load(f)
+        except Exception as e:
+            messagebox.showerror("Lỗi Đọc File", f"Không thể đọc hoặc phân tích file JSON:\n{e}")
+            return
+
+        if not isinstance(incoming_data, list):
+            messagebox.showerror("Lỗi Định Dạng", "Nội dung file không đúng cấu trúc danh sách bản quyền!")
+            return
+
+        if not incoming_data:
+            messagebox.showinfo("Thông Báo", "File được chọn không chứa mã bản quyền nào.")
+            return
+
+        # Chỉ mục các bản ghi hiện tại theo license_key
+        existing_by_key = {}
+        for lic in self.all_licenses:
+            key = lic.get("license_key")
+            if key:
+                existing_by_key[key] = lic
+
+        new_count = 0
+        updated_count = 0
+        unchanged_count = 0
+
+        for item in incoming_data:
+            if not isinstance(item, dict):
+                continue
+            key = item.get("license_key")
+            if not key:
+                continue
+
+            if key in existing_by_key:
+                # Đã có trong danh sách -> kiểm tra cập nhật trạng thái
+                existing_item = existing_by_key[key]
+                has_change = False
+
+                # Cập nhật trạng thái đã gửi khách nếu bên file mới đã đánh dấu gửi
+                if item.get("is_sent") and not existing_item.get("is_sent"):
+                    existing_item["is_sent"] = True
+                    has_change = True
+
+                # Cập nhật tên khách hàng nếu bên kia có ghi chú chi tiết hơn
+                incoming_client = (item.get("client_name") or "").strip()
+                existing_client = (existing_item.get("client_name") or "").strip()
+                if incoming_client and incoming_client != "Quý Khách" and existing_client in ("", "Quý Khách"):
+                    existing_item["client_name"] = incoming_client
+                    has_change = True
+
+                if has_change:
+                    updated_count += 1
+                else:
+                    unchanged_count += 1
+            else:
+                # Chưa có -> Thêm mới vào danh sách
+                if not item.get("id"):
+                    item["id"] = f"lic_{uuid.uuid4().hex[:8]}"
+                self.all_licenses.append(item)
+                existing_by_key[key] = item
+                new_count += 1
+
+        if new_count > 0 or updated_count > 0:
+            try:
+                with open(ISSUED_LICENSES_FILE, "w", encoding="utf-8") as f:
+                    json.dump(self.all_licenses, f, indent=2, ensure_ascii=False)
+                self._load_licenses_data()
+                messagebox.showinfo(
+                    "Hợp Nhất Thành Công",
+                    f"Đã hợp nhất dữ liệu từ:\n{Path(file_path).name}\n\n"
+                    f"➕ Thêm mới : {new_count} key\n"
+                    f"🔄 Cập nhật : {updated_count} key\n"
+                    f"⏸️ Giữ nguyên : {unchanged_count} key\n\n"
+                    f"📊 Tổng số key trong hệ thống: {len(self.all_licenses)} key"
+                )
+            except Exception as e:
+                messagebox.showerror("Lỗi Lưu Dữ Liệu", f"Không thể lưu sau khi hợp nhất: {e}")
+        else:
+            messagebox.showinfo(
+                "Đồng Bộ Hoàn Tất",
+                f"Toàn bộ {len(incoming_data)} key trong file đã có sẵn trong ứng dụng.\n"
+                f"Không có dữ liệu mới nào cần bổ sung."
+            )
 
 
 if __name__ == "__main__":

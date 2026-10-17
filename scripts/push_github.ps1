@@ -1,5 +1,5 @@
-﻿# scripts/push_github.ps1
-# Script tu dong Commit va Day toan bo ma nguon len GitHub tranvankha1989/TranslateVideo
+# scripts/push_github.ps1
+# Script tu dong Commit va Day code len GitHub theo dung nhanh con (branch) dang lam viec
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $Host.UI.RawUI.WindowTitle = "Day code len GitHub (tranvankha1989/TranslateVideo)"
@@ -9,8 +9,8 @@ Set-Location -Path $projectDir
 
 Write-Host ""
 Write-Host "===================================================================" -ForegroundColor Cyan
-Write-Host "  DANG DONG BO VA DAY MA NGUON LEN GITHUB CUA BAN" -ForegroundColor Cyan
-Write-Host "  Repository: https://github.com/tranvankha1989/TranslateVideo.git" -ForegroundColor Gray
+Write-Host "   DONG BO VA DAY MA NGUON LEN GITHUB (THEO NHANH CON HIEN TAI)" -ForegroundColor Cyan
+Write-Host "   Repository: https://github.com/tranvankha1989/TranslateVideo.git" -ForegroundColor Gray
 Write-Host "===================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -24,12 +24,15 @@ if (-not $gitCheck) {
     exit 1
 }
 
-# 2. Dam bao branch hien tai la main
+# 2. Xac dinh nhanh (branch) hien tai nguoi dung dang lam viec
 $currentBranch = (git rev-parse --abbrev-ref HEAD 2>&1).Trim()
-if ($currentBranch -ne "main") {
-    Write-Host "[*] Dang chuyen sang nhanh main..." -ForegroundColor Yellow
-    git checkout -B main 2>&1 | Out-Null
+if (-not $currentBranch -or $currentBranch -like "*fatal*") {
+    $currentBranch = "main"
 }
+
+Write-Host "[*] Nhanh dang lam viec hien tai: " -NoNewline -ForegroundColor White
+Write-Host "$currentBranch" -ForegroundColor Green
+Write-Host ""
 
 # 3. Kiem tra remote origin
 $originUrl = (git remote get-url origin 2>&1).Trim()
@@ -39,14 +42,15 @@ if ($originUrl -notlike "*tranvankha1989/TranslateVideo*") {
     git remote add origin https://github.com/tranvankha1989/TranslateVideo.git
 }
 
-# 4. Them toan bo file thay doi vao Git Staging
-Write-Host "[1/3] Dang kiem tra va gom toan bo thay doi (git add -A)..." -ForegroundColor Yellow
-git add -A
-
-# 5. Kiem tra xem co file can commit khong
+# 4. Kiem tra file thay doi
+Write-Host "[1/3] Dang kiem tra thay doi ma nguon..." -ForegroundColor Yellow
 $gitStatus = (git status --porcelain 2>&1)
+
 if ($gitStatus) {
-    $version = "2.5.0"
+    git add -A
+
+    # Lay phien ban tu version.json neu co
+    $version = "3.13.0"
     $versionFile = Join-Path $projectDir "version.json"
     if (Test-Path $versionFile) {
         try {
@@ -56,36 +60,57 @@ if ($gitStatus) {
     }
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $commitMsg = "feat: [v$version] dong bo ma nguon OmniVoice TTS ($timestamp)"
-    Write-Host "[2/3] Dang tao commit moi: '$commitMsg'..." -ForegroundColor Yellow
+    $defaultMsg = "feat: [$currentBranch] cap nhat ma nguon v$version ($timestamp)"
+
+    Write-Host ""
+    Write-Host "Nhap ghi chu commit (Nhan Enter de lay mac dinh):" -ForegroundColor Cyan
+    Write-Host "Mac dinh: '$defaultMsg'" -ForegroundColor Gray
+    $userMsg = Read-Host "Commit message"
+
+    if ([string]::IsNullOrWhiteSpace($userMsg)) {
+        $commitMsg = $defaultMsg
+    } else {
+        $commitMsg = $userMsg.Trim()
+    }
+
+    Write-Host ""
+    Write-Host "[2/3] Dang tao commit: '$commitMsg'..." -ForegroundColor Yellow
     git commit -m $commitMsg
 } else {
-    Write-Host "[2/3] Ma nguon da duoc commit day du, khong co thay doi moi chua commit." -ForegroundColor Gray
+    Write-Host "[2/3] Ma nguon da sach se, khong co thay doi moi chua commit." -ForegroundColor Gray
 }
 
-# 6. Day len GitHub
-Write-Host "[3/3] Dang day toan bo code len GitHub (git push -u origin main --force)..." -ForegroundColor Yellow
-Write-Host "     (Neu trinh duyet bat len hop thoai, ban chi can bam 'Sign in with your browser')" -ForegroundColor Gray
+# 5. Day len GitHub theo dung nhanh dang lam viec
+Write-Host ""
+Write-Host "[3/3] Dang day code len nhanh '$currentBranch' tren GitHub..." -ForegroundColor Yellow
+Write-Host "     Command: git push -u origin $currentBranch" -ForegroundColor Gray
 Write-Host ""
 
-git push -u origin main --force
+git push -u origin $currentBranch
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "===================================================================" -ForegroundColor Green
     Write-Host "  [OK] THANH CONG 100%!" -ForegroundColor Green
-    Write-Host "  Toan bo ma nguon da duoc day va cap nhat tren GitHub cua ban:" -ForegroundColor Green
-    Write-Host "  -> https://github.com/tranvankha1989/TranslateVideo" -ForegroundColor Cyan
+    Write-Host "  Code da duoc day len nhanh: $currentBranch" -ForegroundColor Green
     Write-Host "===================================================================" -ForegroundColor Green
+
+    if ($currentBranch -ne "main") {
+        $prUrl = "https://github.com/tranvankha1989/TranslateVideo/pull/new/$currentBranch"
+        Write-Host ""
+        Write-Host "👉 LINK TAO PULL REQUEST DE GOP VAO MAIN:" -ForegroundColor Yellow
+        Write-Host "   $prUrl" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "   (Ban co the click hoac copy link tren de mo trang Pull Request tren GitHub)" -ForegroundColor Gray
+    }
     Write-Host ""
 } else {
     Write-Host ""
     Write-Host "===================================================================" -ForegroundColor Red
     Write-Host "  [X] CO LOI XAY RA KHI DAY LEN GITHUB:" -ForegroundColor Red
     Write-Host "  1. Hay kiem tra ket noi mang Internet cua ban." -ForegroundColor Yellow
-    Write-Host "  2. Hay kiem tra xem repository 'TranslateVideo' da duoc tao tren tai khoan:" -ForegroundColor Yellow
-    Write-Host "     https://github.com/tranvankha1989 chua." -ForegroundColor Yellow
-    Write-Host "  3. Xac nhan dang nhap tren trinh duyet neu duoc hoi." -ForegroundColor Yellow
+    Write-Host "  2. Kiem tra quyen ghi vao repository tranvankha1989/TranslateVideo." -ForegroundColor Yellow
+    Write-Host "  3. Neu nhanh tren remote bi lech, hay dung git pull truoc khi push." -ForegroundColor Yellow
     Write-Host "===================================================================" -ForegroundColor Red
     Write-Host ""
 }
