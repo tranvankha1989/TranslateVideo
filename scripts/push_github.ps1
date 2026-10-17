@@ -50,7 +50,7 @@ if ($gitStatus) {
     git add -A
 
     # Lay phien ban tu version.json neu co
-    $version = "3.13.0"
+    $version = "3.14.0"
     $versionFile = Join-Path $projectDir "version.json"
     if (Test-Path $versionFile) {
         try {
