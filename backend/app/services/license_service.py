@@ -6,7 +6,7 @@ Tích hợp:
 1. HWID Engine bất biến (CPU + Motherboard + Disk 0)
 2. Ed25519 Asymmetric Verification Engine
 3. Anti-Clock Rollback (GetTickCount64, Heartbeat 120s, FS Logs check)
-4. Tripple-Breadcrumbs Persistence (Registry CLSID + syscache.bin + NTFS ADS)
+4. Tripple-Breadcrumbs Persistence (Safe AppData / LocalAppData / ProgramData)
 5. Feature Gating Interceptors (TTS 2.000 ký tự, Dubbing 2 phút + watermark 45s, AutoCaption .srt 2 phút, Voice Clone 1 profile)
 """
 

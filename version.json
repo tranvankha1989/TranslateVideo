@@ -1,6 +1,6 @@
 {
-  "version": "3.14.0",
+  "version": "3.14.1",
   "name": "VideoTranslate AI",
-  "release_date": "2026-10-17",
-  "description": "Nâng cấp V3.14.0: Tách rời KeyGen VideoTranslateAI thành Desktop app độc lập, bảo mật mã nguồn Client, hỗ trợ xuất nhập đồng bộ key offline"
+  "release_date": "2026-10-23",
+  "description": "Nâng cấp V3.14.1: Fix lỗi load icon Material Symbols Offline và Cơ chế lưu key an toàn hơn"
 }

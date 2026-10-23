@@ -16,10 +16,10 @@ Hệ thống bản quyền mới được thiết kế theo chuẩn thương m�
    - Monotonic Tick Counter (`GetTickCount64`): Theo dõi uptime phần cứng tịnh tiến.
    - Heartbeat Thread (chu kỳ 120s): Ghi dấu mốc `last_run` liên tục.
    - Quét chéo file nhật ký hệ điều hành Windows: `C:\Windows\System32\winevt\Logs\System.evtx`.
-4. **Phân Tán Dấu Vết Trial (Anti-Reinstall):** Mã hóa AES-256-GCM với khóa dẫn xuất từ HWID, ghi song song vào 3 vị trí độc lập:
-   - COM CLSID ngụy trang: `HKCU\Software\Classes\CLSID\{8A7D4C12-65B3-4E89-9F12-3B4A5D6E7F80}\Data`
-   - File ẩn Windows: `%LOCALAPPDATA%\Microsoft\Vault\syscache.bin`
-   - NTFS Alternate Data Stream: `%USERPROFILE%\ntuser.ini:tts_metrics`
+4. **Phân Tán Dấu Vết Trial (Anti-Reinstall - Chuẩn AppData An Toàn 100% với Antivirus):** Mã hóa AES-256-GCM với khóa dẫn xuất từ HWID, ghi song song vào các thư mục hệ thống chuẩn (hoàn toàn không can thiệp Registry hay NTFS ADS):
+   - Local AppData: `%LOCALAPPDATA%\OmniVoice\Data\lic_cache.dat`
+   - Roaming AppData: `%APPDATA%\OmniVoice\Config\app_state.dat`
+   - ProgramData / Shared: `%ProgramData%\OmniVoice\shared_lic.dat` (hoặc `~/.omnivoice/shared_lic.dat`)
 5. **Rào Cản Tính Năng Nghiệp Vụ (Feature Gating):**
    - **TTS:** Tối đa 2.000 ký tự / lần xuất ở chế độ Trial.
    - **Dịch & Lồng tiếng Video:** Xử lý tối đa 2 phút đầu + Chèn Audio Watermark mỗi 45s.
@@ -101,7 +101,7 @@ d:\Coding\VSCode\TranslateVideo\backend\venv\Scripts\python.exe tools/keygen_cli
 ### Kịch bản 4: Kiểm tra Chống Gỡ Cài Đặt (Anti-Reinstall Persistence)
 1. Thử xóa file `backend/.license_store.dat`.
 2. F5 lại trang.
-3. **Kỳ vọng:** Ứng dụng không bị reset về ngày 1 mà tự động khôi phục số ngày dùng thử còn lại từ Registry và stream NTFS.
+3. **Kỳ vọng:** Ứng dụng không bị reset về ngày 1 mà tự động khôi phục số ngày dùng thử còn lại từ các vị trí AppData/ProgramData chuẩn.
 
 ### Kịch bản 5: Kích hoạt bản quyền PRO bằng Key Ed25519
 1. Chạy lệnh:
