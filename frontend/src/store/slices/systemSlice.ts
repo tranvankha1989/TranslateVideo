@@ -14,9 +14,13 @@ import type {
   PerformUpdateResult,
   FeedbackPayload,
   FeedbackResult,
+  ModelStatus,
 } from "../types";
 
 export interface SystemSlice {
+  modelStatus: ModelStatus | null;
+  fetchModelStatus: () => Promise<ModelStatus | null>;
+  retryModelDownload: () => Promise<void>;
   syncStatus: SyncStatus;
   isSyncing: boolean;
   checkStorageStatus: () => Promise<void>;
@@ -55,6 +59,30 @@ export const createSystemSlice: StateCreator<TTSState, [], [], SystemSlice> = (
         : "Chế độ Cục Bộ (Local Mode) - Dữ liệu lưu trong LocalStorage trình duyệt.",
   },
   isSyncing: false,
+  modelStatus: null,
+
+  fetchModelStatus: async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/model/status`);
+      if (res.ok) {
+        const data: ModelStatus = await res.json();
+        set({ modelStatus: data });
+        return data;
+      }
+    } catch {
+      // Backend có thể chưa sẵn sàng hoặc đang khởi động
+    }
+    return null;
+  },
+
+  retryModelDownload: async () => {
+    try {
+      await fetch(`${API_BASE_URL}/api/model/retry`, { method: "POST" });
+      await get().fetchModelStatus();
+    } catch (e) {
+      console.error("Lỗi khi gọi retry model download:", e);
+    }
+  },
 
   checkStorageStatus: async () => {
     try {

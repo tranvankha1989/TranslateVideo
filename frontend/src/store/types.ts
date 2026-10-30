@@ -156,6 +156,19 @@ export function applyPronunciationDictionary(
   return result;
 }
 
+export interface ModelStatus {
+  state: "idle" | "downloading" | "loading" | "ready" | "error";
+  is_cached: boolean;
+  is_loaded: boolean;
+  downloaded_bytes: number;
+  total_bytes: number;
+  percent: number;
+  speed_mbps: number;
+  eta_seconds: number;
+  error_message: string | null;
+  current_file: string;
+}
+
 export interface FeedbackPayload {
   sender_name?: string;
   sender_contact?: string;
@@ -330,5 +343,8 @@ export interface TTSState {
   fetchAppVersion: () => Promise<AppVersionInfo | null>;
   checkAppUpdate: () => Promise<CheckUpdateResult>;
   performAppUpdate: () => Promise<PerformUpdateResult>;
+  modelStatus: ModelStatus | null;
+  fetchModelStatus: () => Promise<ModelStatus | null>;
+  retryModelDownload: () => Promise<void>;
   sendFeedback: (payload: FeedbackPayload) => Promise<FeedbackResult>;
 }

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from app.core.config import OUTPUTS_DIR, APP_VERSION, logger
-from app.schemas.common import HealthResponse
+from app.schemas.common import HealthResponse, ModelStatusResponse
 
 router = APIRouter(tags=["System"])
 
@@ -93,13 +93,37 @@ async def monitor_browser_lifetime():
 async def health_check():
     """Kiểm tra server đang hoạt động và OmniVoice đã sẵn sàng (local hoặc Remote GPU)."""
     import model_handler
-    is_remote = getattr(model_handler, "USE_REMOTE_GPU", False)
-    is_loaded = getattr(model_handler, "_model", None) is not None or is_remote
+    m_status = model_handler.get_model_status()
+    is_ready = m_status.get("state") == "ready"
     return HealthResponse(
         status="ok",
-        model_loaded=is_loaded,
+        model_loaded=is_ready,
         version=APP_VERSION,
+        model_status=m_status,
     )
+
+
+@router.get(
+    "/api/model/status",
+    response_model=ModelStatusResponse,
+    summary="Lấy trạng thái chi tiết của quá trình tải/nạp mô hình OmniVoice",
+)
+async def get_model_download_status():
+    """Trả về trạng thái hiện tại (idle, downloading, loading, ready, error), % tiến trình, tốc độ và ETA."""
+    import model_handler
+    status = model_handler.get_model_status()
+    return ModelStatusResponse(**status)
+
+
+@router.post(
+    "/api/model/retry",
+    summary="Thử lại tải hoặc nạp mô hình OmniVoice nếu gặp lỗi",
+)
+async def retry_model_loader():
+    """Kích hoạt lại tiến trình tải/nạp mô hình OmniVoice trong nền."""
+    import model_handler
+    model_handler.retry_model_download()
+    return {"status": "ok", "message": "Đã bắt đầu lại tiến trình tải/nạp mô hình AI."}
 
 
 @router.get(

@@ -11,6 +11,9 @@ Chứa toàn bộ logic liên quan đến OmniVoice (k2-fsa):
 """
 
 import os
+import sys
+import time
+import tempfile
 import gc
 import re
 import logging
@@ -49,9 +52,65 @@ _safe_reload_dotenv()
 
 logger = logging.getLogger(__name__)
 
+
+def ensure_windows_ssl_certs() -> None:
+    """Tự động tích hợp chứng chỉ gốc Windows (CA Root) vào môi trường Python.
+    Giải quyết triệt để lỗi SSL CERTIFICATE_VERIFY_FAILED khi máy tính cài đặt Antivirus
+    (Kaspersky, Bitdefender, ESET, Avast...) hoặc mạng có HTTPS/SSL Inspection.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ssl
+        import certifi
+
+        ctx = ssl.create_default_context()
+        ctx.load_default_certs()
+        der_certs = ctx.get_ca_certs(binary_form=True)
+        if not der_certs:
+            return
+
+        with open(certifi.where(), "rb") as f:
+            base_pem = f.read()
+
+        win_pems = b"\n".join(ssl.DER_cert_to_PEM_cert(d).encode("ascii") for d in der_certs)
+        combined = base_pem + b"\n" + win_pems
+
+        bundle_path = os.path.join(tempfile.gettempdir(), "videotranslate_ca_bundle.pem")
+        with open(bundle_path, "wb") as f:
+            f.write(combined)
+
+        os.environ["SSL_CERT_FILE"] = bundle_path
+        os.environ["REQUESTS_CA_BUNDLE"] = bundle_path
+        os.environ["CURL_CA_BUNDLE"] = bundle_path
+        logger.info(f"🔒 Đã cấu hình CA Bundle Windows thành công ({len(der_certs)} chứng chỉ gốc).")
+    except Exception as e:
+        logger.warning(f"⚠️ Không thể cấu hình Windows SSL Root Certs: {e}")
+
+
+# Kích hoạt hỗ trợ SSL Windows ngay khi nạp module
+ensure_windows_ssl_certs()
+
 # ─── Global model holder & thread lock ──────────────────────────────────────
 _model: OmniVoice | None = None
 _model_lock = threading.Lock()
+
+# ─── Model Download & Loading State Tracker ─────────────────────────────────
+TOTAL_MODEL_BYTES = 3_267_470_260  # ~3,116 MB
+_model_status: dict = {
+    "state": "idle",  # "idle" | "downloading" | "loading" | "ready" | "error"
+    "is_cached": False,
+    "is_loaded": False,
+    "downloaded_bytes": 0,
+    "total_bytes": TOTAL_MODEL_BYTES,
+    "percent": 0.0,
+    "speed_mbps": 0.0,
+    "eta_seconds": 0,
+    "error_message": None,
+    "current_file": "",
+}
+_status_lock = threading.Lock()
+_loader_thread: threading.Thread | None = None
 
 
 def synchronized(lock: threading.Lock):
@@ -259,10 +318,196 @@ def load_model(force_local: bool = False) -> None:
 def get_model(force_local: bool = False) -> OmniVoice:
     """Trả về OmniVoice instance đã load. Tự động load nếu chưa khởi tạo."""
     global _model
+    with _status_lock:
+        state = _model_status.get("state")
+        if state == "downloading":
+            pct = _model_status.get("percent", 0.0)
+            raise RuntimeError(f"Mô hình AI OmniVoice đang được tải về máy ({pct}%). Vui lòng đợi hoàn tất trước khi tạo âm thanh.")
+        elif state == "loading":
+            raise RuntimeError("Mô hình AI OmniVoice đang được nạp vào bộ nhớ RAM / GPU. Vui lòng đợi trong giây lát.")
+        elif state == "error":
+            err = _model_status.get("error_message") or "Lỗi chưa xác định"
+            raise RuntimeError(f"Không thể sử dụng mô hình AI do lỗi tải/nạp: {err}")
+
     if _model is None:
         logger.info("🔄 OmniVoice chưa tải hoặc đã bị offload, tiến hành nạp lại...")
         load_model(force_local=force_local)
     return _model
+
+
+def is_omnivoice_cached() -> bool:
+    """Kiểm tra xem mô hình k2-fsa/OmniVoice đã có trong cache ổ cứng cục bộ chưa."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        main_model = try_to_load_from_cache(OMNIVOICE_MODEL_ID, "model.safetensors")
+        audio_tok = try_to_load_from_cache(OMNIVOICE_MODEL_ID, "audio_tokenizer/model.safetensors")
+        return bool(
+            isinstance(main_model, str) and os.path.isfile(main_model) and
+            isinstance(audio_tok, str) and os.path.isfile(audio_tok)
+        )
+    except Exception:
+        return False
+
+
+def get_current_cache_bytes() -> int:
+    """Đo tổng dung lượng file đã tải về trong thư mục cache của OmniVoice."""
+    cache_dir = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{OMNIVOICE_MODEL_ID.replace('/', '--')}"
+    if not cache_dir.exists():
+        return 0
+    total = 0
+    try:
+        for p in cache_dir.rglob("*"):
+            if p.is_file() and not p.is_symlink():
+                try:
+                    total += p.stat().st_size
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return total
+
+
+def get_model_status() -> dict:
+    """Trả về trạng thái hiện tại của quá trình tải/nạp mô hình OmniVoice."""
+    with _status_lock:
+        return dict(_model_status)
+
+
+def _background_model_loader() -> None:
+    """Luồng chạy ngầm: kiểm tra Cloud GPU -> tải mô hình từ HF nếu chưa có -> nạp vào RAM/GPU."""
+    global _model, _is_remote_gpu_online
+    ensure_windows_ssl_certs()
+
+    # 1. Kiểm tra Remote GPU nếu được bật
+    if is_remote_gpu_enabled() and get_remote_gpu_url():
+        with _status_lock:
+            _model_status["state"] = "loading"
+            _model_status["current_file"] = "Đang kiểm tra kết nối Cloud GPU Worker..."
+        target_health = _remote_url("health")
+        try:
+            import httpx
+            resp = httpx.get(target_health, headers=_remote_headers(), timeout=5.0)
+            if resp.status_code == 200:
+                _is_remote_gpu_online = True
+                with _status_lock:
+                    _model_status["state"] = "ready"
+                    _model_status["is_loaded"] = True
+                    _model_status["is_cached"] = True
+                    _model_status["percent"] = 100.0
+                    _model_status["current_file"] = "Cloud GPU Online"
+                logger.info("🚀 Kết nối Cloud GPU thành công. Hệ thống sẵn sàng!")
+                return
+        except Exception as e:
+            logger.warning(f"⚠️ Không thể kết nối tới Cloud GPU ({e}), tự động chuyển sang tải/dùng model local.")
+
+    # 2. Kiểm tra xem model đã có trong cache chưa
+    cached = is_omnivoice_cached()
+    with _status_lock:
+        _model_status["is_cached"] = cached
+
+    if not cached:
+        # Cần tải mô hình về máy (Lần đầu khởi chạy)
+        cur_bytes = get_current_cache_bytes()
+        with _status_lock:
+            _model_status["state"] = "downloading"
+            _model_status["current_file"] = "Đang kết nối tới máy chủ Hugging Face..."
+            _model_status["total_bytes"] = TOTAL_MODEL_BYTES
+            _model_status["downloaded_bytes"] = cur_bytes
+            _model_status["percent"] = min(99.0, round((cur_bytes / TOTAL_MODEL_BYTES) * 100, 1)) if TOTAL_MODEL_BYTES else 0.0
+
+        stop_monitor = threading.Event()
+
+        def _monitor_progress():
+            last_bytes = get_current_cache_bytes()
+            last_time = time.time()
+            while not stop_monitor.is_set():
+                time.sleep(0.5)
+                now = time.time()
+                cur = get_current_cache_bytes()
+                dt = now - last_time
+                if dt >= 0.5:
+                    diff = max(0, cur - last_bytes)
+                    speed_mb = round((diff / (1024 * 1024)) / dt, 2)
+                    last_bytes = cur
+                    last_time = now
+                    remaining_bytes = max(0, TOTAL_MODEL_BYTES - cur)
+                    eta = int(remaining_bytes / (speed_mb * 1024 * 1024)) if speed_mb > 0.05 else 0
+                    pct = min(99.9, round((cur / TOTAL_MODEL_BYTES) * 100, 1)) if TOTAL_MODEL_BYTES else 0.0
+                    with _status_lock:
+                        _model_status["downloaded_bytes"] = cur
+                        _model_status["percent"] = pct
+                        _model_status["speed_mbps"] = speed_mb
+                        _model_status["eta_seconds"] = eta
+                        _model_status["current_file"] = f"Đang tải các file mô hình ({round(cur / (1024*1024), 1)} MB / {round(TOTAL_MODEL_BYTES / (1024*1024), 1)} MB)..."
+
+        monitor_thread = threading.Thread(target=_monitor_progress, daemon=True)
+        monitor_thread.start()
+
+        try:
+            logger.info(f"📥 Bắt đầu tải mô hình {OMNIVOICE_MODEL_ID} về máy local...")
+            from huggingface_hub import snapshot_download
+            snapshot_download(OMNIVOICE_MODEL_ID)
+            stop_monitor.set()
+            logger.info("✅ Tải xong toàn bộ file mô hình OmniVoice!")
+        except Exception as e:
+            stop_monitor.set()
+            logger.error(f"❌ Lỗi khi tải mô hình từ Hugging Face: {e}")
+            err_msg = str(e)
+            if "CERTIFICATE_VERIFY_FAILED" in err_msg:
+                err_msg = "Lỗi chứng chỉ SSL (Antivirus hoặc mạng chặn). Vui lòng tạm tắt Web/SSL Protection hoặc VPN và bấm Thử lại."
+            elif "ConnectError" in err_msg or "timed out" in err_msg.lower():
+                err_msg = "Lỗi kết nối mạng khi tải mô hình. Vui lòng kiểm tra đường truyền và bấm Thử lại."
+            with _status_lock:
+                _model_status["state"] = "error"
+                _model_status["error_message"] = err_msg
+            return
+
+    # 3. Nạp model vào RAM / GPU
+    with _status_lock:
+        _model_status["state"] = "loading"
+        _model_status["is_cached"] = True
+        _model_status["percent"] = 100.0
+        _model_status["current_file"] = "Đang nạp mô hình vào bộ nhớ RAM / GPU..."
+
+    try:
+        load_model(force_local=True)
+        with _status_lock:
+            _model_status["state"] = "ready"
+            _model_status["is_loaded"] = True
+            _model_status["percent"] = 100.0
+            _model_status["current_file"] = "Sẵn sàng phục vụ"
+            _model_status["error_message"] = None
+        logger.info("🎉 Mô hình OmniVoice đã sẵn sàng phục vụ toàn bộ yêu cầu!")
+    except Exception as e:
+        logger.error(f"❌ Lỗi nạp mô hình vào RAM / GPU: {e}")
+        with _status_lock:
+            _model_status["state"] = "error"
+            _model_status["error_message"] = f"Lỗi nạp mô hình: {e}"
+
+
+def start_model_loader_background() -> None:
+    """Khởi động tiến trình kiểm tra & nạp/tải mô hình trong background thread.
+    Đảm bảo hoàn toàn non-blocking, giúp server FastAPI mở cổng 8000 ngay tức khắc.
+    """
+    global _loader_thread
+    with _status_lock:
+        if _model_status["state"] in ("loading", "ready"):
+            return
+        if _loader_thread is not None and _loader_thread.is_alive():
+            return
+        _model_status["state"] = "idle"
+        _model_status["error_message"] = None
+        _loader_thread = threading.Thread(target=_background_model_loader, daemon=True)
+        _loader_thread.start()
+
+
+def retry_model_download() -> None:
+    """Bắt đầu lại quá trình tải/nạp mô hình khi gặp lỗi."""
+    global _loader_thread
+    with _status_lock:
+        _model_status["state"] = "idle"
+        _model_status["error_message"] = None
+    start_model_loader_background()
 
 
 def unload_model() -> None:

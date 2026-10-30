@@ -329,6 +329,13 @@ export default function CloningVoice() {
   // ── Gửi form khởi tạo giọng đọc ───────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const currentModelStatus = useTTSStore.getState().modelStatus;
+    if (currentModelStatus && currentModelStatus.state !== "ready" && currentModelStatus.state !== "idle") {
+      toast.warning("Mô hình AI OmniVoice đang được tải hoặc nạp vào bộ nhớ. Vui lòng đợi hoàn tất trước khi tạo giọng!", {
+        duration: 4000,
+      });
+      return;
+    }
     if (samples.length === 0) {
       return toast.error("Vui lòng tải lên hoặc ghi âm ít nhất 1 mẫu âm thanh tham chiếu.");
     }
@@ -424,6 +431,13 @@ export default function CloningVoice() {
   };
 
   const handleGenerateRandom = async () => {
+    const currentModelStatus = useTTSStore.getState().modelStatus;
+    if (currentModelStatus && currentModelStatus.state !== "ready" && currentModelStatus.state !== "idle") {
+      toast.warning("Mô hình AI OmniVoice đang được tải hoặc nạp vào bộ nhớ. Vui lòng đợi hoàn tất trước khi tạo giọng!", {
+        duration: 4000,
+      });
+      return;
+    }
     if (currentRandomFileRef.current) {
       discardRandomPreview(currentRandomFileRef.current);
       currentRandomFileRef.current = null;
