@@ -4,6 +4,7 @@ import { PanelLeftClose, PanelLeftOpen, Cpu, Cloud } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTTSStore } from "@/store/useTTSStore";
 import { LicenseBadge } from "@/components/GlobalLicenseGuard";
+import { ModelStatusBanner } from "@/components/ModelStatusBanner";
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },
@@ -320,7 +321,7 @@ export function MainLayout() {
       {/* Main Content Area (Tự động mở rộng vùng làm việc theo trạng thái sidebar) */}
       <main
         className={cn(
-          "flex-1 flex justify-center items-start min-h-[calc(100vh-80px)] overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out box-border",
+          "flex-1 flex flex-col justify-start items-center min-h-[calc(100vh-80px)] overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out box-border",
           location.pathname === "/autocaption"
             ? "p-2 sm:p-3 md:p-4"
             : "p-margin-mobile md:p-margin-desktop 2k:p-10",
@@ -329,6 +330,8 @@ export function MainLayout() {
             : "md:ml-72 2k:ml-80 md:w-[calc(100%-288px)] 2k:w-[calc(100%-320px)]",
         )}
       >
+        <ModelStatusBanner />
+
         <div
           key={location.pathname}
           className="w-full flex justify-center items-start animate-fadeIn"

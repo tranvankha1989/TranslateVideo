@@ -1,16 +1,19 @@
 """
 backend/app/core/security/persistence.py
 ========================================
-Module phân tán dấu vết Trial & chống gỡ cài đặt (Anti-Reinstall Persistence).
-Bảo vệ trạng thái dùng thử (30 ngày) bằng cơ chế:
-1. Mã hóa AES-256-GCM với khóa dẫn xuất từ HWID (PBKDF2HMAC 100.000 rounds).
-2. Ghi song song vào 3 vị trí độc lập trên Windows:
-   - Vị trí 1 (Registry ẩn): HKCU\Software\Classes\CLSID\{8A7D4C12-65B3-4E89-9F12-3B4A5D6E7F80}\Data
-   - Vị trí 2 (File hệ thống ẩn): %ProgramData%\Microsoft\Vault\syscache.bin (hoặc %LOCALAPPDATA%\Microsoft\Vault\syscache.bin)
-   - Vị trí 3 (Alternate Data Stream - NTFS): %USERPROFILE%\ntuser.ini:tts_metrics
-3. Cơ chế đồng thuận (Consensus):
-   - Nếu bất kỳ 1 trong 3 vị trí báo hết hạn hoặc > 30 ngày -> Khóa Trial.
-   - Tự động phục hồi (Self-healing) vị trí bị xóa từ các vị trí còn lại.
+Module phân tán dấu vết Trial & chống gỡ cài đặt (Anti-Reinstall Persistence)
+theo chuẩn thương mại an toàn (Commercial AppData Standards - Safe Persistence).
+
+Đặc điểm an toàn:
+1. TUYỆT ĐỐI KHÔNG CAN THIỆP REGISTRY (Tránh bị Antivirus gắn cờ COM Hijacking / Persistence Malware).
+2. TUYỆT ĐỐI KHÔNG DÙNG NTFS ADS (Tránh bị Antivirus gắn cờ Hidden Stream Steganography).
+3. Sử dụng các thư mục AppData chuẩn của Windows được Microsoft khuyến nghị:
+   - Vị trí 1 (Local AppData): %LOCALAPPDATA%\\OmniVoice\\Data\\lic_cache.dat
+   - Vị trí 2 (Roaming AppData): %APPDATA%\\OmniVoice\\Config\\app_state.dat
+   - Vị trí 3 (ProgramData / Shared): %ProgramData%\\OmniVoice\\shared_lic.dat (hoặc ~/.omnivoice/shared_lic.dat)
+4. Dữ liệu được mã hóa AES-256-GCM với khóa dẫn xuất từ HWID vật lý (PBKDF2 100.000 rounds).
+5. Cơ chế đồng thuận (Consensus Engine) + Tự phục hồi (Self-healing).
+6. Tự động dọn dẹp các tàn dư Registry / ADS cũ nếu còn sót lại từ các bản build trước.
 """
 
 import os
@@ -19,7 +22,7 @@ import json
 import base64
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -28,10 +31,12 @@ from cryptography.hazmat.primitives import hashes
 logger = logging.getLogger("Security.Persistence")
 
 PERSISTENCE_SALT = "TTS_TRIAL_SECURITY_PERSISTENCE_SALT_2026_OFFLINE_GCM"
-REG_COM_PATH = r"Software\Classes\CLSID\{8A7D4C12-65B3-4E89-9F12-3B4A5D6E7F80}"
-REG_COM_VALUE_NAME = "Data"
 
-ADS_STREAM_NAME = "ntuser.ini:tts_metrics"
+# Đường dẫn tàn dư cũ (Legacy) để dọn dẹp tránh bị AV quét lại
+LEGACY_REG_COM_PATH = r"Software\Classes\CLSID\{8A7D4C12-65B3-4E89-9F12-3B4A5D6E7F80}"
+LEGACY_REG_VALUE_NAME = "Data"
+LEGACY_ADS_NAME = "ntuser.ini:tts_metrics"
+_LEGACY_CLEANED = False
 
 
 def _derive_aes_key(hwid: str) -> bytes:
@@ -79,130 +84,147 @@ def decrypt_payload(b64_str: str, hwid: str) -> Optional[dict]:
         return None
 
 
-# ─── 1. VỊ TRÍ 1: REGISTRY COM CLSID NGỤY TRANG ─────────────────────────────
-def _read_from_registry(hwid: str) -> Optional[dict]:
-    if sys.platform != "win32":
-        return None
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_COM_PATH) as k:
-            val, _ = winreg.QueryValueEx(k, REG_COM_VALUE_NAME)
-            return decrypt_payload(val, hwid)
-    except Exception:
-        return None
+# ─── 1. CÁC ĐƯỜNG DẪN LƯU TRỮ CHUẨN APPDATA (100% AN TOÀN VỚI ANTIVIRUS) ─────
+def _get_localappdata_path() -> Path:
+    """Vị trí 1: %LOCALAPPDATA%\\OmniVoice\\Data\\lic_cache.dat"""
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        base = Path(local)
+    else:
+        base = Path.home() / "AppData" / "Local"
+    return base / "OmniVoice" / "Data" / "lic_cache.dat"
 
 
-def _write_to_registry(data: dict, hwid: str) -> bool:
-    if sys.platform != "win32":
-        return False
-    try:
-        import winreg
-        encrypted = encrypt_payload(data, hwid)
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_COM_PATH) as k:
-            winreg.SetValueEx(k, REG_COM_VALUE_NAME, 0, winreg.REG_SZ, encrypted)
-        return True
-    except Exception as e:
-        logger.debug(f"Không thể ghi Registry CLSID ẩn: {e}")
-        return False
+def _get_roamingappdata_path() -> Path:
+    """Vị trí 2: %APPDATA%\\OmniVoice\\Config\\app_state.dat"""
+    roaming = os.environ.get("APPDATA")
+    if roaming:
+        base = Path(roaming)
+    else:
+        base = Path.home() / "AppData" / "Roaming"
+    return base / "OmniVoice" / "Config" / "app_state.dat"
 
 
-# ─── 2. VỊ TRÍ 2: FILE HỆ THỐNG ẨN SYSCACHE.BIN ──────────────────────────────
-def _get_system_cache_paths() -> list[Path]:
+def _get_shared_data_paths() -> List[Path]:
+    """
+    Vị trí 3: %ProgramData%\\OmniVoice\\shared_lic.dat
+    Fallback sang ~/.omnivoice/shared_lic.dat nếu không có quyền ghi ProgramData.
+    """
     paths = []
-    # Thử %ProgramData%
     pd = os.environ.get("ProgramData")
     if pd:
-        paths.append(Path(pd) / "Microsoft" / "Vault" / "syscache.bin")
-    # Thử %LOCALAPPDATA%
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if local_appdata:
-        paths.append(Path(local_appdata) / "Microsoft" / "Vault" / "syscache.bin")
-    # Thử %APPDATA%
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        paths.append(Path(appdata) / "Microsoft" / "Crypto" / "syscache.bin")
+        paths.append(Path(pd) / "OmniVoice" / "shared_lic.dat")
+    paths.append(Path.home() / ".omnivoice" / "shared_lic.dat")
     return paths
 
 
-def _read_from_system_cache(hwid: str) -> Optional[dict]:
-    for p in _get_system_cache_paths():
-        if p.exists():
-            try:
-                content = p.read_text(encoding="ascii").strip()
-                decrypted = decrypt_payload(content, hwid)
-                if decrypted:
-                    return decrypted
-            except Exception:
-                pass
-    return None
-
-
-def _write_to_system_cache(data: dict, hwid: str) -> bool:
-    encrypted = encrypt_payload(data, hwid)
-    written = False
-    for p in _get_system_cache_paths():
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(encrypted, encoding="ascii")
-            written = True
-        except Exception:
-            pass
-    return written
-
-
-# ─── 3. VỊ TRÍ 3: ALTERNATE DATA STREAM (NTFS ADS) ─────────────────────────
-def _get_ads_path() -> Optional[Path]:
-    if sys.platform != "win32":
-        return None
-    user_home = Path.home()
-    return user_home / ADS_STREAM_NAME
-
-
-def _read_from_ads(hwid: str) -> Optional[dict]:
-    ads_file = _get_ads_path()
-    if not ads_file:
+def _read_file_payload(file_path: Path, hwid: str) -> Optional[dict]:
+    """Đọc và giải mã payload từ một đường dẫn file."""
+    if not file_path.exists():
         return None
     try:
-        if os.path.exists(str(ads_file)):
-            with open(str(ads_file), "r", encoding="ascii") as f:
-                content = f.read().strip()
-            return decrypt_payload(content, hwid)
+        content = file_path.read_text(encoding="ascii").strip()
+        return decrypt_payload(content, hwid)
     except Exception:
-        pass
-    return None
+        return None
 
 
-def _write_to_ads(data: dict, hwid: str) -> bool:
-    ads_file = _get_ads_path()
-    if not ads_file:
-        return False
+def _write_file_payload(file_path: Path, data: dict, hwid: str) -> bool:
+    """Mã hóa và ghi payload vào đường dẫn file."""
     try:
         encrypted = encrypt_payload(data, hwid)
-        with open(str(ads_file), "w", encoding="ascii") as f:
-            f.write(encrypted)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(encrypted, encoding="ascii")
         return True
     except Exception as e:
-        logger.debug(f"Không thể ghi NTFS ADS: {e}")
+        logger.debug(f"Không thể ghi file {file_path}: {e}")
         return False
 
 
-# ─── ĐỒNG THUẬN (CONSENSUS ENGINE) ──────────────────────────────────────────
+# ─── 2. DỌN DẸP TÀN DƯ CŨ TRÁNH BỊ AV QUÉT (SILENT CLEANUP) ────────────────
+def _cleanup_legacy_traces():
+    """
+    Âm thầm dọn dẹp các dấu vết Registry CLSID / NTFS ADS / file ngụy trang cũ
+    để các máy đã từng chạy bản cũ không còn bị phần mềm diệt virus quét trúng.
+    """
+    global _LEGACY_CLEANED
+    if _LEGACY_CLEANED:
+        return
+    _LEGACY_CLEANED = True
+
+    if sys.platform != "win32":
+        return
+
+    # 1. Dọn dẹp Registry cũ
+    try:
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, LEGACY_REG_COM_PATH, 0, winreg.KEY_SET_VALUE) as k:
+                winreg.DeleteValue(k, LEGACY_REG_VALUE_NAME)
+        except Exception:
+            pass
+
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, LEGACY_REG_COM_PATH)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # 2. Dọn dẹp ADS cũ
+    try:
+        ads_path = Path.home() / LEGACY_ADS_NAME
+        if os.path.exists(str(ads_path)):
+            try:
+                os.remove(str(ads_path))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 3. Dọn dẹp các file giả mạo Microsoft cũ
+    legacy_files = [
+        Path(os.environ.get("ProgramData", "C:\\ProgramData")) / "Microsoft" / "Vault" / "syscache.bin",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Vault" / "syscache.bin",
+        Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Crypto" / "syscache.bin",
+    ]
+    for lf in legacy_files:
+        try:
+            if lf.exists():
+                lf.unlink()
+        except Exception:
+            pass
+
+
+# ─── 3. ĐỒNG THUẬN (CONSENSUS ENGINE) ──────────────────────────────────────────
 def load_trial_state(hwid: str) -> Optional[Dict[str, Any]]:
     """
-    Đọc đồng thời từ 3 vị trí độc lập:
-    1. Registry CLSID
-    2. File hệ thống ẩn syscache.bin
-    3. Alternate Data Stream NTFS
+    Đọc đồng thời từ 3 vị trí độc lập đạt chuẩn Windows AppData:
+    1. %LOCALAPPDATA%\\OmniVoice\\Data\\lic_cache.dat
+    2. %APPDATA%\\OmniVoice\\Config\\app_state.dat
+    3. %ProgramData%\\OmniVoice\\shared_lic.dat (hoặc ~/.omnivoice/shared_lic.dat)
 
     Áp dụng thuật toán đồng thuận bảo mật:
+    - Tự động dọn dẹp các tàn dư registry/ADS cũ nếu có.
     - Nếu 1 trong 3 vị trí báo is_expired = True -> Bắt buộc hết hạn.
     - Lấy install_timestamp nhỏ nhất (mốc bắt đầu sớm nhất).
     - Lấy last_run_timestamp lớn nhất (mốc chạy mới nhất).
     - Tự động phục hồi (Self-heal) các vị trí bị mất.
     """
-    s1 = _read_from_registry(hwid)
-    s2 = _read_from_system_cache(hwid)
-    s3 = _read_from_ads(hwid)
+    _cleanup_legacy_traces()
+
+    p1 = _get_localappdata_path()
+    p2 = _get_roamingappdata_path()
+    shared_paths = _get_shared_data_paths()
+
+    s1 = _read_file_payload(p1, hwid)
+    s2 = _read_file_payload(p2, hwid)
+    
+    s3 = None
+    for sp in shared_paths:
+        s3 = _read_file_payload(sp, hwid)
+        if s3:
+            break
 
     states = [s for s in (s1, s2, s3) if s and isinstance(s, dict)]
     if not states:
@@ -211,7 +233,7 @@ def load_trial_state(hwid: str) -> Optional[Dict[str, Any]]:
     any_expired = any(s.get("is_expired") for s in states)
     any_tampered = any(s.get("tampered") for s in states)
 
-    # Lấy install_timestamp xa nhất trong quá khứ để chống cài lại win lùi ngày
+    # Lấy install_timestamp xa nhất trong quá khứ để chống reset ngày
     install_ts = min(s.get("install_timestamp", float("inf")) for s in states)
     last_run_ts = max(s.get("last_run_timestamp", 0) for s in states)
     accumulated = max(s.get("accumulated_run_seconds", 0) for s in states)
@@ -224,7 +246,7 @@ def load_trial_state(hwid: str) -> Optional[Dict[str, Any]]:
         "tampered": any_tampered,
     }
 
-    # Tự động đồng bộ phục hồi nếu có vị trí bị thiếu
+    # Tự động đồng bộ phục hồi nếu có vị trí bị thiếu (Self-healing)
     if not (s1 and s2 and s3):
         logger.info("🛡️ [Persistence] Tự động phục hồi dấu vết bản quyền vào các vị trí bị thiếu.")
         save_trial_state(hwid, unified_state)
@@ -233,66 +255,47 @@ def load_trial_state(hwid: str) -> Optional[Dict[str, Any]]:
 
 
 def save_trial_state(hwid: str, data: dict) -> bool:
-    """Ghi đồng bộ dữ liệu vào cả 3 vị trí."""
-    r1 = _write_to_registry(data, hwid)
-    r2 = _write_to_system_cache(data, hwid)
-    r3 = _write_to_ads(data, hwid)
+    """Ghi đồng bộ dữ liệu vào cả 3 vị trí an toàn."""
+    p1 = _get_localappdata_path()
+    p2 = _get_roamingappdata_path()
+    shared_paths = _get_shared_data_paths()
+
+    r1 = _write_file_payload(p1, data, hwid)
+    r2 = _write_file_payload(p2, data, hwid)
+    
+    r3 = False
+    for sp in shared_paths:
+        if _write_file_payload(sp, data, hwid):
+            r3 = True
+            break
+
     return r1 or r2 or r3
 
 
-def clear_all_trial_traces() -> list[str]:
+def clear_all_trial_traces() -> List[str]:
     """
-    Xóa sạch hoàn toàn toàn bộ dấu vết bản quyền ở cả 3 vị trí độc lập:
-    1. Registry CLSID
-    2. File hệ thống ẩn syscache.bin
-    3. Alternate Data Stream NTFS (ADS)
+    Xóa sạch hoàn toàn toàn bộ dấu vết bản quyền ở cả 3 vị trí chuẩn
+    và dọn sạch luôn các tàn dư cũ (Registry/ADS).
     Trả về danh sách các mục đã xóa thành công.
     """
     cleared = []
 
-    # 1. Xóa Registry
-    if sys.platform == "win32":
-        try:
-            import winreg
-            try:
-                # Xóa value Data trước
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_COM_PATH, 0, winreg.KEY_SET_VALUE) as k:
-                    winreg.DeleteValue(k, REG_COM_VALUE_NAME)
-                cleared.append(f"Registry Value: {REG_COM_PATH}\\{REG_COM_VALUE_NAME}")
-            except Exception:
-                pass
+    # 1. Dọn dẹp tàn dư cũ (Registry & ADS)
+    _cleanup_legacy_traces()
+    cleared.append("Legacy Registry & ADS Cleanup: Complete")
 
-            try:
-                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, REG_COM_PATH)
-                cleared.append(f"Registry Key: {REG_COM_PATH}")
-            except Exception:
-                pass
-        except Exception as e:
-            logger.debug(f"Lỗi khi xóa Registry: {e}")
+    # 2. Xóa các vị trí AppData chuẩn
+    target_files = [
+        _get_localappdata_path(),
+        _get_roamingappdata_path(),
+    ] + _get_shared_data_paths()
 
-    # 2. Xóa các file syscache.bin
-    for p in _get_system_cache_paths():
+    for p in target_files:
         try:
             if p.exists():
                 p.unlink()
-                cleared.append(f"System File: {p}")
+                cleared.append(f"AppData File: {p}")
         except Exception as e:
             logger.debug(f"Không thể xóa file {p}: {e}")
-
-    # 3. Xóa NTFS ADS stream
-    if sys.platform == "win32":
-        ads_path = _get_ads_path()
-        if ads_path:
-            try:
-                if os.path.exists(str(ads_path)):
-                    # Ghi rỗng hoặc xóa
-                    try:
-                        os.remove(str(ads_path))
-                    except Exception:
-                        with open(str(ads_path), "w", encoding="ascii") as f:
-                            f.write("")
-                    cleared.append(f"NTFS ADS: {ads_path}")
-            except Exception as e:
-                logger.debug(f"Không thể xóa ADS stream: {e}")
 
     return cleared

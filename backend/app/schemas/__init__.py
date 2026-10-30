@@ -1,4 +1,4 @@
-from .common import HealthResponse, EngineResponse, EngineItem
+from .common import HealthResponse, ModelStatusResponse, EngineResponse, EngineItem
 from .tts import (
     TTSRequest,
     TTSResponse,
@@ -18,6 +18,7 @@ from .caption import (
 
 __all__ = [
     "HealthResponse",
+    "ModelStatusResponse",
     "EngineResponse",
     "EngineItem",
     "TTSRequest",
