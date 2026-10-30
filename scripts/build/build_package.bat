@@ -32,11 +32,12 @@ cd /d "%~dp0..\.."
 :: 2. Kiem tra va thiet lap moi truong Python Portable Embeddable
 echo.
 echo [2/5] Kiem tra Python Portable Runtime...
-if not exist "%~dp0..\..\python_runtime\python.exe" (
-    echo Dang khoi tao Python Runtime moi...
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_runtime.ps1"
-) else (
-    echo [OK] Python Runtime da san sang.
+echo Dang kiem tra va dong bo Python Runtime...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_runtime.ps1"
+if %ERRORLEVEL% NEQ 0 (
+    echo [LOI] Thiet lap Python Runtime that bai!
+    pause
+    exit /b 1
 )
 
 :: 3. Kiem tra binaries FFmpeg

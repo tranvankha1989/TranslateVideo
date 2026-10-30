@@ -34,13 +34,9 @@ Write-Host "[OK] Frontend va Electron Native Binaries da duoc build moi nhat!" -
 # 2. Kiem tra Python Portable Runtime
 Write-Host ""
 Write-Host "[2/5] Kiem tra Python Portable Runtime..." -ForegroundColor Yellow
-$pyExe = "$Root\python_runtime\python.exe"
-if (-not (Test-Path $pyExe)) {
-    Write-Host "Dang khoi tao Python Runtime moi..." -ForegroundColor Cyan
-    & powershell -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\setup_runtime.ps1"
-} else {
-    Write-Host "[OK] Python Runtime da san sang ($pyExe)." -ForegroundColor Green
-}
+Write-Host "Dang kiem tra va dong bo Python Runtime..." -ForegroundColor Cyan
+& powershell -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\setup_runtime.ps1"
+if ($LASTEXITCODE -ne 0) { throw "Dong bo Python Runtime that bai!" }
 
 # 3. Kiem tra Binaries FFmpeg
 Write-Host ""
