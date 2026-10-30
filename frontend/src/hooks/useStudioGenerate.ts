@@ -110,6 +110,14 @@ export function useStudioGenerate() {
       return;
     }
 
+    const currentModelStatus = useTTSStore.getState().modelStatus;
+    if (currentModelStatus && currentModelStatus.state !== "ready" && currentModelStatus.state !== "idle") {
+      toast.warning("Mô hình AI OmniVoice đang được tải hoặc nạp vào bộ nhớ. Vui lòng đợi trong giây lát!", {
+        duration: 4000,
+      });
+      return;
+    }
+
     // Feature Gating: Kiểm tra giới hạn 2.000 ký tự ở chế độ dùng thử (Trial)
     const isPro = licenseStatus?.unlocked && (licenseStatus?.tier === "lifetime" || licenseStatus?.tier === "pro_licensed");
     if (!isPro && text.trim().length > 2000) {

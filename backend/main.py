@@ -17,7 +17,7 @@ import sys
 from app.core.config import OUTPUTS_DIR, PRESETS_DIR, APP_VERSION, APP_LOG_FILE, logger
 from app.core.database import connect_db, close_db
 from app.routers import api_router
-from model_handler import load_model, is_remote_gpu_enabled, get_remote_gpu_url
+from model_handler import load_model, is_remote_gpu_enabled, get_remote_gpu_url, start_model_loader_background
 
 
 import asyncio
@@ -55,7 +55,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"🌐 GPU Online Worker: Enabled={is_remote_gpu_enabled()} | URL='{get_remote_gpu_url()}'")
     logger.info("=" * 70)
 
-    load_model()
+    # Khởi động nạp/tải mô hình OmniVoice trong background thread (NON-BLOCKING)
+    # Giúp Uvicorn mở port 8000 ngay lập tức mà không bị timeout!
+    start_model_loader_background()
     await connect_db()
     # Khởi động nạp trước Faster-Whisper trong nền (không chặn khởi động server)
     whisper_warm_task = asyncio.create_task(_prewarm_whisper())
