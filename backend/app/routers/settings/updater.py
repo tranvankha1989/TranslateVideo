@@ -140,6 +140,16 @@ def apply_update_zip(zip_bytes: bytes, project_root: Path) -> None:
                 with z.open(member) as source, open(dest_path, "wb") as target:
                     target.write(source.read())
 
+                # Nếu cập nhật file .py, tự động xoá file .pyc cũ cùng tên (nếu có)
+                # để đảm bảo Python nạp ngay mã nguồn mới nhất thay vì chạy bytecode cũ!
+                if dest_path.suffix == ".py":
+                    old_pyc = dest_path.with_suffix(".pyc")
+                    if old_pyc.exists():
+                        try:
+                            old_pyc.unlink()
+                        except Exception:
+                            pass
+
     frontend_dist = project_root / "frontend" / "dist"
     root_dist = project_root / "dist"
     try:

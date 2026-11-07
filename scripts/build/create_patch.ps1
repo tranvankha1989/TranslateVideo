@@ -71,7 +71,15 @@ Copy-Item -Path "$rootDist\*" -Destination (Join-Path $stagingDir "dist") -Recur
 # Chep version.json
 Copy-Item -Path $versionFile -Destination (Join-Path $stagingDir "version.json") -Force
 
-# Chep backend logic (app)
+# Chep toan bo backend logic (tat ca file .py o thu muc goc backend va thu muc app)
+New-Item -ItemType Directory -Path (Join-Path $stagingDir "backend") -Force | Out-Null
+
+# Chep cac file .py o thu muc goc backend (main.py, model_handler.py, caption_handler.py, audio_processor.py, colab_worker.py)
+Get-ChildItem -Path (Join-Path $Root "backend") -File -Filter "*.py" | ForEach-Object {
+    Copy-Item -Path $_.FullName -Destination (Join-Path $stagingDir "backend") -Force
+}
+
+# Chep toan bo thu muc backend\app
 New-Item -ItemType Directory -Path (Join-Path $stagingDir "backend\app") -Force | Out-Null
 Copy-Item -Path (Join-Path $Root "backend\app\*") -Destination (Join-Path $stagingDir "backend\app") -Recurse -Force -Exclude @('__pycache__', '*.pyc', '*.tmp')
 

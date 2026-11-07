@@ -111,8 +111,17 @@ if (-not $iscc) {
     throw "Khong tim thay Inno Setup Compiler (ISCC.exe). Vui long cai dat Inno Setup 7 tu https://jrsoftware.org/isdl.php"
 }
 
-Write-Host "Su dung Inno Setup: $iscc" -ForegroundColor Cyan
-& "$iscc" "$PSScriptRoot\installer.iss"
+$vName = "3.14.2"
+$vJsonFile = "$Root\version.json"
+if (Test-Path $vJsonFile) {
+    try {
+        $vObj = Get-Content $vJsonFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($vObj.version) { $vName = $vObj.version }
+    } catch {}
+}
+
+Write-Host "Su dung Inno Setup: $iscc (Dong goi Version: v$vName)" -ForegroundColor Cyan
+& "$iscc" "/DMyAppVersion=$vName" "$PSScriptRoot\installer.iss"
 
 if ($LASTEXITCODE -ne 0) {
     throw "Bien dich Inno Setup that bai!"
@@ -121,15 +130,6 @@ if ($LASTEXITCODE -ne 0) {
 # Don dep thu muc staging
 if (Test-Path "$Root\build_staging") {
     Remove-Item "$Root\build_staging" -Recurse -Force -ErrorAction SilentlyContinue
-}
-
-$vName = "3.10.4"
-$vJsonFile = "$Root\version.json"
-if (Test-Path $vJsonFile) {
-    try {
-        $vObj = Get-Content $vJsonFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($vObj.version) { $vName = $vObj.version }
-    } catch {}
 }
 
 Write-Host ""

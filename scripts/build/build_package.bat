@@ -78,8 +78,15 @@ if not defined ISCC (
     exit /b 1
 )
 
-echo Dang su dung: "%ISCC%"
-"%ISCC%" "%~dp0installer.iss"
+set "APP_VER=3.14.2"
+for /f "tokens=2 delims=:," %%a in ('findstr /i ""version"" "%~dp0..\..ersion.json"') do (
+    set "APP_VER=%%~a"
+)
+set "APP_VER=%APP_VER: =%"
+set "APP_VER=%APP_VER:"=%"
+
+echo Dang su dung: "%ISCC%" (Version: %APP_VER%)
+"%ISCC%" /DMyAppVersion="%APP_VER%" "%~dp0installer.iss"
 set "BUILD_STATUS=%ERRORLEVEL%"
 
 :: Don dep thu muc tam staging sau khi build xong
