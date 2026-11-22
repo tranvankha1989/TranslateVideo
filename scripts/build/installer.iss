@@ -3,7 +3,13 @@
 ; Phien ban: 3.14.0
 
 #define MyAppName "VideoTranslate AI"
+<<<<<<< Updated upstream
 #define MyAppVersion "3.14.0"
+=======
+#ifndef MyAppVersion
+#define MyAppVersion "3.14.2"
+#endif
+>>>>>>> Stashed changes
 #define MyAppPublisher "Tran Van Kha"
 #define MyAppURL "https://github.com/tranvankha1989/TranslateVideo"
 #define MyAppExeName "VideoTranslate AI.exe"
@@ -26,6 +32,10 @@ PrivilegesRequired=lowest
 DefaultDirName={localappdata}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+
+; Tu dong dong ung dung cu neu dang chay tranh loi file in use / lock khong ghi de duoc
+CloseApplications=force
+CloseApplicationsFilter=VideoTranslate AI.exe
 
 ; Duong dan output va icon
 OutputDir=..\..\installer_output
@@ -93,7 +103,7 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{a
 Name: "{group}\Go cai dat {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Run]
-; Tuy chon khoi chay ung dung ngay sau khi cai dat xong
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: postinstall nowait skipifsilent
+; Tuy chon khoi chay ung dung ngay sau khi cai dat xong voi dung working directory
+Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: postinstall nowait skipifsilent
 
 

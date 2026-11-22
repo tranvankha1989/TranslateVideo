@@ -7,6 +7,20 @@ const http = require("http");
 let mainWindow = null;
 let pythonProcess = null;
 let isQuitting = false;
+let backendExited = false;
+let backendExitCode = null;
+let lastBackendLogs = [];
+
+function appendBackendLog(chunk) {
+  const text = chunk.toString();
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  for (const line of lines) {
+    lastBackendLogs.push(line);
+    if (lastBackendLogs.length > 30) {
+      lastBackendLogs.shift();
+    }
+  }
+}
 
 // 1. Xác định đường dẫn thư mục gốc và các tài nguyên
 function getProjectPaths() {
@@ -67,52 +81,118 @@ function cleanupPort(port = 8000) {
 
 // 3. Khởi động Backend FastAPI ngầm
 function startBackend() {
-  const { pythonExe, backendDir, isDev } = getProjectPaths();
+  const { rootDir, pythonExe, backendDir, isDev } = getProjectPaths();
   cleanupPort(8000);
+  backendExited = false;
+  backendExitCode = null;
+  lastBackendLogs = [];
+
+  const logsDir = path.join(rootDir, "logs");
+  if (!fs.existsSync(logsDir)) {
+    try { fs.mkdirSync(logsDir, { recursive: true }); } catch (e) {}
+  }
+  const startupLogFile = path.join(logsDir, "backend_startup.log");
+  let logStream = null;
+  try {
+    logStream = fs.createWriteStream(startupLogFile, { flags: "a" });
+    logStream.write(`\n--- [${new Date().toISOString()}] KHOI DONG BACKEND PYTHON ---\n`);
+    logStream.write(`Python: ${pythonExe}\nBackendDir: ${backendDir}\n`);
+  } catch (e) {}
 
   const args = ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"];
 
   console.log(`[Electron] Khởi động Python Backend: ${pythonExe}`);
   console.log(`[Electron] Thư mục Backend: ${backendDir}`);
 
-  pythonProcess = spawn(pythonExe, args, {
-    cwd: backendDir,
-    windowsHide: true,
-    stdio: isDev ? "inherit" : "ignore",
-    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONUTF8: "1" }
-  });
+  try {
+    pythonProcess = spawn(pythonExe, args, {
+      cwd: backendDir,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONUTF8: "1" }
+    });
 
-  pythonProcess.on("error", (err) => {
-    console.error("[Electron] Lỗi khởi động Python:", err);
-  });
-
-  pythonProcess.on("exit", (code, signal) => {
-    console.log(`[Electron] Python Process thoát với mã: ${code}, signal: ${signal}`);
-    if (!isQuitting && mainWindow) {
-      // Nếu python chết đột ngột mà app chưa tắt
+    if (pythonProcess.stdout) {
+      pythonProcess.stdout.on("data", (chunk) => {
+        appendBackendLog(chunk);
+        if (logStream) logStream.write(chunk);
+        if (isDev) process.stdout.write(chunk);
+      });
     }
-  });
+
+    if (pythonProcess.stderr) {
+      pythonProcess.stderr.on("data", (chunk) => {
+        appendBackendLog(chunk);
+        if (logStream) logStream.write(chunk);
+        if (isDev) process.stderr.write(chunk);
+      });
+    }
+
+    pythonProcess.on("error", (err) => {
+      console.error("[Electron] Lỗi khởi động Python:", err);
+      const errMsg = `[Electron Error] Không thể chạy Python: ${err.message}\n`;
+      appendBackendLog(errMsg);
+      if (logStream) logStream.write(errMsg);
+      backendExited = true;
+      backendExitCode = -1;
+    });
+
+    pythonProcess.on("exit", (code, signal) => {
+      const exitMsg = `[Electron Exit] Python Process kết thúc với mã: ${code}, signal: ${signal}\n`;
+      console.log(exitMsg);
+      appendBackendLog(exitMsg);
+      if (logStream) {
+        logStream.write(exitMsg);
+        try { logStream.end(); } catch (e) {}
+      }
+      backendExited = true;
+      backendExitCode = code;
+    });
+  } catch (err) {
+    console.error("[Electron] Exception khi spawn Python:", err);
+    backendExited = true;
+    backendExitCode = -1;
+    appendBackendLog(err.message);
+  }
 }
 
 // 4. Kiểm tra sức khỏe Backend (Healthcheck)
-function checkHealth(url = "http://127.0.0.1:8000/health", timeoutMs = 45000) {
+function checkHealth(url = "http://127.0.0.1:8000/health", timeoutMs = 60000) {
   return new Promise((resolve) => {
     const startTime = Date.now();
 
     const interval = setInterval(() => {
+      // Nếu Python đã crash / thoát sớm thì fail-fast ngay lập tức
+      if (backendExited) {
+        clearInterval(interval);
+        console.error(`[Electron] Backend đã thoát sớm (exitCode=${backendExitCode}), hủy chờ healthcheck!`);
+        resolve(false);
+        return;
+      }
+
       if (Date.now() - startTime > timeoutMs) {
         clearInterval(interval);
         resolve(false);
         return;
       }
 
-      http.get(url, (res) => {
+      const req = http.get(url, (res) => {
         if (res.statusCode === 200) {
           clearInterval(interval);
+          res.resume(); // Tiêu thụ stream để giải phóng socket
           resolve(true);
+        } else {
+          res.resume();
         }
-      }).on("error", () => {
+      });
+
+      req.on("error", () => {
         // Đang chờ server nạp
+      });
+
+      // Tránh socket bị treo
+      req.setTimeout(1200, () => {
+        req.destroy();
       });
     }, 600);
   });
@@ -317,6 +397,11 @@ async function createMainWindow() {
     if (isReady) {
       mainWindow.loadURL("http://127.0.0.1:8000", loadOptions);
     } else {
+      const logPreview = lastBackendLogs.slice(-10).join("\n") || "Chưa có log từ tiến trình Backend.";
+      const exitInfo = backendExited
+        ? `Tiến trình Python đã dừng đột ngột (Mã thoát: ${backendExitCode}).`
+        : "Hệ thống đã đợi 60 giây nhưng Backend chưa hoàn tất nạp server.";
+
       mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
         <!DOCTYPE html>
         <html>
@@ -325,18 +410,21 @@ async function createMainWindow() {
           <title>VideoTranslate AI - Backend Chưa Sẵn Sàng</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
-            .card { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 16px; padding: 36px; max-width: 520px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+            .card { background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 16px; padding: 32px; max-width: 650px; width: 90%; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
             h2 { color: #f87171; margin-top: 0; font-size: 20px; }
-            p { color: #94a3b8; font-size: 13.5px; line-height: 1.6; }
-            .btn { display: inline-block; margin-top: 18px; padding: 10px 24px; background: #3b82f6; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; font-size: 14px; transition: 0.2s; }
+            p { color: #94a3b8; font-size: 13.5px; line-height: 1.6; margin: 8px 0; }
+            .log-box { background: #030712; color: #38bdf8; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11.5px; text-align: left; max-height: 160px; overflow-y: auto; white-space: pre-wrap; margin: 16px 0; border: 1px solid #1f2937; }
+            .btn { display: inline-block; margin-top: 10px; padding: 10px 24px; background: #3b82f6; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; font-size: 14px; transition: 0.2s; }
             .btn:hover { background: #2563eb; }
           </style>
         </head>
         <body>
           <div class="card">
             <h2>⚠️ Backend AI Chưa Phản Hồi</h2>
-            <p>Hệ thống đã đợi 45 giây nhưng Backend Python chưa hoàn tất khởi động.<br>Vui lòng thử bấm 'Tải lại' hoặc kiểm tra file nhật ký tại <code>logs/app.log</code>.</p>
-            <button class="btn" onclick="location.reload()">Tải lại (F5)</button>
+            <p>${exitInfo}</p>
+            <p>Vui lòng kiểm tra nhật ký chi tiết tại: <code>logs/backend_startup.log</code> hoặc <code>logs/app.log</code></p>
+            <div class="log-box">${logPreview.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+            <button class="btn" onclick="window.location.href='http://127.0.0.1:8000'">Thử kết nối lại (F5)</button>
           </div>
         </body>
         </html>
