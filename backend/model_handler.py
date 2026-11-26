@@ -416,13 +416,18 @@ def _background_model_loader() -> None:
     if is_remote_gpu_enabled() and get_remote_gpu_url():
         target_health = _remote_url("health")
         import httpx
-        for attempt in range(1, REMOTE_STARTUP_ATTEMPTS + 1):
-            with _status_lock:
-                _model_status["state"] = "loading"
-                _model_status["current_file"] = (
-                    "Đang kiểm tra kết nối Cloud GPU Worker..." if attempt == 1
-                    else f"GPU Online đang khởi động, thử lại lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}..."
-                )
+        attempt = 0
+        # Thử nhanh REMOTE_STARTUP_ATTEMPTS lần; sau đó báo lỗi nhưng vẫn thử lại ngầm mỗi 30 giây
+        # cho tới khi Worker thức dậy (tự hết lỗi) hoặc người dùng tắt GPU Online
+        while is_remote_gpu_enabled() and not _is_remote_gpu_online:
+            attempt += 1
+            if attempt <= REMOTE_STARTUP_ATTEMPTS:
+                with _status_lock:
+                    _model_status["state"] = "loading"
+                    _model_status["current_file"] = (
+                        "Đang kiểm tra kết nối Cloud GPU Worker..." if attempt == 1
+                        else f"GPU Online đang khởi động, thử lại lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}..."
+                    )
             try:
                 resp = httpx.get(target_health, headers=_remote_headers(), timeout=REMOTE_HEALTH_TIMEOUT)
                 if resp.status_code == 200:
@@ -436,23 +441,30 @@ def _background_model_loader() -> None:
                         _model_status["error_message"] = None
                     logger.info("🚀 Kết nối Cloud GPU thành công. Hệ thống sẵn sàng!")
                     return
-                logger.warning(f"⚠️ Cloud GPU trả về mã {resp.status_code} (lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}).")
+                if attempt <= REMOTE_STARTUP_ATTEMPTS:
+                    logger.warning(f"⚠️ Cloud GPU trả về mã {resp.status_code} (lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}).")
             except Exception as e:
-                logger.warning(f"⚠️ Chưa kết nối được Cloud GPU (lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}): {e}")
+                if attempt <= REMOTE_STARTUP_ATTEMPTS:
+                    logger.warning(f"⚠️ Chưa kết nối được Cloud GPU (lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}): {e}")
             if _is_remote_gpu_online:  # một yêu cầu TTS đã kiểm tra lại thành công trong lúc chờ
                 return
-            if attempt < REMOTE_STARTUP_ATTEMPTS:
-                time.sleep(5)
-
-        # GPU Online đang bật thì TTS không dùng mô hình local -> KHÔNG nạp mô hình nặng lên CPU
-        # (trước đây nạp ~1.5 phút làm backend đứng, giao diện thiếu icon, và cờ kẹt "mất kết nối" cả phiên)
-        logger.warning("⚠️ Không kết nối được Cloud GPU sau nhiều lần thử. Không nạp mô hình lên CPU vì GPU Online đang bật.")
-        with _status_lock:
-            _model_status["state"] = "error"
-            _model_status["error_message"] = (
-                "Không kết nối được GPU Online. Bấm Thử lại sau ít phút, "
-                "hoặc tắt GPU Online trong Cài đặt để chạy trên máy."
-            )
+            if attempt == REMOTE_STARTUP_ATTEMPTS:
+                # GPU Online đang bật thì TTS không dùng mô hình local -> KHÔNG nạp mô hình nặng lên CPU
+                # (trước đây nạp ~1.5 phút làm backend đứng, giao diện thiếu icon, và cờ kẹt "mất kết nối" cả phiên)
+                logger.warning("⚠️ Không kết nối được Cloud GPU sau nhiều lần thử. Không nạp mô hình lên CPU; tiếp tục thử lại ngầm mỗi 30 giây.")
+                with _status_lock:
+                    _model_status["state"] = "error"
+                    _model_status["error_message"] = (
+                        "Không kết nối được GPU Online. Ứng dụng tự thử lại mỗi 30 giây, "
+                        "hoặc tắt GPU Online trong Cài đặt để chạy trên máy."
+                    )
+            time.sleep(5 if attempt < REMOTE_STARTUP_ATTEMPTS else 30)
+        # Người dùng đã tắt GPU Online: bỏ trạng thái lỗi để giao diện không chặn tạo giọng (model local nạp khi cần)
+        if not _is_remote_gpu_online:
+            with _status_lock:
+                if _model_status["state"] in ("error", "loading"):
+                    _model_status["state"] = "idle"
+                    _model_status["error_message"] = None
         return
 
     # 2. Kiểm tra xem model đã có trong cache chưa
