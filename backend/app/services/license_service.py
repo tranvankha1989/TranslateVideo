@@ -41,23 +41,52 @@ GLOBAL_APP_FEATURE_ID = "app_global"
 TRIAL_DURATION_DAYS = 7
 TRIAL_DURATION_SECONDS = TRIAL_DURATION_DAYS * 86400
 
-# File lưu trạng thái bản quyền local
-LICENSE_STORE_FILE = PROJECT_ROOT / "backend" / ".license_store.dat"
+# File lưu trạng thái bản quyền local (mã hóa theo HWID).
+# Từ 3.14.11 lưu NGOÀI thư mục cài (%LOCALAPPDATA%\OmniVoice\Data, cùng chỗ dữ liệu dùng thử) để cài lại,
+# đổi thư mục cài hoặc bộ cài chép đè không làm mất kích hoạt. Vị trí cũ trong thư mục cài vẫn được đọc
+# và tự chuyển sang vị trí mới (chỉ khi vị trí mới chưa có file).
+LEGACY_LICENSE_STORE_FILE = PROJECT_ROOT / "backend" / ".license_store.dat"
+
+
+def _license_store_path() -> Path:
+    base = os.environ.get("LOCALAPPDATA")
+    root = Path(base) if base else Path.home() / "AppData" / "Local"
+    return root / "OmniVoice" / "Data" / "license_store.dat"
+
+
+LICENSE_STORE_FILE = _license_store_path()
 MASTER_KEYS = {"AIMABIETPRO", "OMNIPRO2026", "DEVELOPER_BYPASS_DEBUG"}
 
 
+def _read_store_file(path: Path, hwid: str) -> Optional[dict]:
+    """Đọc 1 file lưu license; None nếu không có file hoặc không giải mã được (khác máy, hỏng)."""
+    if not path.exists():
+        return None
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+        data = decrypt_payload(raw, hwid)
+        return data if isinstance(data, dict) else None
+    except Exception as e:
+        logger.debug(f"Không thể đọc file local license {path}: {e}")
+        return None
+
+
 def _read_local_store() -> dict:
-    """Đọc file lưu license local được mã hóa theo HWID."""
-    if not LICENSE_STORE_FILE.exists():
-        return {}
+    """Đọc file lưu license local được mã hóa theo HWID (AppData; nếu chưa có thì đọc vị trí cũ rồi chuyển sang)."""
     try:
         hwid = get_hardware_id()
-        raw = LICENSE_STORE_FILE.read_text(encoding="utf-8").strip()
-        data = decrypt_payload(raw, hwid)
-        return data or {}
     except Exception as e:
-        logger.debug(f"Không thể đọc file local license: {e}")
+        logger.debug(f"Không lấy được HWID khi đọc license: {e}")
         return {}
+    data = _read_store_file(LICENSE_STORE_FILE, hwid)
+    if data is not None:
+        return data
+    legacy = _read_store_file(LEGACY_LICENSE_STORE_FILE, hwid)
+    if legacy:
+        if _save_local_store(legacy):
+            logger.info("🔐 [Bản quyền] Đã chuyển dữ liệu kích hoạt từ thư mục cài sang AppData.")
+        return legacy
+    return {}
 
 
 def _save_local_store(data: dict) -> bool:
