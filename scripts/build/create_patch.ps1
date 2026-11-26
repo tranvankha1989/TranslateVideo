@@ -71,6 +71,27 @@ Copy-Item -Path "$rootDist\*" -Destination (Join-Path $stagingDir "dist") -Recur
 # Chep version.json
 Copy-Item -Path $versionFile -Destination (Join-Path $stagingDir "version.json") -Force
 
+# Chep vo Electron moi: resources\app.asar.new + SHA-256. Backend tu thay app.asar khi tat app
+# (backend\app\core\shell_update.py) vi luc app chay file nay bi Electron khoa
+if (-not $SkipBuild) {
+    Write-Host "Dang dong goi vo Electron (electron:pack)..." -ForegroundColor Yellow
+    Set-Location (Join-Path $Root "frontend")
+    & pnpm.cmd run electron:pack
+    if ($LASTEXITCODE -ne 0) {
+        throw "Dong goi vo Electron that bai!"
+    }
+    Set-Location $Root
+}
+$asarSrc = Join-Path $Root "frontend\release\win-unpacked\resources\app.asar"
+if (-not (Test-Path $asarSrc)) {
+    throw "Khong tim thay vo Electron: $asarSrc"
+}
+New-Item -ItemType Directory -Path (Join-Path $stagingDir "resources") -Force | Out-Null
+$asarNew = Join-Path $stagingDir "resources\app.asar.new"
+Copy-Item -Path $asarSrc -Destination $asarNew -Force
+$asarHash = (Get-FileHash -LiteralPath $asarNew -Algorithm SHA256).Hash
+[System.IO.File]::WriteAllText((Join-Path $stagingDir "resources\app.asar.new.sha256"), $asarHash)
+
 # Chep toan bo backend logic (tat ca file .py o thu muc goc backend va thu muc app)
 New-Item -ItemType Directory -Path (Join-Path $stagingDir "backend") -Force | Out-Null
 

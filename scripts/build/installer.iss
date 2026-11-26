@@ -73,6 +73,15 @@ Source: "..\..\version.json"; DestDir: "{app}\backend"; Flags: ignoreversion
 ; Tu dong don dep cac file ma nguon .py cu tranh viec Python uu tien import file .py cu thay vi bytecode .pyc moi nhat
 Type: files; Name: "{app}\backend\*.py"
 Type: filesandordirs; Name: "{app}\backend\app"
+; Vo Electron cho thay tu goi cap nhat cu (bo cai moi da co vo moi hon)
+Type: files; Name: "{app}\resources\app.asar.new"
+Type: files; Name: "{app}\resources\app.asar.new.sha256"
+Type: files; Name: "{app}\resources\app.asar.bak"
+
+[UninstallDelete]
+Type: files; Name: "{app}\resources\app.asar.new"
+Type: files; Name: "{app}\resources\app.asar.new.sha256"
+Type: files; Name: "{app}\resources\app.asar.bak"
 
 
 [Dirs]

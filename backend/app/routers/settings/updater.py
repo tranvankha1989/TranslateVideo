@@ -478,6 +478,14 @@ async def perform_update_endpoint():
             except Exception:
                 pass
 
+    # Gói cập nhật có vỏ Electron mới (resources/app.asar.new): lên lịch thay ngay khi tắt app
+    try:
+        from app.core.shell_update import schedule_shell_update
+        if schedule_shell_update(project_root):
+            logs.append("🧩 Vỏ ứng dụng mới sẽ được áp dụng sau khi tắt và mở lại app.")
+    except Exception as se:
+        logger.warning(f"Không thể lên lịch cập nhật vỏ app: {se}")
+
     logs.append(f"🎉 [4/4] Nâng cấp hoàn tất thành công! Phiên bản hiện tại: v{new_ver}")
     return PerformUpdateResponse(
         ok=True,

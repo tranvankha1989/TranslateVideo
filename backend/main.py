@@ -14,7 +14,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import sys
-from app.core.config import OUTPUTS_DIR, PRESETS_DIR, APP_VERSION, APP_LOG_FILE, logger
+import threading
+from app.core.config import OUTPUTS_DIR, PRESETS_DIR, APP_VERSION, APP_LOG_FILE, BASE_DIR, logger
+
+
+def _prewarm_hwid():
+    """Tính sẵn mã phần cứng (PowerShell mất vài giây) trong lúc Python còn nạp thư viện AI,
+    để bước xác thực bản quyền lúc mở app không phải chờ. Kết quả được hwid.py tự lưu đệm."""
+    try:
+        from app.core.licensing.hwid import get_hardware_id
+        get_hardware_id()
+    except Exception:
+        pass
+
+
+threading.Thread(target=_prewarm_hwid, name="hwid-prewarm", daemon=True).start()
 from app.core.database import connect_db, close_db
 from app.routers import api_router
 from model_handler import load_model, is_remote_gpu_enabled, get_remote_gpu_url, start_model_loader_background
@@ -54,6 +68,13 @@ async def lifespan(app: FastAPI):
         pass
     logger.info(f"🌐 GPU Online Worker: Enabled={is_remote_gpu_enabled()} | URL='{get_remote_gpu_url()}'")
     logger.info("=" * 70)
+
+    # Gói cập nhật có kèm vỏ Electron mới (resources/app.asar.new) -> thay khi tắt app
+    try:
+        from app.core.shell_update import schedule_shell_update
+        schedule_shell_update(BASE_DIR.parent)
+    except Exception as e:
+        logger.warning(f"⚠️ Bỏ qua cập nhật vỏ app: {e}")
 
     # Khởi động nạp/tải mô hình OmniVoice trong background thread (NON-BLOCKING)
     # Giúp Uvicorn mở port 8000 ngay lập tức mà không bị timeout!
