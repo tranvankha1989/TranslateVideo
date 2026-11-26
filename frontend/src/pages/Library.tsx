@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTTSStore, type AudioRecord } from "../store/useTTSStore";
@@ -520,10 +520,18 @@ export default function Library() {
     }
   }, []);
 
-  // Tự động dọn dẹp các tệp cũ hơn số ngày lưu trữ
+  // Tự động dọn dẹp các tệp cũ hơn số ngày lưu trữ.
+  // Mỗi lúc chỉ 1 lượt và đọc lịch sử mới nhất từ store: trước đây hàm phụ thuộc `history` nên mỗi lần xóa
+  // 1 bản thu âm lại tạo lượt dọn mới (với bản chụp cũ) -> vòng lặp gọi API hàng nghìn lần, trang tải liên tục
+  const autoCleanupRunning = useRef(false);
   const runAutoCleanup = useCallback(
     async (days: number, notifyUser: boolean = false) => {
       if (days <= 0) return;
+      if (autoCleanupRunning.current) {
+        if (notifyUser) toast.info("Đang dọn dẹp, vui lòng đợi trong giây lát...");
+        return;
+      }
+      autoCleanupRunning.current = true;
       try {
         let totalFreedMb = 0;
         let deletedVideos = 0;
@@ -542,7 +550,9 @@ export default function Library() {
 
         // 2. Dọn dẹp audio records cũ trong history
         const cutoffTime = Date.now() - days * 86400 * 1000;
-        const expiredAudios = history.filter((h) => h.timestamp < cutoffTime);
+        const expiredAudios = useTTSStore
+          .getState()
+          .history.filter((h) => h.timestamp < cutoffTime);
         if (expiredAudios.length > 0) {
           for (const item of expiredAudios) {
             await removeHistory(item.id);
@@ -560,9 +570,11 @@ export default function Library() {
         }
       } catch (e: any) {
         if (notifyUser) toast.error(`Lỗi khi dọn dẹp tự động: ${e.message}`);
+      } finally {
+        autoCleanupRunning.current = false;
       }
     },
-    [history, removeHistory, fetchVideoProjects],
+    [removeHistory, fetchVideoProjects],
   );
 
   const handleRetentionDaysChange = (days: number) => {
