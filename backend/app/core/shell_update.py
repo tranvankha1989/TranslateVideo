@@ -46,6 +46,18 @@ def sha256(p):
             h.update(b)
     return h.hexdigest().upper()
 
+k32.CreateFileW.restype = ctypes.c_void_p
+k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+
+def in_use(p):
+    # Mở độc quyền (không chia sẻ): thất bại = app vừa mở lại đang dùng app.asar -> chưa được chép đè
+    # (Electron mở file có chia sẻ ghi nên chép đè vẫn "thành công" và làm hỏng app đang chạy)
+    h = k32.CreateFileW(p, 0xC0000000, 0, None, 3, 0x80, None)  # GENERIC_READ|WRITE, share 0, OPEN_EXISTING
+    if h is None or h == ctypes.c_void_p(-1).value:
+        return True
+    k32.CloseHandle(h)
+    return False
+
 def drop(*paths):
     for p in paths:
         try:
@@ -77,6 +89,10 @@ try:
             note("Sai SHA-256, xoa app.asar.new: " + got)
             drop(new, sha)
             break
+        if in_use(cur):
+            note("app.asar dang bi khoa, thu lai")
+            time.sleep(1)
+            continue
         stage = 0
         try:
             shutil.copyfile(cur, bak)
