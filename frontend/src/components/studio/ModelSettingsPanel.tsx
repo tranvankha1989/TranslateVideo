@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FolderPlus, Plus, X, Square } from "lucide-react";
 import { toast } from "sonner";
@@ -363,15 +363,82 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
   );
 };
 
-// Nút Tạo giọng nói / Đang xử lý / Dừng xử lý (dùng chung cho khung cài đặt và cột chính Phòng thu)
+// % hiển thị trên nút Dừng (1-99). Máy chủ không báo % trong từng phân đoạn, chỉ biết số đoạn đã xong:
+// mốc thật = đoạn xong / tổng (tới 95%, phần còn lại là ghép file); giữa hai mốc tăng dần, chậm lại,
+// không vượt mốc kế tiếp (2 đoạn chạy song song, xem CONCURRENCY trong useStudioGenerate).
+const useGenerateProgressPct = (
+  isLoading: boolean,
+  progress?: { current: number; total: number },
+) => {
+  const [pct, setPct] = useState(0);
+  const [finishing, setFinishing] = useState(false);
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
+  const wasLoadingRef = useRef(false);
+
+  // Xong hết phân đoạn: giữ nút tô kín 100% một lúc rồi mới trả về nút Tạo giọng nói
+  // (bấm Dừng thì tiến trình bị đặt về 0/0 nên không hiện 100%)
+  useEffect(() => {
+    if (isLoading) {
+      wasLoadingRef.current = true;
+      setFinishing(false);
+      return;
+    }
+    if (!wasLoadingRef.current) return;
+    wasLoadingRef.current = false;
+    const p = progressRef.current;
+    if (!p || p.total <= 0 || p.current < p.total) return;
+    setFinishing(true);
+    const id = setTimeout(() => setFinishing(false), 700);
+    return () => clearTimeout(id);
+  }, [isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setPct(0);
+      return;
+    }
+    setPct(1);
+    const id = setInterval(() => {
+      const total = Math.max(0, progressRef.current?.total || 0);
+      const t = Math.max(1, total);
+      const done = Math.min(Math.max(0, progressRef.current?.current || 0), t);
+      const floor = (done / t) * 95;
+      const cap = total > 0 && done >= t ? 99 : (Math.min(t, done + 2) / t) * 95 - 1;
+      setPct((p) => {
+        const base = Math.max(p, floor);
+        return base < cap ? base + (cap - base) * 0.03 : base;
+      });
+    }, 250);
+    return () => clearInterval(id);
+  }, [isLoading]);
+
+  // Lần vẽ ngay khi vừa xong (trước khi effect đặt finishing) cũng tính là xong, tránh chớp nút Tạo giọng nói
+  const justDone =
+    !isLoading &&
+    wasLoadingRef.current &&
+    !!progress &&
+    progress.total > 0 &&
+    progress.current >= progress.total;
+  const done = finishing || justDone;
+  return {
+    pct: done ? 100 : Math.min(99, Math.max(1, Math.floor(pct))),
+    finishing: done,
+  };
+};
+
+// Nút Tạo giọng nói / Dừng xử lý kèm tiến trình (dùng chung cho khung cài đặt và cột chính Phòng thu)
 export const GenerateActions: React.FC<{
   isLoading: boolean;
   onGenerate: () => void;
   onStopGenerate?: () => void;
+  progress?: { current: number; total: number };
   className?: string;
-}> = ({ isLoading, onGenerate, onStopGenerate, className = "" }) => (
+}> = ({ isLoading, onGenerate, onStopGenerate, progress, className = "" }) => {
+  const { pct, finishing } = useGenerateProgressPct(isLoading, progress);
+  return (
     <div className={`flex flex-col gap-2.5 ${className}`}>
-      {!isLoading ? (
+      {!isLoading && !finishing ? (
         <button
           type="button"
           id="generate-btn"
@@ -387,32 +454,26 @@ export const GenerateActions: React.FC<{
           <div className="absolute inset-0 bg-white/20 transform -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out"></div>
         </button>
       ) : (
-        <div className="flex flex-col gap-2 animate-in fade-in duration-200">
-          {/* Thanh trạng thái đang xử lý */}
-          <div className="w-full py-3 px-4 rounded-xl bg-surface-dim border border-primary/20 flex items-center justify-between text-xs font-label-caps">
-            <span className="flex items-center gap-2 text-primary font-semibold">
-              <span className="material-symbols-outlined animate-spin text-[18px]">
-                sync
-              </span>
-              ĐANG XỬ LÝ...
-            </span>
-            <span className="font-mono-data text-on-surface-variant text-[11px]">
-              Vui lòng đợi
-            </span>
-          </div>
-
-          {/* Nút Dừng xử lý nổi bật */}
-          <button
-            type="button"
-            id="stop-generate-btn"
-            onClick={onStopGenerate}
-            className="w-full py-3.5 px-6 font-label-caps text-sm rounded-xl flex items-center justify-center gap-2 transition-all duration-200 bg-rose-500/15 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 hover:border-rose-500 shadow-md hover:shadow-rose-500/25 cursor-pointer font-bold group"
-            title="Dừng xử lý ngay lập tức và khôi phục trạng thái ban đầu"
-          >
+        // Nút Dừng xử lý: nền tô màu từ trái sang phải theo tiến trình
+        <button
+          type="button"
+          id="stop-generate-btn"
+          onClick={finishing ? undefined : onStopGenerate}
+          className="w-full py-4 2k:py-5 px-6 2k:px-8 font-label-caps text-label-caps 2k:text-base rounded-xl 2k:rounded-2xl flex items-center justify-center gap-2 overflow-hidden relative transition-colors duration-200 bg-rose-500/10 hover:bg-rose-500/20 text-white border border-rose-500/40 hover:border-rose-500 shadow-md cursor-pointer group animate-in fade-in duration-200"
+          title="Dừng xử lý ngay lập tức và khôi phục trạng thái ban đầu"
+        >
+          <div
+            aria-hidden="true"
+            className="absolute inset-y-0 left-0 bg-rose-500/50 transition-[width] duration-300 ease-linear"
+            style={{ width: `${pct}%` }}
+          />
+          <span className="relative z-10 flex items-center gap-2 text-sm 2k:text-base font-bold">
             <Square className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
-            <span>DỪNG XỬ LÝ (HỦY BỎ)</span>
-          </button>
-        </div>
+            DỪNG XỬ LÝ
+            <span className="font-mono-data tabular-nums">{pct}%</span>
+          </span>
+        </button>
       )}
     </div>
-);
+  );
+};

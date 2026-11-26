@@ -279,9 +279,6 @@ export default function Studio() {
               textareaRef={textareaRef}
               pauseSettings={pauseSettings}
               pronunciationWords={pronunciationWords}
-              isLoading={generator.isLoading}
-              elapsedTime={generator.elapsedTime}
-              generationProgress={generator.generationProgress}
               onClearSession={() => {
                 const hasData = Boolean(
                   text.trim() || blocks.studioBlocks.length > 0 || audioUrl,
@@ -293,7 +290,6 @@ export default function Studio() {
                 setIsNewScriptModalOpen(true);
               }}
               blocksCount={blocks.studioBlocks.length}
-              onStopGenerate={handleStopGenerate}
             />
 
             {/* Nút Tạo giọng nói luôn hiện ở cột chính (khung Cài đặt mô hình là khung trượt bên phải) */}
@@ -303,6 +299,7 @@ export default function Studio() {
                 isLoading={generator.isLoading}
                 onGenerate={handleGenerate}
                 onStopGenerate={handleStopGenerate}
+                progress={generator.generationProgress}
               />
             </div>
 

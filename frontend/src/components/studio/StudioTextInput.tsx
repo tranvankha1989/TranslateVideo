@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import { FileUp, CheckCircle2, UploadCloud, Square } from "lucide-react";
+import { FileUp, CheckCircle2, UploadCloud } from "lucide-react";
 import { NON_VERBAL_SYMBOLS } from "../../constants/studio";
 import { parseScriptFile } from "../../utils/scriptImporter";
 import type { PauseSettings, PronunciationWord } from "../../store/useTTSStore";
@@ -14,11 +14,7 @@ interface StudioTextInputProps {
   onOpenPronunciationModal?: () => void;
   pauseSettings?: PauseSettings;
   pronunciationWords?: PronunciationWord[];
-  isLoading: boolean;
-  elapsedTime: number;
-  generationProgress: { current: number; total: number };
   onClearSession?: () => void;
-  onStopGenerate?: () => void;
   blocksCount?: number;
 }
 
@@ -30,11 +26,7 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
   onOpenPronunciationModal: _onOpenPronunciationModal,
   pauseSettings: _pauseSettings,
   pronunciationWords: _pronunciationWords,
-  isLoading,
-  elapsedTime,
-  generationProgress,
   onClearSession,
-  onStopGenerate,
   blocksCount = 0,
 }) => {
   const { status: licenseStatus } = useGlobalLicense();
@@ -423,45 +415,6 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
           </span>
         </div>
       </div>
-
-      {isLoading && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-2 animate-in fade-in zoom-in-95 bg-primary/5 border border-primary/20 rounded-xl p-4 shadow-[0_0_15px_rgba(245,158,11,0.05)]">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-label-caps text-primary flex items-center gap-2.5">
-              <span className="material-symbols-outlined animate-spin text-[20px]">
-                progress_activity
-              </span>
-              {generationProgress.total > 1
-                ? `Đang tổng hợp phân đoạn (${generationProgress.current}/${generationProgress.total})...`
-                : "Đang xử lý âm thanh..."}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-surface-dim px-3 py-1.5 rounded-lg border border-primary/20">
-              <span className="material-symbols-outlined text-[16px] text-primary">
-                timer
-              </span>
-              <span className="text-sm font-mono-data text-primary">
-                {String(Math.floor(elapsedTime / 60)).padStart(2, "0")}:
-                {String(elapsedTime % 60).padStart(2, "0")}
-              </span>
-            </div>
-
-            {onStopGenerate && (
-              <button
-                type="button"
-                onClick={onStopGenerate}
-                className="px-3.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-label-caps font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                title="Dừng xử lý ngay lập tức và khôi phục trạng thái ban đầu"
-              >
-                <Square className="w-3.5 h-3.5 fill-current" />
-                <span>Dừng lại</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

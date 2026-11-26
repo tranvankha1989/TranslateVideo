@@ -324,7 +324,7 @@ export function MainLayout() {
           "flex-1 flex flex-col justify-start items-center min-h-[calc(100vh-80px)] overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out box-border",
           location.pathname === "/autocaption"
             ? "p-2 sm:p-3 md:p-4"
-            : "p-margin-mobile md:p-margin-desktop 2k:p-10",
+            : "p-margin-mobile md:p-margin-desktop md:pt-0 2k:p-10 2k:pt-0",
           isCollapsed
             ? "md:ml-[72px] md:w-[calc(100%-72px)]"
             : "md:ml-72 2k:ml-80 md:w-[calc(100%-288px)] 2k:w-[calc(100%-320px)]",

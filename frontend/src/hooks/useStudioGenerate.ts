@@ -138,6 +138,8 @@ export function useStudioGenerate() {
 
     setIsLoading(true);
     setAudioUrl(null);
+    // Xóa tiến trình của lần tạo trước (chế độ 1 câu không đặt lại, nút Dừng sẽ hiện % cũ)
+    useTTSStore.getState().setGenerationProgress({ current: 0, total: 0 });
 
     const toastId = toast.loading("Đang khởi tạo mô hình...", { duration: 30000 });
     activeToastIdRef.current = toastId;
@@ -244,6 +246,8 @@ export function useStudioGenerate() {
           sessionId: currentSessionId,
         });
 
+        // Báo xong để nút Dừng tô kín 100% trước khi trở lại nút Tạo giọng nói
+        useTTSStore.getState().setGenerationProgress({ current: 1, total: 1 });
         toast.success("Thành công! Đã tạo âm thanh mới.", { id: toastId });
       } else {
         // ── Batch (multi-sentence) mode ────────────────────────────────────
