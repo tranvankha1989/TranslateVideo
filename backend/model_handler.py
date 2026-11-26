@@ -222,6 +222,40 @@ def _remote_headers() -> dict[str, str]:
 _has_warmed_up = False
 _is_remote_gpu_online = False
 
+# Hugging Face Space đang ngủ cần 30 giây - vài phút để thức dậy: chờ lâu hơn và thử lại nhiều lần
+REMOTE_HEALTH_TIMEOUT = 30.0
+REMOTE_STARTUP_ATTEMPTS = 6
+_remote_recheck_lock = threading.Lock()
+
+
+def _recheck_remote_gpu(timeout: float = REMOTE_HEALTH_TIMEOUT) -> bool:
+    """Kiểm tra lại Cloud GPU khi đang bị đánh dấu mất kết nối (vd: Space ngủ lúc mở app, sau đó đã thức).
+    Trả về True nếu Worker đang hoạt động."""
+    global _is_remote_gpu_online
+    if _is_remote_gpu_online:
+        return True
+    with _remote_recheck_lock:
+        if _is_remote_gpu_online:
+            return True
+        try:
+            # pyrefly: ignore [missing-import]
+            import httpx
+            resp = httpx.get(_remote_url("health"), headers=_remote_headers(), timeout=timeout)
+            if resp.status_code == 200:
+                _is_remote_gpu_online = True
+                with _status_lock:
+                    _model_status["state"] = "ready"
+                    _model_status["is_loaded"] = True
+                    _model_status["percent"] = 100.0
+                    _model_status["current_file"] = "Cloud GPU Online"
+                    _model_status["error_message"] = None
+                logger.info("🚀 Kiểm tra lại: kết nối Cloud GPU thành công.")
+                return True
+            logger.warning(f"⚠️ Kiểm tra lại Cloud GPU trả về mã lỗi {resp.status_code}.")
+        except Exception as e:
+            logger.warning(f"⚠️ Kiểm tra lại Cloud GPU thất bại ({e}).")
+    return False
+
 
 def load_model(force_local: bool = False) -> None:
     """
@@ -380,25 +414,46 @@ def _background_model_loader() -> None:
 
     # 1. Kiểm tra Remote GPU nếu được bật
     if is_remote_gpu_enabled() and get_remote_gpu_url():
-        with _status_lock:
-            _model_status["state"] = "loading"
-            _model_status["current_file"] = "Đang kiểm tra kết nối Cloud GPU Worker..."
         target_health = _remote_url("health")
-        try:
-            import httpx
-            resp = httpx.get(target_health, headers=_remote_headers(), timeout=5.0)
-            if resp.status_code == 200:
-                _is_remote_gpu_online = True
-                with _status_lock:
-                    _model_status["state"] = "ready"
-                    _model_status["is_loaded"] = True
-                    _model_status["is_cached"] = True
-                    _model_status["percent"] = 100.0
-                    _model_status["current_file"] = "Cloud GPU Online"
-                logger.info("🚀 Kết nối Cloud GPU thành công. Hệ thống sẵn sàng!")
+        import httpx
+        for attempt in range(1, REMOTE_STARTUP_ATTEMPTS + 1):
+            with _status_lock:
+                _model_status["state"] = "loading"
+                _model_status["current_file"] = (
+                    "Đang kiểm tra kết nối Cloud GPU Worker..." if attempt == 1
+                    else f"GPU Online đang khởi động, thử lại lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}..."
+                )
+            try:
+                resp = httpx.get(target_health, headers=_remote_headers(), timeout=REMOTE_HEALTH_TIMEOUT)
+                if resp.status_code == 200:
+                    _is_remote_gpu_online = True
+                    with _status_lock:
+                        _model_status["state"] = "ready"
+                        _model_status["is_loaded"] = True
+                        _model_status["is_cached"] = True
+                        _model_status["percent"] = 100.0
+                        _model_status["current_file"] = "Cloud GPU Online"
+                        _model_status["error_message"] = None
+                    logger.info("🚀 Kết nối Cloud GPU thành công. Hệ thống sẵn sàng!")
+                    return
+                logger.warning(f"⚠️ Cloud GPU trả về mã {resp.status_code} (lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}).")
+            except Exception as e:
+                logger.warning(f"⚠️ Chưa kết nối được Cloud GPU (lần {attempt}/{REMOTE_STARTUP_ATTEMPTS}): {e}")
+            if _is_remote_gpu_online:  # một yêu cầu TTS đã kiểm tra lại thành công trong lúc chờ
                 return
-        except Exception as e:
-            logger.warning(f"⚠️ Không thể kết nối tới Cloud GPU ({e}), tự động chuyển sang tải/dùng model local.")
+            if attempt < REMOTE_STARTUP_ATTEMPTS:
+                time.sleep(5)
+
+        # GPU Online đang bật thì TTS không dùng mô hình local -> KHÔNG nạp mô hình nặng lên CPU
+        # (trước đây nạp ~1.5 phút làm backend đứng, giao diện thiếu icon, và cờ kẹt "mất kết nối" cả phiên)
+        logger.warning("⚠️ Không kết nối được Cloud GPU sau nhiều lần thử. Không nạp mô hình lên CPU vì GPU Online đang bật.")
+        with _status_lock:
+            _model_status["state"] = "error"
+            _model_status["error_message"] = (
+                "Không kết nối được GPU Online. Bấm Thử lại sau ít phút, "
+                "hoặc tắt GPU Online trong Cài đặt để chạy trên máy."
+            )
+        return
 
     # 2. Kiểm tra xem model đã có trong cache chưa
     cached = is_omnivoice_cached()
@@ -571,6 +626,8 @@ def create_voice_prompt(ref_audio: str, ref_text: str | None = None) -> VoiceClo
     if is_remote_gpu_enabled():
         if not _is_remote_gpu_online and _model is None:
             load_model()
+        if not _is_remote_gpu_online:
+            _recheck_remote_gpu()
         if not _is_remote_gpu_online:
             raise RuntimeError(
                 f"Chế độ GPU Online đang bật nhưng không thể kết nối tới Worker ({get_remote_gpu_url()}). "
@@ -1156,6 +1213,8 @@ def generate_audio(
 
     # ─── Nếu bật Remote Cloud GPU ─────────────────────────────────
     if is_remote_gpu_enabled():
+        if not _is_remote_gpu_online:
+            _recheck_remote_gpu()  # Space có thể đã thức sau lần kiểm tra lúc mở app
         if not _is_remote_gpu_online:
             raise RuntimeError(
                 f"Chế độ GPU Online đang bật nhưng không thể kết nối tới Worker ({get_remote_gpu_url()}). "
