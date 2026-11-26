@@ -10,6 +10,18 @@ let isQuitting = false;
 let backendExited = false;
 let backendExitCode = null;
 let lastBackendLogs = [];
+let logStream = null; // Chỉ ghi backend_startup.log trong lúc khởi động (tránh file phình to cả phiên)
+let waitingForBackend = false; // Đang ở màn hình chờ khởi động (tự chờ, F5 không cần làm gì)
+const BACKEND_URL = "http://127.0.0.1:8000";
+
+function closeStartupLog(note) {
+  if (!logStream) return;
+  try {
+    if (note) logStream.write(`${note}\n`);
+    logStream.end();
+  } catch (e) {}
+  logStream = null;
+}
 
 function appendBackendLog(chunk) {
   const text = chunk.toString();
@@ -92,7 +104,7 @@ function startBackend() {
     try { fs.mkdirSync(logsDir, { recursive: true }); } catch (e) {}
   }
   const startupLogFile = path.join(logsDir, "backend_startup.log");
-  let logStream = null;
+  closeStartupLog();
   try {
     logStream = fs.createWriteStream(startupLogFile, { flags: "a" });
     logStream.write(`\n--- [${new Date().toISOString()}] KHOI DONG BACKEND PYTHON ---\n`);
@@ -141,10 +153,7 @@ function startBackend() {
       const exitMsg = `[Electron Exit] Python Process kết thúc với mã: ${code}, signal: ${signal}\n`;
       console.log(exitMsg);
       appendBackendLog(exitMsg);
-      if (logStream) {
-        logStream.write(exitMsg);
-        try { logStream.end(); } catch (e) {}
-      }
+      closeStartupLog(exitMsg.trim());
       backendExited = true;
       backendExitCode = code;
     });
@@ -157,7 +166,9 @@ function startBackend() {
 }
 
 // 4. Kiểm tra sức khỏe Backend (Healthcheck)
-function checkHealth(url = "http://127.0.0.1:8000/health", timeoutMs = 60000) {
+// Lần mở đầu sau khi bật máy / vừa cài: Python + thư viện AI (~50.000 file) đọc từ ổ đĩa nguội,
+// có antivirus quét có thể mất 1-3 phút -> chờ 3 phút (thoát sớm nếu Python chết)
+function checkHealth(url = `${BACKEND_URL}/health`, timeoutMs = 180000) {
   return new Promise((resolve) => {
     const startTime = Date.now();
 
@@ -225,7 +236,12 @@ async function createMainWindow() {
   // Cho phép phím F5 / Ctrl+R để reload giao diện (bỏ qua cache)
   mainWindow.webContents.on("before-input-event", (event, input) => {
     if (input.key === "F5" || (input.control && input.key.toLowerCase() === "r")) {
-      mainWindow.webContents.reloadIgnoringCache();
+      // Đang ở trang chờ/trang lỗi (data:) thì kết nối lại Backend, không tải lại chính trang lỗi
+      if (mainWindow.webContents.getURL().startsWith("data:")) {
+        if (!waitingForBackend) mainWindow.loadURL(BACKEND_URL);
+      } else {
+        mainWindow.webContents.reloadIgnoringCache();
+      }
       event.preventDefault();
       return;
     }
@@ -349,8 +365,21 @@ async function createMainWindow() {
     mainWindow.show();
   });
 
-  // Chờ Backend sẵn sàng rồi chuyển sang URL chính
+  // Chờ Backend sẵn sàng rồi chuyển sang URL chính; quá 15 giây thì báo người dùng đừng tắt app
+  const waitStart = Date.now();
+  const waitNotice = setInterval(() => {
+    const secs = Math.round((Date.now() - waitStart) / 1000);
+    if (secs < 15 || !mainWindow || mainWindow.isDestroyed()) return;
+    const msg = `Lần mở đầu sau khi bật máy có thể mất 1-3 phút, vui lòng không tắt ứng dụng... (${secs} giây)`;
+    mainWindow.webContents
+      .executeJavaScript(`(function(){var e=document.querySelector('.subtitle'); if(e) e.textContent=${JSON.stringify(msg)};})()`)
+      .catch(() => {});
+  }, 1000);
+  waitingForBackend = true;
   const isReady = await checkHealth();
+  waitingForBackend = false;
+  clearInterval(waitNotice);
+  if (isReady) closeStartupLog(`[Electron] Backend sẵn sàng sau ${Math.round((Date.now() - waitStart) / 1000)} giây`);
   try {
     if (mainWindow && mainWindow.webContents && mainWindow.webContents.session) {
       await mainWindow.webContents.session.clearCache();
@@ -381,7 +410,7 @@ async function createMainWindow() {
           <div class="card">
             <h2>⚠️ Không thể tải giao diện ứng dụng</h2>
             <p>Hệ thống Backend AI tại <code>http://127.0.0.1:8000</code> chưa sẵn sàng hoặc gặp lỗi kết nối.<br>Mã lỗi: ${errorDescription} (${errorCode})</p>
-            <button class="btn" onclick="location.reload()">Thử lại (F5)</button>
+            <button class="btn" onclick="window.location.href='${BACKEND_URL}'">Thử lại (F5)</button>
           </div>
         </body>
         </html>
@@ -399,8 +428,8 @@ async function createMainWindow() {
     } else {
       const logPreview = lastBackendLogs.slice(-10).join("\n") || "Chưa có log từ tiến trình Backend.";
       const exitInfo = backendExited
-        ? `Tiến trình Python đã dừng đột ngột (Mã thoát: ${backendExitCode}).`
-        : "Hệ thống đã đợi 60 giây nhưng Backend chưa hoàn tất nạp server.";
+        ? `Tiến trình Python đã dừng đột ngột (Mã thoát: ${backendExitCode}). Vui lòng tắt và mở lại ứng dụng.`
+        : "Hệ thống đã đợi 3 phút nhưng Backend chưa hoàn tất nạp server. Ứng dụng sẽ tự vào giao diện khi Backend sẵn sàng.";
 
       mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
         <!DOCTYPE html>
@@ -424,11 +453,22 @@ async function createMainWindow() {
             <p>${exitInfo}</p>
             <p>Vui lòng kiểm tra nhật ký chi tiết tại: <code>logs/backend_startup.log</code> hoặc <code>logs/app.log</code></p>
             <div class="log-box">${logPreview.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
-            <button class="btn" onclick="window.location.href='http://127.0.0.1:8000'">Thử kết nối lại (F5)</button>
+            <button class="btn" onclick="window.location.href='${BACKEND_URL}'">Thử kết nối lại (F5)</button>
           </div>
         </body>
         </html>
       `)}`);
+
+      // Python vẫn đang chạy (chỉ chậm): tiếp tục chờ ngầm thêm 10 phút, sẵn sàng thì tự vào giao diện
+      if (!backendExited) {
+        checkHealth(`${BACKEND_URL}/health`, 600000).then((lateReady) => {
+          if (!lateReady || !mainWindow || mainWindow.isDestroyed()) return;
+          closeStartupLog("[Electron] Backend sẵn sàng (muộn), tự chuyển vào giao diện");
+          if (mainWindow.webContents.getURL().startsWith("data:")) {
+            mainWindow.loadURL(BACKEND_URL, loadOptions);
+          }
+        });
+      }
     }
   }
 
