@@ -1,6 +1,6 @@
 {
-  "version": "3.14.12",
+  "version": "3.14.13",
   "name": "VideoTranslate AI",
-  "release_date": "2026-11-26",
-  "description": "Nâng cấp V3.14.12: Ô nhập Hugging Face Token cho GPU Online; thông báo gọn hơn, báo rõ lý do khi tạo giọng thất bại"
+  "release_date": "2026-11-27",
+  "description": "Nâng cấp V3.14.13: Nút Tạo giọng nói chuyển thành nút Dừng xử lý kèm tiến trình 1-100%; tiêu đề trang gọn sát phía trên"
 }

@@ -116,7 +116,7 @@ if (-not $iscc) {
     throw "Khong tim thay Inno Setup Compiler (ISCC.exe). Vui long cai dat Inno Setup 7 tu https://jrsoftware.org/isdl.php"
 }
 
-$vName = "3.14.12"
+$vName = "3.14.13"
 $vJsonFile = "$Root\version.json"
 if (Test-Path $vJsonFile) {
     try {
