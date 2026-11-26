@@ -226,6 +226,9 @@ export interface HardwareConfig {
   cuda_available: boolean;
   cuda_device_name: string | null;
   cuda_vram_gb?: number | null;
+  /** Đã lưu Hugging Face Token chưa (backend không trả token đầy đủ) */
+  hf_token_set?: boolean;
+  hf_token_hint?: string;
 }
 
 export interface TestGpuResult {
@@ -335,6 +338,8 @@ export interface TTSState {
     use_remote_gpu: boolean;
     remote_gpu_url: string;
     remote_concurrency?: number;
+    /** undefined = giữ token cũ; "" = xóa; chuỗi = token mới */
+    hf_token?: string;
   }) => Promise<boolean>;
   testRemoteGpuConnection: (url: string) => Promise<TestGpuResult>;
   openEnvFile: () => Promise<{ ok: boolean; message?: string }>;

@@ -33,6 +33,8 @@ export interface SystemSlice {
     use_remote_gpu: boolean;
     remote_gpu_url: string;
     remote_concurrency?: number;
+    /** undefined = giữ token cũ; "" = xóa; chuỗi = token mới */
+    hf_token?: string;
   }) => Promise<boolean>;
   testRemoteGpuConnection: (url: string) => Promise<TestGpuResult>;
   openEnvFile: () => Promise<{ ok: boolean; message?: string }>;

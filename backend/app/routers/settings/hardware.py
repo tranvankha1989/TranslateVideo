@@ -28,12 +28,37 @@ class HardwareSettingsResponse(BaseModel):
     cuda_available: bool
     cuda_device_name: Optional[str] = None
     cuda_vram_gb: Optional[float] = None
+    # Token Hugging Face: chỉ báo đã đặt hay chưa + vài ký tự đầu/cuối, KHÔNG trả token đầy đủ về giao diện
+    hf_token_set: bool = False
+    hf_token_hint: str = ""
 
 
 class UpdateHardwareSettingsRequest(BaseModel):
     use_remote_gpu: bool
     remote_gpu_url: str
     remote_concurrency: Optional[int] = 2
+    # None = giữ token cũ; "" = xóa token; chuỗi khác = đặt token mới
+    hf_token: Optional[str] = None
+
+
+def _current_hf_token() -> str:
+    return ((os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN") or "")).strip()
+
+
+def _hf_token_hint(tok: str) -> str:
+    return f"{tok[:3]}…{tok[-4:]}" if len(tok) > 10 else ("đã đặt" if tok else "")
+
+
+class CheckHfTokenRequest(BaseModel):
+    # Trống = kiểm tra token đã lưu
+    hf_token: Optional[str] = None
+
+
+class CheckHfTokenResponse(BaseModel):
+    ok: bool
+    account: Optional[str] = None
+    is_pro: Optional[bool] = None
+    error: Optional[str] = None
 
 
 class TestRemoteGpuRequest(BaseModel):
@@ -93,6 +118,7 @@ async def get_hardware_settings():
     vram_gb = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 2) if cuda_ok else None
     local_dev = "cuda" if cuda_ok else "cpu"
 
+    hf_tok = _current_hf_token()
     return HardwareSettingsResponse(
         use_remote_gpu=use_remote,
         remote_gpu_url=remote_url,
@@ -101,6 +127,8 @@ async def get_hardware_settings():
         cuda_available=cuda_ok,
         cuda_device_name=dev_name,
         cuda_vram_gb=vram_gb,
+        hf_token_set=bool(hf_tok),
+        hf_token_hint=_hf_token_hint(hf_tok),
     )
 
 
@@ -112,17 +140,40 @@ async def update_hardware_settings(req: UpdateHardwareSettingsRequest):
         "REMOTE_GPU_URL": url_cleaned,
         "REMOTE_CONCURRENCY": str(req.remote_concurrency or 2),
     }
+    # Token Hugging Face của người dùng: GPU Online (ZeroGPU) tính theo hạn mức tài khoản này thay vì khách ẩn danh
+    if req.hf_token is not None:
+        updates["HF_TOKEN"] = req.hf_token.strip()
 
     try:
         update_env_file(updates)
         model_handler.is_remote_gpu_enabled()
         model_handler.get_remote_gpu_url()
         logger.info(f"⚙️ Đã cập nhật cấu hình GPU: USE_REMOTE_GPU={req.use_remote_gpu}, URL='{url_cleaned}'")
+        if req.hf_token is not None:
+            logger.info("⚙️ Đã " + ("lưu" if req.hf_token.strip() else "xóa") + " Hugging Face Token (không ghi token vào log).")
     except Exception as e:
         logger.error(f"Lỗi khi ghi file .env: {e}")
         raise HTTPException(status_code=500, detail=f"Không thể ghi cấu hình vào .env: {e}")
 
     return await get_hardware_settings()
+
+
+@router.post("/hardware/check-hf-token", response_model=CheckHfTokenResponse, summary="Kiểm tra Hugging Face Token (tài khoản, PRO)")
+async def check_hf_token(req: CheckHfTokenRequest):
+    tok = (req.hf_token or "").strip() or _current_hf_token()
+    if not tok:
+        return CheckHfTokenResponse(ok=False, error="Chưa nhập Hugging Face Token.")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get("https://huggingface.co/api/whoami-v2", headers={"Authorization": f"Bearer {tok}"})
+        if resp.status_code == 200:
+            data = resp.json()
+            return CheckHfTokenResponse(ok=True, account=data.get("name"), is_pro=bool(data.get("isPro")))
+        if resp.status_code in (401, 403):
+            return CheckHfTokenResponse(ok=False, error="Token không hợp lệ hoặc đã bị thu hồi.")
+        return CheckHfTokenResponse(ok=False, error=f"Hugging Face trả lỗi HTTP {resp.status_code}.")
+    except Exception as e:
+        return CheckHfTokenResponse(ok=False, error=f"Không kết nối được Hugging Face: {e}")
 
 
 @router.post("/hardware/test", response_model=TestRemoteGpuResponse, summary="Kiểm tra kết nối tới Cloud GPU Worker")

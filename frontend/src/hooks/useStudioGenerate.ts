@@ -423,7 +423,14 @@ export function useStudioGenerate() {
             );
           }
         } else {
-          toast.error("Không có phân đoạn nào render thành công.", { id: toastId });
+          // Hiện lý do lỗi của đoạn đầu tiên (vd. GPU Online lỗi) thay vì chỉ báo chung chung
+          const firstError = completedBlocks.find((b) => b.status === "error" && b.error)?.error;
+          toast.error(
+            firstError
+              ? `Không có phân đoạn nào render thành công: ${firstError}`
+              : "Không có phân đoạn nào render thành công.",
+            { id: toastId },
+          );
         }
       }
     } catch (err: any) {

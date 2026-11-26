@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTTSStore, type TestGpuResult } from "@/store/useTTSStore";
+import { API_BASE_URL } from "@/constants/api";
 
 export const HardwareTab: React.FC = () => {
   const {
@@ -42,6 +43,10 @@ export const HardwareTab: React.FC = () => {
   const [useRemoteGpu, setUseRemoteGpu] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [concurrency, setConcurrency] = useState(2);
+  const [hfToken, setHfToken] = useState("");
+  const [showHfToken, setShowHfToken] = useState(false);
+  const [isCheckingHf, setIsCheckingHf] = useState(false);
+  const [hfCheck, setHfCheck] = useState<{ ok: boolean; account?: string; is_pro?: boolean; error?: string } | null>(null);
 
   // Cloud Sync
   const [isCloudSyncEnabled, setIsCloudSyncEnabled] = useState(false);
@@ -305,6 +310,40 @@ export const HardwareTab: React.FC = () => {
     }
   };
 
+  // Hugging Face Token (ô nhập không bao giờ hiện token đã lưu; để trống khi Lưu = giữ token cũ)
+  const handleCheckHfToken = async () => {
+    setIsCheckingHf(true);
+    setHfCheck(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/settings/hardware/check-hf-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hf_token: hfToken.trim() || null }),
+      });
+      setHfCheck(await res.json());
+    } catch (e: any) {
+      setHfCheck({ ok: false, error: `Lỗi kiểm tra token: ${e.message}` });
+    } finally {
+      setIsCheckingHf(false);
+    }
+  };
+
+  const handleClearHfToken = async () => {
+    const ok = await updateHardwareSettings({
+      use_remote_gpu: useRemoteGpu,
+      remote_gpu_url: remoteUrl.trim(),
+      remote_concurrency: concurrency,
+      hf_token: "",
+    });
+    if (ok) {
+      setHfToken("");
+      setHfCheck(null);
+      toast.success("Đã xóa Hugging Face Token.");
+    } else {
+      toast.error("Không thể xóa Hugging Face Token.");
+    }
+  };
+
   const handleSaveHardware = async () => {
     if (useRemoteGpu && !remoteUrl.trim()) {
       toast.error("Vui lòng nhập đường dẫn URL của Cloud GPU Worker!");
@@ -323,7 +362,9 @@ export const HardwareTab: React.FC = () => {
         use_remote_gpu: useRemoteGpu,
         remote_gpu_url: remoteUrl.trim(),
         remote_concurrency: concurrency,
+        hf_token: hfToken.trim() ? hfToken.trim() : undefined,
       });
+      if (hwSuccess && hfToken.trim()) setHfToken("");
 
       const syncRes = await fetch(
         "http://localhost:8000/api/settings/cloud-sync",
@@ -556,6 +597,74 @@ export const HardwareTab: React.FC = () => {
               💡 Nhớ bấm <strong>Play (Run)</strong> trên Google Colab trước khi
               kiểm tra
             </span>
+          </div>
+
+          {/* Hugging Face Token của người dùng: GPU Online (ZeroGPU) tính theo hạn mức tài khoản này thay vì khách ẩn danh */}
+          <div className="space-y-2.5 pt-1">
+            <div>
+              <h4 className="text-xs font-bold text-on-surface flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-primary" />
+                Hugging Face Token (khuyên dùng với Hugging Face Space)
+              </h4>
+              <p className="text-[11px] text-on-surface-variant mt-0.5 leading-relaxed">
+                Có token thì GPU Online được tính theo hạn mức tài khoản Hugging Face của bạn thay vì khách ẩn danh
+                (ít phút GPU hơn). Tạo miễn phí tại huggingface.co/settings/tokens, chọn quyền Read.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <input
+                  type={showHfToken ? "text" : "password"}
+                  value={hfToken}
+                  onChange={(e) => {
+                    setHfToken(e.target.value);
+                    setHfCheck(null);
+                  }}
+                  placeholder={
+                    hardwareConfig?.hf_token_set
+                      ? `Đã lưu token (${hardwareConfig.hf_token_hint}) - nhập token mới để thay`
+                      : "hf_xxxxxxxxxxxxxxxxxxxx"
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="w-full bg-surface-container-lowest/80 border border-white/10 rounded-2xl pl-4 pr-11 py-3 text-xs sm:text-sm text-on-surface font-mono placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowHfToken((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface cursor-pointer"
+                  title={showHfToken ? "Ẩn token" : "Hiện token"}
+                >
+                  {showHfToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleCheckHfToken}
+                disabled={isCheckingHf || (!hfToken.trim() && !hardwareConfig?.hf_token_set)}
+                className="px-5 py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-on-surface font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isCheckingHf ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                Kiểm tra token
+              </button>
+              {hardwareConfig?.hf_token_set && (
+                <button
+                  type="button"
+                  onClick={handleClearHfToken}
+                  className="px-5 py-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 font-semibold text-xs sm:text-sm transition-all cursor-pointer"
+                >
+                  Xóa token
+                </button>
+              )}
+            </div>
+            {hfCheck && (
+              <p className={cn("text-[11px] font-medium", hfCheck.ok ? "text-emerald-300" : "text-rose-300")}>
+                {hfCheck.ok
+                  ? `Token hợp lệ: tài khoản ${hfCheck.account}${hfCheck.is_pro ? " (PRO)" : " (miễn phí)"}.` +
+                    (hfToken.trim() ? " Bấm Lưu để áp dụng." : "")
+                  : hfCheck.error}
+              </p>
+            )}
           </div>
 
           {/* Kết nối thành công chỉ báo bằng thông báo nhỏ ở góc (toast); khung này chỉ hiện khi lỗi */}
