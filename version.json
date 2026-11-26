@@ -1,6 +1,6 @@
 {
-  "version": "3.14.4",
+  "version": "3.14.5",
   "name": "VideoTranslate AI",
   "release_date": "2026-11-26",
-  "description": "Nâng cấp V3.14.4: Gộp màn hình khởi động và xác thực bản quyền thành một, vòng xoay hiện phần trăm"
+  "description": "Nâng cấp V3.14.5: Một màn hình khởi động duy nhất chạy 0-100% rồi vào thẳng app"
 }
