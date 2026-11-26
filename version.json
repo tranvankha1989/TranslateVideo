@@ -1,6 +1,6 @@
 {
-  "version": "3.14.10",
+  "version": "3.14.11",
   "name": "VideoTranslate AI",
   "release_date": "2026-11-26",
-  "description": "Nâng cấp V3.14.10: Sửa lỗi phần mềm diệt virus báo nhầm (góp ý gửi qua máy chủ, thay vỏ app không dùng PowerShell)"
+  "description": "Nâng cấp V3.14.11: Cài lại hoặc đổi thư mục cài không mất kích hoạt bản quyền; cập nhật vỏ app an toàn hơn"
 }
