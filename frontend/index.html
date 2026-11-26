@@ -5,14 +5,72 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VideoTranslate AI</title>
+    <!-- Màn hình khởi động: giống hệt electron/boot_splash.cjs và src/components/BootSplash.tsx (sửa cả 3 nơi) -->
+    <style>
+      .boot-screen {
+        position: fixed; inset: 0; z-index: 2147483000;
+        display: flex; align-items: center; justify-content: center;
+        background: #090d16; color: #f8fafc; overflow: hidden; user-select: none;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      }
+      .boot-card {
+        display: flex; flex-direction: column; align-items: center; box-sizing: border-box;
+        min-width: 380px; max-width: 520px; padding: 40px 48px; text-align: center;
+        background: rgba(18, 24, 38, 0.7);
+        backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(59, 130, 246, 0.08);
+      }
+      .boot-spin-wrap { position: relative; width: 76px; height: 76px; margin-bottom: 22px; }
+      .boot-spinner { display: block; width: 76px; height: 76px; animation: boot-rotate 0.95s steps(12, end) infinite; }
+      @keyframes boot-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      .boot-pct {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font-size: 15px; font-weight: 600; color: #f8fafc; font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+      }
+      .boot-title {
+        margin: 0 0 8px; font-weight: 600; font-size: 21px; line-height: 1.3; letter-spacing: -0.02em;
+        background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+      }
+      .boot-sub {
+        margin: 0; color: #94a3b8; font-size: 13.5px; font-weight: 400; line-height: 1.5; letter-spacing: -0.01em;
+        animation: boot-pulse 2.2s ease-in-out infinite;
+      }
+      @keyframes boot-pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Preload offline font for 0ms instantaneous rendering -->
     <link rel="preload" href="/fonts/material-symbols-outlined.woff2" as="font" type="font/woff2" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;900&family=Be+Vietnam+Pro:wght@400;600;700;900&family=Anton&family=Roboto:wght@400;700;900&family=Lexend:wght@400;600;800&family=Playfair+Display:ital,wght@0,600;0,800;1,600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;900&family=Be+Vietnam+Pro:wght@400;600;700;900&family=Anton&family=Roboto:wght@400;700;900&family=Lexend:wght@400;600;800&family=Playfair+Display:ital,wght@0,600;0,800;1,600&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot-screen">
+        <div class="boot-card">
+          <div class="boot-spin-wrap">
+            <svg class="boot-spinner" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="1.00" transform="rotate(0 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.92" transform="rotate(30 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.84" transform="rotate(60 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.76" transform="rotate(90 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.68" transform="rotate(120 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.60" transform="rotate(150 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.52" transform="rotate(180 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.44" transform="rotate(210 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.36" transform="rotate(240 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.28" transform="rotate(270 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.20" transform="rotate(300 40 40)" />
+              <line x1="40" y1="4" x2="40" y2="14" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.12" transform="rotate(330 40 40)" />
+            </svg>
+            <div class="boot-pct">92%</div>
+          </div>
+          <h2 class="boot-title">VideoTranslate AI</h2>
+          <p class="boot-sub">Đang tải giao diện...</p>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

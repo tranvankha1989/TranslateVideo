@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const { spawn, execSync } = require("child_process");
 const http = require("http");
+const { bootSplashHtml } = require("./boot_splash.cjs");
 
 let mainWindow = null;
 let pythonProcess = null;
@@ -23,6 +24,30 @@ function closeStartupLog(note) {
   logStream = null;
 }
 
+// Phần trăm màn hình chờ: mỗi mốc khởi động Backend (đọc từ log uvicorn) là 1 chặng; trong chặng phần trăm
+// tăng chậm dần tới trần của chặng (không bao giờ vượt khi chưa qua mốc thật)
+const BOOT_STAGES = [
+  { floor: 2, cap: 66, tau: 10000 },  // 0: Python nạp thư viện AI (lâu nhất, lần đầu sau khi bật máy 1-3 phút)
+  { floor: 70, cap: 74, tau: 3000 },  // 1: Started server process
+  { floor: 75, cap: 84, tau: 4000 },  // 2: Waiting for application startup
+  { floor: 86, cap: 89, tau: 2000 },  // 3: Application startup complete
+];
+let bootStage = 0;
+let bootStageAt = Date.now();
+
+function markBootStage(stage) {
+  if (stage > bootStage) {
+    bootStage = stage;
+    bootStageAt = Date.now();
+  }
+}
+
+function bootPercent() {
+  const s = BOOT_STAGES[bootStage];
+  const dt = Date.now() - bootStageAt;
+  return s.floor + (s.cap - s.floor) * (1 - Math.exp(-dt / s.tau));
+}
+
 function appendBackendLog(chunk) {
   const text = chunk.toString();
   const lines = text.split(/\r?\n/).filter(Boolean);
@@ -31,6 +56,9 @@ function appendBackendLog(chunk) {
     if (lastBackendLogs.length > 30) {
       lastBackendLogs.shift();
     }
+    if (line.includes("Application startup complete")) markBootStage(3);
+    else if (line.includes("Waiting for application startup")) markBootStage(2);
+    else if (line.includes("Started server process")) markBootStage(1);
   }
 }
 
@@ -98,6 +126,8 @@ function startBackend() {
   backendExited = false;
   backendExitCode = null;
   lastBackendLogs = [];
+  bootStage = 0;
+  bootStageAt = Date.now();
 
   const logsDir = path.join(rootDir, "logs");
   if (!fs.existsSync(logsDir)) {
@@ -263,103 +293,11 @@ async function createMainWindow() {
     return { action: "deny" };
   });
 
-  // Tải trang Loading chuẩn phong cách Apple iOS / macOS
-  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <title>VideoTranslate AI</title>
-      <style>
-        * { box-sizing: border-box; }
-        body {
-          margin: 0;
-          padding: 0;
-          background: #090d16;
-          color: #f8fafc;
-          font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100vh;
-          user-select: none;
-          overflow: hidden;
-        }
-
-        /* Glassmorphism Container */
-        .splash-card {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 40px 48px;
-          background: rgba(18, 24, 38, 0.7);
-          backdrop-filter: blur(20px);
-          -webkit-backdrop-filter: blur(20px);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 24px;
-          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(59, 130, 246, 0.08);
-          text-align: center;
-        }
-
-        /* ─── Authentic Apple iOS / macOS 12-Spoke Activity Indicator ─── */
-        .apple-spinner {
-          width: 46px;
-          height: 46px;
-          margin-bottom: 24px;
-          animation: apple-rotate 0.95s steps(12, end) infinite;
-        }
-
-        @keyframes apple-rotate {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        /* Typography & Glow */
-        h2 {
-          margin: 0 0 8px;
-          font-weight: 600;
-          font-size: 21px;
-          letter-spacing: -0.02em;
-          background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-        }
-        .subtitle {
-          margin: 0;
-          color: #94a3b8;
-          font-size: 13.5px;
-          font-weight: 400;
-          letter-spacing: -0.01em;
-          animation: pulse 2.2s ease-in-out infinite;
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 0.6; }
-          50% { opacity: 1; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="splash-card">
-        <svg class="apple-spinner" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="1.0" transform="rotate(0 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.92" transform="rotate(30 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.84" transform="rotate(60 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.76" transform="rotate(90 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.68" transform="rotate(120 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.60" transform="rotate(150 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.52" transform="rotate(180 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.44" transform="rotate(210 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.36" transform="rotate(240 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.28" transform="rotate(270 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.20" transform="rotate(300 24 24)" />
-          <line x1="24" y1="5.5" x2="24" y2="14" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.12" transform="rotate(330 24 24)" />
-        </svg>
-        <h2>VideoTranslate AI</h2>
-        <p class="subtitle">Đang nạp mô hình và khởi động môi trường AI Studio...</p>
-      </div>
-    </body>
-    </html>
-  `)}`);
+  // Màn hình chờ duy nhất (vòng xoay + phần trăm), giao diện giống màn hình xác thực bản quyền của React
+  const bootText = "Đang nạp mô hình và khởi động môi trường AI Studio...";
+  let shownPct = 0;
+  let shownText = bootText;
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(bootSplashHtml(bootPercent(), bootText))}`);
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
@@ -367,19 +305,29 @@ async function createMainWindow() {
 
   // Chờ Backend sẵn sàng rồi chuyển sang URL chính; quá 15 giây thì báo người dùng đừng tắt app
   const waitStart = Date.now();
+  const pushBoot = (pct, text) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    pct = Math.max(shownPct, Math.round(pct)); // phần trăm chỉ tăng, không lùi
+    if (pct === shownPct && text === shownText) return;
+    shownPct = pct;
+    shownText = text;
+    mainWindow.webContents
+      .executeJavaScript(`window.__boot && window.__boot(${pct}, ${JSON.stringify(text)})`)
+      .catch(() => {});
+  };
   const waitNotice = setInterval(() => {
     const secs = Math.round((Date.now() - waitStart) / 1000);
-    if (secs < 15 || !mainWindow || mainWindow.isDestroyed()) return;
-    const msg = `Lần mở đầu sau khi bật máy có thể mất 1-3 phút, vui lòng không tắt ứng dụng... (${secs} giây)`;
-    mainWindow.webContents
-      .executeJavaScript(`(function(){var e=document.querySelector('.subtitle'); if(e) e.textContent=${JSON.stringify(msg)};})()`)
-      .catch(() => {});
-  }, 1000);
+    const text = secs < 15
+      ? (bootStage === 0 ? bootText : "Đang khởi động máy chủ AI...")
+      : `Lần mở đầu sau khi bật máy có thể mất 1-3 phút, vui lòng không tắt ứng dụng... (${secs} giây)`;
+    pushBoot(bootPercent(), text);
+  }, 250);
   waitingForBackend = true;
   const isReady = await checkHealth();
   waitingForBackend = false;
   clearInterval(waitNotice);
   if (isReady) closeStartupLog(`[Electron] Backend sẵn sàng sau ${Math.round((Date.now() - waitStart) / 1000)} giây`);
+  if (isReady) pushBoot(92, "Đang tải giao diện...");
   try {
     if (mainWindow && mainWindow.webContents && mainWindow.webContents.session) {
       await mainWindow.webContents.session.clearCache();

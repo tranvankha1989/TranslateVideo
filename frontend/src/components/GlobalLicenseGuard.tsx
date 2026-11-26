@@ -8,7 +8,6 @@ import React, {
 import {
   Lock,
   KeyRound,
-  Shield,
   Clock,
   Copy,
   Check,
@@ -20,6 +19,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/constants/api";
 import { LicenseComparisonModal } from "./LicenseComparisonModal";
+import { BootSplash } from "./BootSplash";
 
 export interface LicenseStatus {
   unlocked: boolean;
@@ -67,6 +67,24 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({
   const [keyInput, setKeyInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Màn hình khởi động nối tiếp trang chờ của Electron (đã tới 92%): chạy dần tới 99% trong lúc
+  // xác thực, xong thì hiện 100% một nhịp rồi mới vào app
+  const [splashPct, setSplashPct] = useState(94);
+  const [splashDone, setSplashDone] = useState(false);
+
+  useEffect(() => {
+    if (loading) {
+      setSplashDone(false);
+      setSplashPct((p) => (p >= 100 ? 94 : p));
+      const id = setInterval(() => {
+        setSplashPct((p) => Math.min(99, p + (99 - p) * 0.06));
+      }, 250);
+      return () => clearInterval(id);
+    }
+    setSplashPct(100);
+    const t = setTimeout(() => setSplashDone(true), 250);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   const fetchStatus = useCallback(async (retryCount = 0) => {
     try {
@@ -164,18 +182,10 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({
     isModalOpen,
   };
 
-  // Màn hình tải trạng thái ban đầu
-  if (loading) {
+  // Màn hình tải trạng thái ban đầu (cùng khung với trang chờ khởi động)
+  if (loading || (!splashDone && !connectionError)) {
     return (
-      <div className="fixed inset-0 bg-[#090d16] flex flex-col items-center justify-center z-50 text-zinc-400 space-y-4">
-        <div className="relative w-12 h-12 flex items-center justify-center">
-          <div className="w-12 h-12 border-3 border-primary/20 border-t-primary rounded-full animate-spin" />
-          <Shield className="w-5 h-5 text-primary absolute animate-pulse" />
-        </div>
-        <p className="text-sm font-medium tracking-wide text-zinc-400 animate-pulse">
-          Đang xác thực hệ thống bản quyền...
-        </p>
-      </div>
+      <BootSplash percent={splashPct} text="Đang xác thực bản quyền..." />
     );
   }
 
