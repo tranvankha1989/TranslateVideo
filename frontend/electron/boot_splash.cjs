@@ -12,10 +12,6 @@ const BOOT_CSS = `
   .boot-card {
     display: flex; flex-direction: column; align-items: center; box-sizing: border-box;
     min-width: 380px; max-width: 520px; padding: 40px 48px; text-align: center;
-    background: rgba(18, 24, 38, 0.7);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(59, 130, 246, 0.08);
   }
   .boot-spin-wrap { position: relative; width: 76px; height: 76px; margin-bottom: 22px; }
   .boot-spinner { display: block; width: 76px; height: 76px; animation: boot-rotate 0.95s steps(12, end) infinite; }
