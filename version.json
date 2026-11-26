@@ -1,6 +1,6 @@
 {
-  "version": "3.14.3",
+  "version": "3.14.4",
   "name": "VideoTranslate AI",
   "release_date": "2026-11-26",
-  "description": "Nâng cấp V3.14.3: Sửa lỗi GPU Online phải mở app 2 lần và icon menu không hiện"
+  "description": "Nâng cấp V3.14.4: Gộp màn hình khởi động và xác thực bản quyền thành một, vòng xoay hiện phần trăm"
 }

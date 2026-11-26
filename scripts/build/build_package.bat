@@ -78,7 +78,7 @@ if not defined ISCC (
     exit /b 1
 )
 
-set "APP_VER=3.14.3"
+set "APP_VER=3.14.4"
 for /f "tokens=2 delims=:," %%a in ('findstr /i ""version"" "%~dp0..\..ersion.json"') do (
     set "APP_VER=%%~a"
 )
