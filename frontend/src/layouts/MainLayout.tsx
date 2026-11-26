@@ -46,11 +46,11 @@ export function MainLayout() {
   };
 
   return (
-    <div className="text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden bg-[#090d16]">
+    <div className="app-root text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden bg-[#090d16]">
       {/* Side Navigation (Phong cách Studio Dark hiện đại, sắc nét) */}
       <nav
         className={cn(
-          "hidden md:flex fixed left-0 top-0 h-full bg-[#0d1322] border-r border-white/10 flex-col py-5 px-3.5 z-40 transition-all duration-300 ease-in-out select-none shadow-2xl",
+          "app-sidebar hidden md:flex fixed left-0 top-0 h-full bg-[#0d1322] border-r border-white/10 flex-col py-5 px-3.5 z-40 transition-all duration-300 ease-in-out select-none shadow-2xl",
           isCollapsed ? "w-[72px]" : "w-72 2k:w-80",
         )}
       >

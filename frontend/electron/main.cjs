@@ -1,4 +1,5 @@
-const { app, BrowserWindow, WebContentsView, shell, session } = require("electron");
+const { app, BrowserWindow, WebContentsView, shell, session, nativeTheme } = require("electron");
+const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const { spawn, execSync } = require("child_process");
@@ -243,6 +244,16 @@ function checkHealth(url = `${BACKEND_URL}/health`, timeoutMs = 180000) {
 async function createMainWindow() {
   const { iconPath } = getProjectPaths();
 
+  // Giao diện kính mờ: Windows 11 22H2+ (build 22621) có nền acrylic thật (nhìn xuyên ra màn hình, làm nhòe).
+  // Ép tông tối để kính mờ tối dù Windows đang ở giao diện sáng (Tailwind dùng dark theo class nên giao diện web không đổi).
+  const winBuild = process.platform === "win32" ? parseInt(String(os.release()).split(".")[2] || "0", 10) : 0;
+  const useGlass = winBuild >= 22621;
+  nativeTheme.themeSource = "dark";
+  const windowLook = useGlass
+    ? { backgroundColor: "#00000000", backgroundMaterial: "acrylic" }
+    : // Máy cũ: nền tối đặc; accentColor = màu thanh tiêu đề + viền cửa sổ, Electron tự giữ màu khi đổi trạng thái
+      { backgroundColor: "#090d16", accentColor: "#090d16" };
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -251,10 +262,7 @@ async function createMainWindow() {
     title: "VideoTranslate AI - OmniVoice Studio",
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     autoHideMenuBar: true,
-    // Nền tối đặc, không dùng mica (mica theo giao diện sáng của Windows làm thanh tiêu đề trắng);
-    // accentColor = màu thanh tiêu đề + viền cửa sổ trên Windows 11, Electron tự giữ màu khi đổi trạng thái cửa sổ
-    backgroundColor: "#090d16",
-    accentColor: "#090d16",
+    ...windowLook,
     show: false, // Ẩn cho đến khi sẵn sàng để tránh giật hình
     webPreferences: {
       nodeIntegration: false,
@@ -264,6 +272,15 @@ async function createMainWindow() {
       devTools: !app.isPackaged
     }
   });
+
+  // Báo giao diện web bật chế độ kính mờ (index.css: html.vt-glass -> nền các khung trong suốt một phần)
+  if (useGlass) {
+    mainWindow.webContents.on("dom-ready", () => {
+      mainWindow.webContents
+        .executeJavaScript("document.documentElement.classList.add('vt-glass')")
+        .catch(() => {});
+    });
+  }
 
   // Cho phép phím F5 / Ctrl+R để reload giao diện (bỏ qua cache)
   mainWindow.webContents.on("before-input-event", (event, input) => {

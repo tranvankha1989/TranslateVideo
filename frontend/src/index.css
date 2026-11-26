@@ -185,3 +185,19 @@
     scrollbar-width: none;
   }
 }
+
+/* ── Giao diện kính mờ (Windows 11) ─────────────────────────────────────────────
+   Vỏ Electron bật nền acrylic cho cửa sổ và thêm lớp vt-glass vào <html>.
+   Chỉ đổi độ trong suốt nền các khung để thấy kính mờ phía sau; không có lớp vt-glass thì giữ như cũ. */
+html.vt-glass {
+  --glass-surface: 0.55;
+  --glass-dim: 0.45;
+  --glass-variant: 0.6;
+}
+html.vt-glass body,
+html.vt-glass .app-root {
+  background-color: transparent;
+}
+html.vt-glass .app-sidebar {
+  background-color: rgba(9, 13, 22, 0.35);
+}
