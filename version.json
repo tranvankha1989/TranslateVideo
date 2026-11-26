@@ -1,6 +1,6 @@
 {
-  "version": "3.14.11",
+  "version": "3.14.12",
   "name": "VideoTranslate AI",
   "release_date": "2026-11-26",
-  "description": "Nâng cấp V3.14.11: Cài lại hoặc đổi thư mục cài không mất kích hoạt bản quyền; cập nhật vỏ app an toàn hơn"
+  "description": "Nâng cấp V3.14.12: Ô nhập Hugging Face Token cho GPU Online; thông báo gọn hơn, báo rõ lý do khi tạo giọng thất bại"
 }
