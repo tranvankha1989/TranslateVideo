@@ -10,7 +10,8 @@ import { VoiceSelector } from "../components/studio/VoiceSelector";
 import { VoiceDesignPanel } from "../components/studio/VoiceDesignPanel";
 import { StudioTextInput } from "../components/studio/StudioTextInput";
 import { StudioOutputSection } from "../components/studio/StudioOutputSection";
-import { ModelSettingsPanel } from "../components/studio/ModelSettingsPanel";
+import { ModelSettingsPanel, GenerateActions } from "../components/studio/ModelSettingsPanel";
+import { SlideOutDrawer } from "../components/studio/SlideOutDrawer";
 import { SaveProjectModal } from "../components/studio/SaveProjectModal";
 import { PauseSettingsModal } from "../components/PauseSettingsModal";
 import { PronunciationModal } from "../components/PronunciationModal";
@@ -201,7 +202,7 @@ export default function Studio() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 2k:gap-10 items-start">
         {/* Left Column: Main Content */}
-        <div className="lg:col-span-8 flex flex-col gap-6 2k:gap-8">
+        <div className="lg:col-span-12 flex flex-col gap-6 2k:gap-8">
           <div className="glass-card rounded-2xl p-6 md:p-8 2k:p-10 flex flex-col gap-6 2k:gap-8 shadow-2xl border border-white/5 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[100px] pointer-events-none mix-blend-screen" />
 
@@ -347,6 +348,16 @@ export default function Studio() {
               onStopGenerate={handleStopGenerate}
             />
 
+            {/* Nút Tạo giọng nói luôn hiện ở cột chính (khung Cài đặt mô hình là khung trượt bên phải) */}
+            <div className="flex justify-end">
+              <GenerateActions
+                className="w-full sm:w-[380px] 2k:w-[440px]"
+                isLoading={generator.isLoading}
+                onGenerate={handleGenerate}
+                onStopGenerate={handleStopGenerate}
+              />
+            </div>
+
             {/* Output & Blocks Section */}
             <StudioOutputSection
               audioUrl={audioUrl}
@@ -385,8 +396,8 @@ export default function Studio() {
           </div>
         </div>
 
-        {/* Right Column: Model Settings */}
-        <div className="lg:col-span-4 flex flex-col gap-6 2k:gap-8 sticky top-6">
+        {/* Cài đặt mô hình: khung trượt bên phải (bấm tay nắm để mở, tự thu vào khi không thao tác) */}
+        <SlideOutDrawer label="Cài đặt mô hình">
           <ModelSettingsPanel
             cfg_value={cfg_value}
             setCfgValue={setCfgValue}
@@ -406,8 +417,9 @@ export default function Studio() {
             onStopGenerate={handleStopGenerate}
             onSaveConfig={project.saveModelConfig}
             configSaved={project.configSaved}
+            showActions={false}
           />
-        </div>
+        </SlideOutDrawer>
       </div>
 
       {/* Modal Lưu kịch bản vào Dự án */}

@@ -46,14 +46,15 @@ function escapeHtml(s) {
 }
 
 // Trang chờ của Electron. Cập nhật phần trăm/chữ bằng: window.__boot(phanTram, chu)
-function bootSplashHtml(percent, text) {
+// glass = cửa sổ kính mờ (acrylic): nền trong suốt để thấy kính mờ phía sau
+function bootSplashHtml(percent, text, glass = false) {
   const pct = Math.max(0, Math.min(100, Math.round(percent)));
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>VideoTranslate AI</title>
-  <style>html, body { margin: 0; padding: 0; background: #090d16; }${BOOT_CSS}</style>
+  <style>html, body { margin: 0; padding: 0; background: ${glass ? "transparent" : "#090d16"}; }${BOOT_CSS}${glass ? " .boot-screen { background: transparent; }" : ""}</style>
 </head>
 <body>
   <div class="boot-screen">
@@ -67,6 +68,10 @@ function bootSplashHtml(percent, text) {
     </div>
   </div>
   <script>
+    window.__bootFade = function () {
+      document.body.style.transition = "opacity 0.25s ease";
+      document.body.style.opacity = "0";
+    };
     window.__boot = function (p, t) {
       var a = document.getElementById("boot-pct");
       var b = document.getElementById("boot-sub");
@@ -81,11 +86,14 @@ function bootSplashHtml(percent, text) {
 // Lớp phủ khung chờ nằm TRÊN giao diện chính suốt quá trình khởi động (1 màn hình duy nhất 0-100%):
 // giao diện React tải ngầm bên dưới, báo tiến độ qua window.__vtBoot = {pct, text, done};
 // khi done thì hiện 100% một nhịp rồi gỡ lớp phủ -> không có bước chuyển trang nào lộ ra.
-function createBootOverlay(win, WebContentsView, initialPct, initialText) {
+// opts.glass: lớp phủ trong suốt (kính mờ) -> trang chính phải tự ẩn khi có lớp phủ (lớp vt-boot-overlay, xem index.html);
+// lúc xong thì lớp phủ mờ dần đồng thời trang chính hiện dần. opts.onRemoved: gọi khi gỡ lớp phủ (mọi đường).
+function createBootOverlay(win, WebContentsView, initialPct, initialText, opts = {}) {
+  const glass = Boolean(opts.glass);
   const view = new WebContentsView({
     webPreferences: { nodeIntegration: false, contextIsolation: true, devTools: false, spellcheck: false },
   });
-  view.setBackgroundColor("#090d16");
+  view.setBackgroundColor(glass ? "#00000000" : "#090d16");
   const fit = () => {
     if (win.isDestroyed()) return;
     const b = win.getContentBounds();
@@ -94,7 +102,7 @@ function createBootOverlay(win, WebContentsView, initialPct, initialText) {
   win.contentView.addChildView(view);
   fit();
   win.on("resize", fit);
-  view.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(bootSplashHtml(initialPct, initialText))}`);
+  view.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(bootSplashHtml(initialPct, initialText, glass))}`);
 
   let shownPct = Math.round(initialPct);
   let shownText = initialText;
@@ -122,6 +130,7 @@ function createBootOverlay(win, WebContentsView, initialPct, initialText) {
       try { win.contentView.removeChildView(view); } catch (e) {}
     }
     try { if (!view.webContents.isDestroyed()) view.webContents.close(); } catch (e) {}
+    try { if (typeof opts.onRemoved === "function") opts.onRemoved(); } catch (e) {}
   }
 
   // Theo dõi tiến độ giao diện chính; gỡ lớp phủ khi giao diện báo xong. Giao diện không báo tiến độ
@@ -155,6 +164,26 @@ function createBootOverlay(win, WebContentsView, initialPct, initialText) {
           follow = null;
           wc.removeListener("did-finish-load", onLoaded);
           setTimeout(() => {
+            if (glass && !removed) {
+              // Kính mờ: cho trang chính hiện dần, CHỜ trang vẽ xong khung hình đầu (giao diện nặng vẽ mất vài trăm ms,
+              // tối đa 1.5 giây) rồi mới cho vòng xoay mờ dần và gỡ lớp phủ -> không lộ khoảng kính trống
+              const painted = wc
+                .executeJavaScript(
+                  "document.documentElement.classList.remove('vt-boot-overlay');" +
+                    "new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(function () { r(1); }); }); })",
+                  true,
+                )
+                .catch(() => {});
+              Promise.race([painted, new Promise((r) => setTimeout(r, 1500))]).then(() => {
+                if (removed) return;
+                view.webContents.executeJavaScript("window.__bootFade && window.__bootFade()").catch(() => {});
+                setTimeout(() => {
+                  remove();
+                  try { if (!wc.isDestroyed()) wc.focus(); } catch (e) {}
+                }, 280);
+              });
+              return;
+            }
             remove();
             try { if (!wc.isDestroyed()) wc.focus(); } catch (e) {}
           }, 300);

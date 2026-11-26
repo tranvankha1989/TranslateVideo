@@ -569,13 +569,13 @@ export default function CloningVoice() {
           </span>
         </div>
         <div>
-          <h1 className="font-display text-headline-sm md:text-headline-md text-on-surface tracking-tight flex items-center gap-2.5">
+          <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface flex items-center gap-2.5">
             Voice Cloning
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/40 font-mono-data font-semibold">
               Multi-Sample 24kHz
             </span>
           </h1>
-          <p className="text-on-surface-variant text-sm mt-0.5">
+          <p className="text-sm 2k:text-base text-on-surface-variant mt-0.5">
             Tự tạo giọng AI cá nhân hóa đỉnh cao: Hỗ trợ nạp 1 đến 5 mẫu âm thanh khác nhau để mô hình học dải âm vực phong phú, tự nhiên.
           </p>
         </div>

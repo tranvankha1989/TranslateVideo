@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VideoTranslate AI</title>
+    <script>
+      // Vỏ Electron báo qua User-Agent (đọc trước khi trang được vẽ): VTGlass = cửa sổ kính mờ;
+      // VTBootOverlay = lớp phủ khung chờ của Electron đang che -> trang ẩn tới khi Electron gỡ lớp vt-boot-overlay
+      (function () {
+        try {
+          var u = navigator.userAgent, c = document.documentElement.classList;
+          if (u.indexOf("VTGlass") >= 0) c.add("vt-glass");
+          if (u.indexOf("VTBootOverlay") >= 0) c.add("vt-boot-overlay");
+        } catch (e) {}
+      })();
+    </script>
     <!-- Màn hình khởi động: giống hệt electron/boot_splash.cjs và src/components/BootSplash.tsx (sửa cả 3 nơi) -->
     <style>
       .boot-screen {
@@ -34,6 +45,11 @@
         animation: boot-pulse 2.2s ease-in-out infinite;
       }
       @keyframes boot-pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+      /* Kính mờ: khung chờ trong suốt; lúc lớp phủ của Electron còn che thì ẩn trang, gỡ thì hiện dần */
+      html.vt-glass, html.vt-glass body { background: transparent; }
+      html.vt-glass .boot-screen { background: transparent; }
+      html.vt-glass body { transition: opacity 0.25s ease; }
+      html.vt-boot-overlay body { opacity: 0; }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

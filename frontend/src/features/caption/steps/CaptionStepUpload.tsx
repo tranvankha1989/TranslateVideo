@@ -62,10 +62,10 @@ export const CaptionStepUpload: React.FC<CaptionStepUploadProps> = ({
   onGoToNextStep,
 }) => {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start animate-fadeIn">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch animate-fadeIn">
       {/* Cột Trái: Chọn Video Dropzone & Preview */}
       <div className="lg:col-span-5 flex flex-col gap-3">
-        <div className="bg-surface/80 backdrop-blur-md rounded-2xl border border-white/10 p-5 shadow-xl space-y-4">
+        <div className="flex-1 flex flex-col bg-surface/80 backdrop-blur-md rounded-2xl border border-white/10 p-5 shadow-xl space-y-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Video className="w-4 h-4 text-primary" />
@@ -129,7 +129,7 @@ export const CaptionStepUpload: React.FC<CaptionStepUploadProps> = ({
               }}
               onClick={() => videoInputRef.current?.click()}
               className={cn(
-                "min-h-[220px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center p-6 text-center transition cursor-pointer group",
+                "min-h-[220px] flex-1 rounded-xl border-2 border-dashed flex flex-col items-center justify-center p-6 text-center transition cursor-pointer group",
                 isDraggingFile
                   ? "border-primary bg-primary/10 scale-[1.01]"
                   : "border-white/15 hover:border-primary/50 bg-surface-variant/20 hover:bg-surface-variant/30",
@@ -159,7 +159,7 @@ export const CaptionStepUpload: React.FC<CaptionStepUploadProps> = ({
 
       {/* Cột Phải: Kịch Bản Đối Chiếu & Cấu Hình Whisper AI */}
       <div className="lg:col-span-7 flex flex-col gap-3">
-        <div className="bg-surface/80 backdrop-blur-md rounded-2xl border border-white/10 p-5 shadow-xl space-y-4">
+        <div className="flex-1 flex flex-col bg-surface/80 backdrop-blur-md rounded-2xl border border-white/10 p-5 shadow-xl space-y-4">
           <div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-1.5">
               <div className="flex items-center gap-2">

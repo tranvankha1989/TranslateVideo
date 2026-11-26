@@ -315,18 +315,39 @@ async function createMainWindow() {
   // Màn hình chờ DUY NHẤT (vòng xoay + phần trăm 0-100%): lớp phủ nằm trên cửa sổ suốt quá trình khởi động,
   // giao diện chính tải ngầm bên dưới và chỉ lộ ra khi đã xác thực bản quyền xong (không nhảy giao diện)
   const bootText = "Đang nạp mô hình và khởi động môi trường AI Studio...";
+  // Kính mờ: báo trang web qua User-Agent (trang đọc được ngay từ khung hình đầu tiên, trước khi vẽ):
+  // VTGlass = cửa sổ kính mờ; VTBootOverlay = lớp phủ khung chờ đang che -> trang tự ẩn (không lộ 2 vòng xoay chồng nhau)
+  const baseUA = mainWindow.webContents.getUserAgent();
+  const setPageUA = (withOverlay) => {
+    if (!useGlass) return;
+    try {
+      mainWindow.webContents.setUserAgent(`${baseUA} VTGlass${withOverlay ? " VTBootOverlay" : ""}`);
+    } catch (e) {}
+  };
   let overlay = null;
   try {
-    overlay = createBootOverlay(mainWindow, WebContentsView, bootPercent(), bootText);
+    overlay = createBootOverlay(mainWindow, WebContentsView, bootPercent(), bootText, {
+      glass: useGlass,
+      // Gỡ lớp phủ (xong, lỗi, quá giờ...): trang chính hết ẩn, các lần tải sau không còn cờ lớp phủ
+      onRemoved: () => {
+        setPageUA(false);
+        if (useGlass && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents
+            .executeJavaScript("document.documentElement.classList.remove('vt-boot-overlay')")
+            .catch(() => {});
+        }
+      },
+    });
   } catch (e) {
     console.error("[Electron] Không tạo được lớp phủ khung chờ, dùng khung chờ trên cửa sổ chính:", e);
     overlay = null;
   }
+  setPageUA(Boolean(overlay));
   const removeOverlay = () => { if (overlay) overlay.remove(); };
   // Nền tối nằm dưới lớp phủ (không có lớp phủ thì hiện khung chờ ngay trên cửa sổ chính)
   mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(overlay
-    ? '<!DOCTYPE html><html><body style="margin:0;background:#090d16"></body></html>'
-    : bootSplashHtml(bootPercent(), bootText))}`);
+    ? `<!DOCTYPE html><html><body style="margin:0;background:${useGlass ? "transparent" : "#090d16"}"></body></html>`
+    : bootSplashHtml(bootPercent(), bootText, useGlass))}`);
 
   let windowShown = false;
   const showWindow = () => {

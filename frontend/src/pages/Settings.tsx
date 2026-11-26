@@ -71,11 +71,11 @@ export default function Settings() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-on-surface flex items-center gap-3">
+          <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface flex items-center gap-3">
             <Cpu className="w-7 h-7 text-primary" />
             Cài Đặt Hệ Thống & Bộ Xử Lý GPU
           </h1>
-          <p className="text-sm text-on-surface-variant mt-1">
+          <p className="text-sm 2k:text-base text-on-surface-variant mt-0.5">
             Quản lý phần cứng tính toán AI, chuyển đổi linh hoạt giữa GPU máy
             tính và GPU đám mây.
           </p>

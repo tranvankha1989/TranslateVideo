@@ -54,8 +54,8 @@ export default function Projects() {
           <span className="material-symbols-outlined text-primary text-3xl">
             workspaces
           </span>
-          <h1 className="font-display text-display md:text-display text-headline-lg-mobile text-on-surface">
-            Dự án
+          <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface">
+            Dự Án
           </h1>
         </div>
         <div className="flex items-center gap-3">

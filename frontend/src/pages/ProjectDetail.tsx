@@ -556,7 +556,7 @@ export default function ProjectDetail() {
                 <span className="material-symbols-outlined text-primary text-2xl">
                   workspaces
                 </span>
-                <h1 className="font-display text-2xl md:text-3xl text-on-surface font-bold">
+                <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface">
                   {project.name}
                 </h1>
               </div>

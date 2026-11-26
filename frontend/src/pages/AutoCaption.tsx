@@ -1010,14 +1010,14 @@ export default function AutoCaption() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl 2k:text-2xl font-bold text-on-surface tracking-tight">
+              <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface">
                 Auto Kinetic Caption
               </h1>
               <span className="text-[10px] bg-primary/20 border border-primary/40 text-primary px-2 py-0.5 rounded-full font-semibold">
                 Shorts / Reels Studio
               </span>
             </div>
-            <p className="text-xs text-on-surface-variant">
+            <p className="text-sm 2k:text-base text-on-surface-variant mt-0.5">
               Tạo phụ đề tự động theo quy trình 3 bước tinh gọn, tự động đồng bộ
               mốc thời gian
             </p>

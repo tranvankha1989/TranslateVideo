@@ -230,3 +230,9 @@ html.vt-glass ::-webkit-scrollbar-thumb {
 html.vt-glass ::-webkit-scrollbar-thumb:hover {
   background-color: rgba(255, 255, 255, 0.32);
 }
+
+/* Khung trượt (Cài đặt mô hình) nổi đè lên nội dung: nền gần như đặc để chữ phía sau không lộ ra */
+.vt-drawer-panel > .glass-card {
+  background: rgba(13, 19, 34, 0.96) !important;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45) !important;
+}

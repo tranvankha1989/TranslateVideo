@@ -718,10 +718,10 @@ export default function Library() {
               <FolderOpen className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="font-display text-2xl md:text-3xl font-bold text-on-surface">
+              <h1 className="text-2xl 2k:text-3xl font-bold tracking-tight text-on-surface">
                 Thư Viện Đa Phương Tiện
               </h1>
-              <p className="text-xs text-on-surface-variant mt-0.5">
+              <p className="text-sm 2k:text-base text-on-surface-variant mt-0.5">
                 Quản lý lịch sử dự án dịch thuật video và các bản thu âm giọng
                 đọc phòng thu
               </p>
