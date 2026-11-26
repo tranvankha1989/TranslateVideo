@@ -86,6 +86,16 @@ export const GlobalLicenseGuard: React.FC<{ children: React.ReactNode }> = ({
     return () => clearTimeout(t);
   }, [loading]);
 
+  // Báo tiến độ cho lớp phủ khung chờ của Electron (electron/boot_splash.cjs): lớp phủ che giao diện này
+  // tới khi done = true, nên người dùng chỉ thấy 1 màn hình chờ duy nhất từ 0 tới 100%
+  useEffect(() => {
+    (window as unknown as { __vtBoot?: unknown }).__vtBoot = {
+      pct: Math.round(splashPct),
+      text: "Đang xác thực bản quyền...",
+      done: splashDone || !!connectionError,
+    };
+  }, [splashPct, splashDone, connectionError]);
+
   const fetchStatus = useCallback(async (retryCount = 0) => {
     try {
       if (retryCount === 0) {

@@ -1,9 +1,9 @@
-const { app, BrowserWindow, shell, session } = require("electron");
+const { app, BrowserWindow, WebContentsView, shell, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn, execSync } = require("child_process");
 const http = require("http");
-const { bootSplashHtml } = require("./boot_splash.cjs");
+const { bootSplashHtml, createBootOverlay } = require("./boot_splash.cjs");
 
 let mainWindow = null;
 let pythonProcess = null;
@@ -293,24 +293,49 @@ async function createMainWindow() {
     return { action: "deny" };
   });
 
-  // Màn hình chờ duy nhất (vòng xoay + phần trăm), giao diện giống màn hình xác thực bản quyền của React
+  // Màn hình chờ DUY NHẤT (vòng xoay + phần trăm 0-100%): lớp phủ nằm trên cửa sổ suốt quá trình khởi động,
+  // giao diện chính tải ngầm bên dưới và chỉ lộ ra khi đã xác thực bản quyền xong (không nhảy giao diện)
   const bootText = "Đang nạp mô hình và khởi động môi trường AI Studio...";
-  let shownPct = 0;
-  let shownText = bootText;
-  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(bootSplashHtml(bootPercent(), bootText))}`);
+  let overlay = null;
+  try {
+    overlay = createBootOverlay(mainWindow, WebContentsView, bootPercent(), bootText);
+  } catch (e) {
+    console.error("[Electron] Không tạo được lớp phủ khung chờ, dùng khung chờ trên cửa sổ chính:", e);
+    overlay = null;
+  }
+  const removeOverlay = () => { if (overlay) overlay.remove(); };
+  // Nền tối nằm dưới lớp phủ (không có lớp phủ thì hiện khung chờ ngay trên cửa sổ chính)
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(overlay
+    ? '<!DOCTYPE html><html><body style="margin:0;background:#090d16"></body></html>'
+    : bootSplashHtml(bootPercent(), bootText))}`);
 
-  mainWindow.once("ready-to-show", () => {
+  let windowShown = false;
+  const showWindow = () => {
+    if (windowShown || !mainWindow || mainWindow.isDestroyed()) return;
+    windowShown = true;
     mainWindow.show();
-  });
+  };
+  if (overlay) {
+    overlay.view.webContents.once("did-finish-load", showWindow);
+    setTimeout(showWindow, 3000);
+  } else {
+    mainWindow.once("ready-to-show", showWindow);
+  }
 
   // Chờ Backend sẵn sàng rồi chuyển sang URL chính; quá 15 giây thì báo người dùng đừng tắt app
   const waitStart = Date.now();
+  let fallbackPct = 0;
+  let fallbackText = bootText;
   const pushBoot = (pct, text) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    pct = Math.max(shownPct, Math.round(pct)); // phần trăm chỉ tăng, không lùi
-    if (pct === shownPct && text === shownText) return;
-    shownPct = pct;
-    shownText = text;
+    if (overlay) {
+      overlay.push(pct, text);
+      return;
+    }
+    pct = Math.max(fallbackPct, Math.round(pct)); // phần trăm chỉ tăng, không lùi
+    if (pct === fallbackPct && text === fallbackText) return;
+    fallbackPct = pct;
+    fallbackText = text;
     mainWindow.webContents
       .executeJavaScript(`window.__boot && window.__boot(${pct}, ${JSON.stringify(text)})`)
       .catch(() => {});
@@ -337,6 +362,7 @@ async function createMainWindow() {
   // Lắng nghe sự kiện tải trang thất bại để hiển thị trang lỗi thay vì trắng màn hình
   mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription) => {
     if (errorCode === -3) return; // Bỏ qua abort
+    removeOverlay();
     console.error(`[Electron] Lỗi nạp trang (${errorCode}): ${errorDescription}`);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
@@ -372,8 +398,10 @@ async function createMainWindow() {
 
   if (mainWindow) {
     if (isReady) {
+      if (overlay) overlay.followApp(mainWindow.webContents);
       mainWindow.loadURL("http://127.0.0.1:8000", loadOptions);
     } else {
+      removeOverlay();
       const logPreview = lastBackendLogs.slice(-10).join("\n") || "Chưa có log từ tiến trình Backend.";
       const exitInfo = backendExited
         ? `Tiến trình Python đã dừng đột ngột (Mã thoát: ${backendExitCode}). Vui lòng tắt và mở lại ứng dụng.`

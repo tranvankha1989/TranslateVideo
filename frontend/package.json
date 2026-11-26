@@ -23,8 +23,8 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "!node_modules/**/*"
     ],
     "win": {
       "icon": "../assets/app.ico",
