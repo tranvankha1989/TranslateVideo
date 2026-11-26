@@ -41,7 +41,7 @@ if not hasattr(huggingface_hub, "HfFolder"):
         huggingface_hub.HfFolder = HfFolder
 
 import gradio as gr
-from fastapi import HTTPException, UploadFile, File, Form
+from fastapi import HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import Response, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -735,6 +735,75 @@ async def download_bgm_endpoint(filename: str):
     )
 
 
+# ── Góp ý & Báo lỗi từ app VideoTranslate AI (chuyển tiếp sang Telegram) ───────────────
+# App máy khách gửi góp ý + app.log về đây thay vì gọi thẳng Telegram: phần mềm diệt virus (Bitdefender ATD...)
+# coi việc một chương trình gửi file lên bot Telegram là hành vi đánh cắp dữ liệu và chặn cả app.
+# Mã bot CHỈ nằm trong Secret của Space: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (Settings -> Variables and secrets).
+logging.getLogger("httpx").setLevel(logging.WARNING)  # không ghi URL có mã bot vào log
+_FEEDBACK_HITS: dict = {}
+_FEEDBACK_LIMIT = 5  # tối đa 5 lần gửi / 10 phút / địa chỉ IP (chống spam bot)
+_FEEDBACK_WINDOW = 600
+_FEEDBACK_MAX_LOG = 20 * 1024 * 1024
+
+
+def _feedback_allowed(ip: str) -> bool:
+    import time as _t
+
+    now = _t.time()
+    hits = [t for t in _FEEDBACK_HITS.get(ip, []) if now - t < _FEEDBACK_WINDOW]
+    allowed = len(hits) < _FEEDBACK_LIMIT
+    if allowed:
+        hits.append(now)
+    _FEEDBACK_HITS[ip] = hits
+    return allowed
+
+
+async def feedback_endpoint(
+    request: Request,
+    text: str = Form(...),
+    caption: str | None = Form(default=None),
+    log_file: UploadFile | None = File(default=None),
+):
+    import httpx
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return JSONResponse({"ok": False, "error": "Space chưa cấu hình TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID"}, status_code=503)
+    fwd = request.headers.get("x-forwarded-for") or ""
+    ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "") or "?"
+    if not _feedback_allowed(ip):
+        return JSONResponse({"ok": False, "error": "Gửi quá nhiều lần, vui lòng thử lại sau"}, status_code=429)
+    text = (text or "")[:4000]
+    if not text.strip():
+        return JSONResponse({"ok": False, "error": "Thiếu nội dung góp ý"}, status_code=400)
+
+    base = f"https://api.telegram.org/bot{token}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        msg = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+        r = await client.post(f"{base}/sendMessage", json=msg)
+        if r.status_code != 200:
+            # Nội dung HTML sai định dạng -> gửi lại dạng chữ thường
+            msg.pop("parse_mode", None)
+            r = await client.post(f"{base}/sendMessage", json=msg)
+        if r.status_code != 200:
+            logger.warning(f"[Feedback] Telegram từ chối tin nhắn: HTTP {r.status_code}")
+            return JSONResponse({"ok": False, "error": f"Telegram HTTP {r.status_code}"}, status_code=502)
+
+        sent_log = False
+        if log_file is not None:
+            data = await log_file.read(_FEEDBACK_MAX_LOG + 1)
+            if data and len(data) <= _FEEDBACK_MAX_LOG:
+                files = {"document": (log_file.filename or "app.log", data, "text/plain")}
+                form = {"chat_id": chat_id, "caption": (caption or "app.log")[:1000]}
+                d = await client.post(f"{base}/sendDocument", data=form, files=files)
+                sent_log = d.status_code == 200
+                if not sent_log:
+                    logger.warning(f"[Feedback] Không gửi được file log: HTTP {d.status_code}")
+    logger.info(f"[Feedback] Đã chuyển tiếp góp ý sang Telegram (kèm log: {sent_log})")
+    return {"ok": True, "log_sent": sent_log}
+
+
 def register_api_routes(target_app):
     """
     Gắn API routes vào FastAPI app.
@@ -761,6 +830,8 @@ def register_api_routes(target_app):
         target_app.add_api_route(f"{prefix}/transcribe_with_demucs", transcribe_with_demucs_endpoint, methods=["POST"])
         # Dùng {{filename}} để FastAPI nhận diện đúng path parameter khi kết hợp f-string
         target_app.add_api_route(f"{prefix}/download_bgm/{{filename}}", download_bgm_endpoint, methods=["GET"])
+        # Góp ý & Báo lỗi từ app -> chuyển tiếp sang Telegram (mã bot trong Secret của Space)
+        target_app.add_api_route(f"{prefix}/feedback", feedback_endpoint, methods=["POST"])
 
 
 # Đăng ký routes vào demo.app ban đầu

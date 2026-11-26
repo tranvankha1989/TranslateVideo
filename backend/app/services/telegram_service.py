@@ -1,33 +1,38 @@
+"""
+app/services/telegram_service.py
+────────────────────────────────
+Gửi Góp ý & Báo lỗi (kèm app.log) về đội ngũ kỹ thuật.
+
+App KHÔNG gọi thẳng Telegram nữa: phần mềm diệt virus (Bitdefender ATD...) coi việc một chương trình gửi file
+lên bot Telegram là hành vi đánh cắp dữ liệu và chặn cả app (26/11/2026). App gửi về máy chủ Hugging Face Space
+của nhà phát triển (/gradio_api/remote/feedback); Space chuyển tiếp sang Telegram bằng mã bot cất trong Secret
+của Space. Máy khách không chứa mã bot.
+"""
+
 import os
+import html
 import logging
+from datetime import datetime
 from pathlib import Path
+
 import httpx
-from dotenv import load_dotenv
-from app.core.config import APP_LOG_FILE, APP_VERSION, BASE_DIR, PROJECT_ROOT, _resolve_app_version
+
+from app.core.config import APP_LOG_FILE, _resolve_app_version
 
 logger = logging.getLogger("telegram_service")
 
-DEFAULT_TELEGRAM_BOT_TOKEN = "8637750224:AAHev518siDN1yzTTi5h-Hxd8-eCVbiBp20"
-DEFAULT_TELEGRAM_CHAT_ID = "7691076251"
+# Máy chủ nhận góp ý (Space của nhà phát triển). Đổi được bằng biến FEEDBACK_RELAY_URL trong .env
+DEFAULT_FEEDBACK_RELAY_URL = "https://tranvankha2807-translate.hf.space"
+# Space nhận file log tối đa 20MB: log dài hơn thì gửi phần cuối (mới nhất)
+MAX_LOG_BYTES = 19 * 1024 * 1024
+
+
+def _relay_url() -> str:
+    url = (os.getenv("FEEDBACK_RELAY_URL") or "").strip() or DEFAULT_FEEDBACK_RELAY_URL
+    return url.rstrip("/")
 
 
 class TelegramService:
-    @staticmethod
-    def get_credentials():
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-        chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-        if not token or not chat_id:
-            for cand in [BASE_DIR / ".env", PROJECT_ROOT / ".env", BASE_DIR.parent / ".env"]:
-                if cand.exists():
-                    try:
-                        load_dotenv(str(cand), override=True)
-                        break
-                    except Exception:
-                        pass
-            token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or DEFAULT_TELEGRAM_BOT_TOKEN
-            chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip() or DEFAULT_TELEGRAM_CHAT_ID
-        return token, chat_id
-
     @classmethod
     async def send_feedback(
         cls,
@@ -38,19 +43,6 @@ class TelegramService:
         include_logs: bool = True,
         system_info: dict | None = None,
     ) -> dict:
-        token, chat_id = cls.get_credentials()
-        if not token or not chat_id:
-            logger.warning("Chưa cấu hình TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID trong .env")
-            return {
-                "ok": False,
-                "message": "Chưa cấu hình Telegram Bot Token hoặc Chat ID.",
-                "error": "Vui lòng cấu hình TELEGRAM_BOT_TOKEN và TELEGRAM_CHAT_ID trong file .env của backend.",
-            }
-
-        import html
-        from datetime import datetime
-
-        # Biểu tượng theo loại phản hồi
         type_labels = {
             "bug": "BÁO CÁO LỖI HỆ THỐNG",
             "feature": "ĐÓNG GÓP Ý TƯỞNG / TÍNH NĂNG",
@@ -62,15 +54,12 @@ class TelegramService:
         now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         clean_name = html.escape(sender_name.strip()) if sender_name and sender_name.strip() else "Khách hàng ẩn danh"
         clean_contact = html.escape(sender_contact.strip()) if sender_contact and sender_contact.strip() else "Chưa cung cấp"
-        clean_msg = html.escape(message.strip())
+        clean_msg = html.escape((message or "").strip())
 
         # Phiên bản luôn lấy từ nguồn gốc duy nhất version.json của backend
         app_ver = (system_info and system_info.get("app_version")) or _resolve_app_version()
-
-        if system_info:
-            os_info = html.escape(str(system_info.get("os", "Windows")))
-            raw_gpu = str(system_info.get("gpu_mode", "N/A"))
-            gpu_info = html.escape(raw_gpu)
+        os_info = html.escape(str((system_info or {}).get("os", "Windows")))
+        gpu_info = html.escape(str((system_info or {}).get("gpu_mode", "N/A")))
 
         text_content = (
             f"<b>[VideoTranslate AI] {label}</b>\n"
@@ -86,59 +75,50 @@ class TelegramService:
             f"<blockquote>{clean_msg}</blockquote>"
         )
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # 1. Gửi tin nhắn Text (Tắt hoàn toàn Web Page Preview lớn)
-            send_msg_url = f"https://api.telegram.org/bot{token}/sendMessage"
-            payload = {
-                "chat_id": chat_id,
-                "text": text_content,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-                "link_preview_options": {
-                    "is_disabled": True,
-                },
-            }
+        data = {
+            "text": text_content,
+            "caption": f"Nhật ký hệ thống (app.log) từ: {sender_name or 'Khách hàng'}",
+        }
+        files = None
+        if include_logs and Path(APP_LOG_FILE).exists():
             try:
-                resp = await client.post(send_msg_url, json=payload)
-                if resp.status_code != 200:
-                    err_msg = resp.text
-                    logger.error(f"Lỗi gửi tin nhắn Telegram: {err_msg}")
-                    return {
-                        "ok": False,
-                        "message": "Không thể gửi tin nhắn qua Telegram Bot.",
-                        "error": err_msg,
-                    }
+                # Đọc cố định thành bytes trong bộ nhớ để tránh xung đột khi file log đang được ghi tiếp
+                log_bytes = Path(APP_LOG_FILE).read_bytes()
+                if len(log_bytes) > MAX_LOG_BYTES:
+                    log_bytes = log_bytes[-MAX_LOG_BYTES:]
+                if log_bytes:
+                    files = {"log_file": ("app.log", log_bytes, "text/plain")}
             except Exception as e:
-                logger.error(f"Ngoại lệ khi gọi Telegram API: {str(e)}")
-                return {
-                    "ok": False,
-                    "message": "Lỗi kết nối tới máy chủ Telegram.",
-                    "error": str(e),
-                }
+                logger.warning(f"Không đọc được file log để gửi kèm: {e}")
 
-            # 2. Đính kèm file log nếu người dùng đồng ý và file tồn tại
-            if include_logs and Path(APP_LOG_FILE).exists():
-                try:
-                    # Đọc toàn bộ file thành bytes cố định trong bộ nhớ để tránh xung đột khi logfile đang được ghi tiếp
-                    log_bytes = Path(APP_LOG_FILE).read_bytes()
-                    if log_bytes and len(log_bytes) < 45 * 1024 * 1024:
-                        send_doc_url = f"https://api.telegram.org/bot{token}/sendDocument"
-                        files = {"document": ("app.log", log_bytes, "text/plain")}
-                        data = {
-                            "chat_id": chat_id,
-                            "caption": f"📄 Nhật ký hệ thống (app.log) từ: {sender_name or 'Khách hàng'}",
-                        }
-                        doc_resp = await client.post(send_doc_url, data=data, files=files)
-                        if doc_resp.status_code == 200:
-                            logger.info("Đã gửi thành công file app.log lên Telegram Bot.")
-                        else:
-                            logger.warning(f"Lỗi gửi kèm file log lên Telegram: {doc_resp.text}")
-                    elif len(log_bytes) >= 45 * 1024 * 1024:
-                        logger.warning("File log vượt quá 45MB, bỏ qua đính kèm toàn bộ file.")
-                except Exception as doc_err:
-                    logger.warning(f"Không thể đính kèm file log: {str(doc_err)}")
+        url = f"{_relay_url()}/gradio_api/remote/feedback"
+        try:
+            # Space có thể đang ngủ: lần gọi đầu sẽ đánh thức máy chủ nên chờ tối đa 2 phút
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0)) as client:
+                resp = await client.post(url, data=data, files=files)
+        except Exception as e:
+            logger.error(f"Không kết nối được máy chủ nhận góp ý: {e}")
+            return {
+                "ok": False,
+                "message": "Không kết nối được máy chủ nhận góp ý. Vui lòng kiểm tra mạng và thử lại sau 1-2 phút.",
+                "error": str(e),
+            }
 
+        if resp.status_code != 200:
+            detail = resp.text[:300]
+            logger.error(f"Máy chủ nhận góp ý trả lỗi HTTP {resp.status_code}: {detail}")
+            if resp.status_code == 429:
+                msg = "Bạn đã gửi góp ý nhiều lần liên tiếp, vui lòng thử lại sau ít phút."
+            else:
+                msg = "Máy chủ nhận góp ý đang khởi động hoặc chưa sẵn sàng, vui lòng thử lại sau 1-2 phút."
+            return {"ok": False, "message": msg, "error": f"HTTP {resp.status_code}: {detail}"}
+
+        logger.info(f"Đã gửi góp ý về máy chủ nhận góp ý (kèm app.log: {bool(files)}).")
         return {
             "ok": True,
-            "message": "Phản hồi và file nhật ký đã được gửi thành công đến đội ngũ kỹ thuật!",
+            "message": (
+                "Phản hồi và file nhật ký đã được gửi thành công đến đội ngũ kỹ thuật!"
+                if files
+                else "Phản hồi đã được gửi thành công đến đội ngũ kỹ thuật!"
+            ),
         }
