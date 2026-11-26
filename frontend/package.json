@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "3.14.5",
+  "version": "3.14.6",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
