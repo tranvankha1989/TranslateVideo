@@ -1,6 +1,6 @@
 {
-  "version": "3.14.9",
+  "version": "3.14.10",
   "name": "VideoTranslate AI",
   "release_date": "2026-11-26",
-  "description": "Nâng cấp V3.14.9: Danh sách xổ xuống dễ đọc, gọn nút Phòng thu, bớt biểu tượng"
+  "description": "Nâng cấp V3.14.10: Sửa lỗi phần mềm diệt virus báo nhầm (góp ý gửi qua máy chủ, thay vỏ app không dùng PowerShell)"
 }
