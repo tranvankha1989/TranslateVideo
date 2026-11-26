@@ -711,8 +711,8 @@ export default function Library() {
     <div className="glass-card rounded-3xl w-full max-w-[1600px] 2k:max-w-[2000px] mx-auto p-6 md:p-8 2k:p-10 flex flex-col gap-8 shadow-2xl backdrop-blur-2xl border border-white/10">
       {/* Header & Tabs Container */}
       <div className="flex flex-col gap-6 border-b border-white/10 pb-6">
-        {/* Hàng 1: Tiêu đề Thư Viện & Nút Xóa Bộ Nhớ Riêng Cho Tab Đang Chọn */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Hàng 1: Tiêu đề (trái) + Xóa bộ nhớ của tab đang mở (phải) */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/10 shrink-0">
               <FolderOpen className="w-6 h-6" />
@@ -727,13 +727,68 @@ export default function Library() {
               </p>
             </div>
           </div>
+          {/* Nút Xóa Bộ Nhớ theo Tab đang mở */}
+          <button
+            type="button"
+            onClick={() => setDeleteTarget({ type: "clear_active_tab" })}
+            disabled={
+              isCleaning ||
+              (activeTab === "video"
+                ? videoProjects.length === 0
+                : history.length === 0)
+            }
+            className="ml-auto px-4 py-2.5 rounded-2xl whitespace-nowrap bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              activeTab === "video"
+                ? "Xóa toàn bộ lịch sử video và giải phóng dung lượng"
+                : "Xóa toàn bộ lịch sử phòng thu và giải phóng dung lượng"
+            }
+          >
+            <Trash2 className="w-4 h-4 text-rose-400" />
+            <span>
+              {activeTab === "video"
+                ? "Xóa Bộ Nhớ Video"
+                : "Xóa Bộ Nhớ Phòng Thu"}
+            </span>
+          </button>
+        </div>
 
-          {/* Nhóm Cài đặt Lưu trữ & Nút Xóa Bộ Nhớ */}
-          <div className="flex flex-wrap items-center gap-2.5">
+        {/* Hàng 2: Chuyển tab (trái) + Thời gian lưu trữ & Dọn ngay (phải) */}
+        <div className="flex flex-wrap items-stretch justify-between gap-3">
+          <div className="flex flex-nowrap items-center gap-2 p-1.5 bg-surface-dim/80 border border-white/10 rounded-2xl shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveTab("video")}
+              className={`whitespace-nowrap flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === "video"
+                  ? "bg-primary text-black shadow-md shadow-primary/20"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              }`}
+            >
+              <Film className="w-4 h-4" />
+              <span>Lịch Sử Dịch Video ({videoProjects.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("audio")}
+              className={`whitespace-nowrap flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === "audio"
+                  ? "bg-primary text-black shadow-md shadow-primary/20"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              }`}
+            >
+              <Volume2 className="w-4 h-4" />
+              <span>Lịch Sử Phòng Thu ({history.length})</span>
+            </button>
+          </div>
+
+          {/* Nhóm Cài đặt Lưu trữ */}
+          <div className="flex flex-wrap items-stretch justify-end gap-2.5 ml-auto">
             {/* Bộ chọn thời gian lưu trữ dữ liệu (Retention Policy) */}
-            <div className="flex items-center gap-2 bg-surface-dim/90 border border-white/10 px-3 py-2 rounded-xl text-xs shadow-xs">
+            <div className="flex items-center gap-2 whitespace-nowrap bg-surface-dim/90 border border-white/10 px-3 py-2 rounded-2xl text-xs shadow-xs">
               <Clock className="w-4 h-4 text-primary shrink-0" />
-              <span className="text-on-surface-variant font-medium hidden sm:inline">
+              <span className="text-on-surface-variant font-medium hidden min-[1400px]:inline">
                 Lưu trữ tối đa:
               </span>
               <select
@@ -766,61 +821,7 @@ export default function Library() {
                 </button>
               )}
             </div>
-
-            {/* Nút Xóa Bộ Nhớ theo Tab đang mở */}
-            <button
-              type="button"
-              onClick={() => setDeleteTarget({ type: "clear_active_tab" })}
-              disabled={
-                isCleaning ||
-                (activeTab === "video"
-                  ? videoProjects.length === 0
-                  : history.length === 0)
-              }
-              className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-              title={
-                activeTab === "video"
-                  ? "Xóa toàn bộ lịch sử video và giải phóng dung lượng"
-                  : "Xóa toàn bộ lịch sử phòng thu và giải phóng dung lượng"
-              }
-            >
-              <Trash2 className="w-4 h-4 text-rose-400" />
-              <span>
-                {activeTab === "video"
-                  ? "Xóa Bộ Nhớ Video"
-                  : "Xóa Bộ Nhớ Phòng Thu"}
-              </span>
-            </button>
           </div>
-        </div>
-
-        {/* Hàng 2: Vị trí chuyển 2 tính năng (Tab Switcher) đặt ngay dưới tiêu đề Thư Viện */}
-        <div className="flex flex-wrap items-center gap-2 p-1.5 bg-surface-dim/80 border border-white/10 rounded-2xl w-full sm:w-auto self-start">
-          <button
-            type="button"
-            onClick={() => setActiveTab("video")}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "video"
-                ? "bg-primary text-black shadow-md shadow-primary/20"
-                : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-            }`}
-          >
-            <Film className="w-4 h-4" />
-            <span>Lịch Sử Dịch Video ({videoProjects.length})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("audio")}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "audio"
-                ? "bg-primary text-black shadow-md shadow-primary/20"
-                : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
-            }`}
-          >
-            <Volume2 className="w-4 h-4" />
-            <span>Lịch Sử Phòng Thu ({history.length})</span>
-          </button>
         </div>
       </div>
 

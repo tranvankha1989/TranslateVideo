@@ -201,3 +201,32 @@ html.vt-glass .app-root {
 html.vt-glass .app-sidebar {
   background-color: rgba(9, 13, 22, 0.35);
 }
+
+/* Thanh cuộn kính mờ: mảnh, rãnh trong suốt, không mũi tên. Bỏ scrollbar-width/color chuẩn ở trên
+   (Chromium ưu tiên chúng và vẽ thanh cuộn Windows kèm mũi tên) để dùng kiểu ::-webkit-scrollbar */
+html.vt-glass,
+html.vt-glass * {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+html.vt-glass .hide-scrollbar {
+  scrollbar-width: none;
+}
+html.vt-glass ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+html.vt-glass ::-webkit-scrollbar-track,
+html.vt-glass ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+html.vt-glass ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.16);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 8px;
+}
+html.vt-glass ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.32);
+}
