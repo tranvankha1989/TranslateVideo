@@ -10,7 +10,8 @@
   font-style: normal;
   font-weight: 100 700;
   font-display: block;
-  src: url('./assets/fonts/material-symbols-outlined.woff2') format('woff2');
+  /* Dùng đúng file đã preload trong index.html (public/fonts) để icon có ngay khi mở app */
+  src: url('/fonts/material-symbols-outlined.woff2') format('woff2');
 }
 
 .material-symbols-outlined {
