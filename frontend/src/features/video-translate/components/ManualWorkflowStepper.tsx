@@ -266,7 +266,7 @@ export function ManualWorkflowStepper({
                   onChange={(e) => setSourceLang(e.target.value)}
                   className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors"
                 >
-                  <option value="auto">✨ Tự động nhận diện (Auto Detect)</option>
+                  <option value="auto">Tự động nhận diện (Auto Detect)</option>
                   <option value="en">English (Tiếng Anh)</option>
                   <option value="zh-cn">中文 (Tiếng Trung)</option>
                   <option value="ja">日本語 (Tiếng Nhật)</option>
@@ -288,11 +288,11 @@ export function ManualWorkflowStepper({
                   onChange={(e) => setWhisperModel(e.target.value)}
                   className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors font-medium text-primary"
                 >
-                  <option value="large-v3">🌟 large-v3 (Mặc định - 1.55 Tỷ tham số • Chuẩn xác cao nhất)</option>
-                  <option value="large-v3-turbo">🚀 large-v3-turbo (Siêu tốc 8x & Chuẩn xác)</option>
-                  <option value="medium">⚡ medium (Cân bằng & Tốc độ cao)</option>
-                  <option value="small">🚀 small (Nhẹ & Nhanh)</option>
-                  <option value="base">⏱️ base (Bản tối giản)</option>
+                  <option value="large-v3">large-v3 (Mặc định - 1.55 Tỷ tham số • Chuẩn xác cao nhất)</option>
+                  <option value="large-v3-turbo">large-v3-turbo (Siêu tốc 8x & Chuẩn xác)</option>
+                  <option value="medium">medium (Cân bằng & Tốc độ cao)</option>
+                  <option value="small">small (Nhẹ & Nhanh)</option>
+                  <option value="base">base (Bản tối giản)</option>
                 </select>
               </div>
             </div>
@@ -306,7 +306,7 @@ export function ManualWorkflowStepper({
               >
                 <span className="flex items-center gap-2">
                   <Sliders className="w-3.5 h-3.5 text-cyan-400" />
-                  ⚙️ Tùy Chỉnh Bóc Tách Nâng Cao (Độ nhạy VAD, Đệm từ, Chống nuốt chữ)
+                  Tùy Chỉnh Bóc Tách Nâng Cao (Độ nhạy VAD, Đệm từ, Chống nuốt chữ)
                 </span>
                 <span className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
                   {showTranscribeAdvanced ? "Thu nhỏ" : "Mở rộng"}
@@ -926,10 +926,10 @@ export function ManualWorkflowStepper({
                         onChange={(e) => setSubtitleMode(e.target.value)}
                         className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary transition-colors cursor-pointer"
                       >
-                        <option value="hard_target">🔤 Phụ đề Dịch tiếng Việt (Hardsub nét)</option>
-                        <option value="hard_bilingual">🈴 Phụ đề Song Ngữ (Gốc + Dịch - Dành cho học tập)</option>
-                        <option value="hard_source">📝 Phụ đề Gốc nguyên bản</option>
-                        <option value="none">🚫 Không ghi đè phụ đề vào video (Chỉ lồng tiếng đọc)</option>
+                        <option value="hard_target">Phụ đề Dịch tiếng Việt (Hardsub nét)</option>
+                        <option value="hard_bilingual">Phụ đề Song Ngữ (Gốc + Dịch - Dành cho học tập)</option>
+                        <option value="hard_source">Phụ đề Gốc nguyên bản</option>
+                        <option value="none">Không ghi đè phụ đề vào video (Chỉ lồng tiếng đọc)</option>
                       </select>
                     </div>
 
@@ -961,9 +961,9 @@ export function ManualWorkflowStepper({
                           </label>
                           <div className="grid grid-cols-3 gap-2">
                             {[
-                              { id: "bottom", label: "⬇️ Dưới đáy" },
-                              { id: "middle", label: "⏹️ Giữa màn hình" },
-                              { id: "top", label: "⬆️ Trên cùng" },
+                              { id: "bottom", label: "Dưới đáy" },
+                              { id: "middle", label: "Giữa màn hình" },
+                              { id: "top", label: "Trên cùng" },
                             ].map((pos) => (
                               <button
                                 key={pos.id}
@@ -995,10 +995,10 @@ export function ManualWorkflowStepper({
                         onChange={(e) => setOutputResolution(e.target.value)}
                         className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary transition-colors cursor-pointer"
                       >
-                        <option value="original">📐 Giữ nguyên độ phân giải gốc</option>
-                        <option value="1080p">📺 1080p (Full HD sắc nét)</option>
-                        <option value="720p">💻 720p (HD tiêu chuẩn - Tối ưu xuất nhanh)</option>
-                        <option value="480p">📱 480p (SD Siêu nhẹ)</option>
+                        <option value="original">Giữ nguyên độ phân giải gốc</option>
+                        <option value="1080p">1080p (Full HD sắc nét)</option>
+                        <option value="720p">720p (HD tiêu chuẩn - Tối ưu xuất nhanh)</option>
+                        <option value="480p">480p (SD Siêu nhẹ)</option>
                       </select>
                     </div>
 
@@ -1017,9 +1017,9 @@ export function ManualWorkflowStepper({
                         }}
                         className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary transition-colors cursor-pointer"
                       >
-                        <option value="bgm">🎵 Nhạc nền tách (Lọc sạch vocal cũ - Demucs)</option>
-                        <option value="original">🎙️ Âm thanh gốc (Giữ nguyên gốc - Thuyết minh đè lên)</option>
-                        <option value="none">🔇 Tắt hẳn nhạc nền (Chỉ giữ giọng đọc AI)</option>
+                        <option value="bgm">Nhạc nền tách (Lọc sạch vocal cũ - Demucs)</option>
+                        <option value="original">Âm thanh gốc (Giữ nguyên gốc - Thuyết minh đè lên)</option>
+                        <option value="none">Tắt hẳn nhạc nền (Chỉ giữ giọng đọc AI)</option>
                       </select>
 
                       {bgmType !== "none" && preserveBgm && (

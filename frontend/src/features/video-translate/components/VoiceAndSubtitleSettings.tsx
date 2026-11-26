@@ -118,13 +118,13 @@ export const VoiceAndSubtitleSettings: React.FC<VoiceAndSubtitleSettingsProps> =
                   className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary transition-colors cursor-pointer"
                 >
                   <option value="hard_target">
-                    🔤 Phụ đề dịch (Hardsub tiếng Việt)
+                    Phụ đề dịch (Hardsub tiếng Việt)
                   </option>
                   <option value="hard_dual">
-                    🌐 Song ngữ (Gốc + Dịch song song)
+                    Song ngữ (Gốc + Dịch song song)
                   </option>
                   <option value="none">
-                    🚫 Không gắn phụ đề (Chỉ lồng tiếng)
+                    Không gắn phụ đề (Chỉ lồng tiếng)
                   </option>
                 </select>
               </div>
@@ -174,9 +174,9 @@ export const VoiceAndSubtitleSettings: React.FC<VoiceAndSubtitleSettingsProps> =
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                       {[
-                        { id: "bottom", label: "⬇️ Dưới đáy" },
-                        { id: "middle", label: "⏹️ Giữa màn hình" },
-                        { id: "top", label: "⬆️ Trên cùng" },
+                        { id: "bottom", label: "Dưới đáy" },
+                        { id: "middle", label: "Giữa màn hình" },
+                        { id: "top", label: "Trên cùng" },
                       ].map((pos) => (
                         <button
                           key={pos.id}
@@ -208,12 +208,12 @@ export const VoiceAndSubtitleSettings: React.FC<VoiceAndSubtitleSettingsProps> =
                   onChange={(e) => setOutputResolution(e.target.value)}
                   className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary transition-colors cursor-pointer"
                 >
-                  <option value="original">📐 Giữ nguyên độ phân giải gốc</option>
-                  <option value="1080p">📺 1080p (Full HD sắc nét)</option>
+                  <option value="original">Giữ nguyên độ phân giải gốc</option>
+                  <option value="1080p">1080p (Full HD sắc nét)</option>
                   <option value="720p">
-                    💻 720p (HD tiêu chuẩn - Tối ưu xuất nhanh)
+                    720p (HD tiêu chuẩn - Tối ưu xuất nhanh)
                   </option>
-                  <option value="480p">📱 480p (SD Siêu nhẹ)</option>
+                  <option value="480p">480p (SD Siêu nhẹ)</option>
                 </select>
               </div>
 
@@ -233,13 +233,13 @@ export const VoiceAndSubtitleSettings: React.FC<VoiceAndSubtitleSettingsProps> =
                   className="w-full bg-surface-variant/70 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-secondary transition-colors cursor-pointer"
                 >
                   <option value="bgm">
-                    🎵 Nhạc nền tách (Lọc sạch vocal cũ - Demucs)
+                    Nhạc nền tách (Lọc sạch vocal cũ - Demucs)
                   </option>
                   <option value="original">
-                    🎙️ Âm thanh gốc (Giữ nguyên gốc - Thuyết minh đè lên)
+                    Âm thanh gốc (Giữ nguyên gốc - Thuyết minh đè lên)
                   </option>
                   <option value="none">
-                    🔇 Tắt hẳn nhạc nền (Chỉ giữ giọng đọc AI)
+                    Tắt hẳn nhạc nền (Chỉ giữ giọng đọc AI)
                   </option>
                 </select>
 

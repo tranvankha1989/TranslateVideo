@@ -558,7 +558,8 @@ export const HardwareTab: React.FC = () => {
             </span>
           </div>
 
-          {testResult && (
+          {/* Kết nối thành công chỉ báo bằng thông báo nhỏ ở góc (toast); khung này chỉ hiện khi lỗi */}
+          {testResult && !testResult.ok && (
             <div
               className={`p-4 rounded-2xl border flex items-start gap-3 text-xs sm:text-sm animate-in fade-in duration-200 ${
                 testResult.ok

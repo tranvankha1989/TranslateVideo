@@ -23,6 +23,8 @@ interface ModelSettingsPanelProps {
   configSaved: boolean;
   /** false: không hiện nút Tạo giọng nói trong khung (nút nằm ở chỗ khác) */
   showActions?: boolean;
+  /** Nút công cụ phụ đặt ngay dưới tiêu đề khung (Phòng thu: Thiết lập ngắt nghỉ, Cách đọc) */
+  extraTools?: React.ReactNode;
 }
 
 export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
@@ -43,6 +45,7 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
   onSaveConfig,
   configSaved,
   showActions = true,
+  extraTools,
 }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -102,6 +105,8 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
         </button>
       </div>
 
+      {extraTools}
+
       <div className="flex flex-col gap-7 2k:gap-8">
         {/* Project Selection */}
         <div className="flex flex-col gap-3 2k:gap-3.5">
@@ -133,7 +138,7 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
             </option>
             {projects.map((p) => (
               <option key={p.id} value={p.id} className="bg-[#1e1e1e]">
-                📁 {p.name}
+                {p.name}
               </option>
             ))}
           </select>

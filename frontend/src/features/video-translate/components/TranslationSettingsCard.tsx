@@ -68,7 +68,7 @@ export const TranslationSettingsCard: React.FC<TranslationSettingsCardProps> = (
             onChange={(e) => setSourceLang(e.target.value)}
             className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors"
           >
-            <option value="auto">✨ Tự động nhận diện (Auto Detect)</option>
+            <option value="auto">Tự động nhận diện (Auto Detect)</option>
             <option value="en">English (Tiếng Anh)</option>
             <option value="zh-cn">中文 (Tiếng Trung)</option>
             <option value="ja">日本語 (Tiếng Nhật)</option>
@@ -125,25 +125,25 @@ export const TranslationSettingsCard: React.FC<TranslationSettingsCardProps> = (
           className="w-full bg-surface-variant/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors font-medium text-amber-300"
         >
           <option value="auto">
-            🎭 Tự động nhận diện theo cốt truyện (AI Auto-detect)
+            Tự động nhận diện theo cốt truyện (AI Auto-detect)
           </option>
           <option value="romance">
-            💖 Ngôn tình / Đô thị (Anh - Em ngọt ngào, tự nhiên)
+            Ngôn tình / Đô thị (Anh - Em ngọt ngào, tự nhiên)
           </option>
           <option value="school">
-            🎓 Thanh xuân / Học đường (Cậu - Tớ, Bạn - Mình)
+            Thanh xuân / Học đường (Cậu - Tớ, Bạn - Mình)
           </option>
           <option value="wuxia">
-            ⚔️ Cổ trang / Kiếm hiệp (Tại hạ, Huynh - Đệ, Sư phụ, Các hạ)
+            Cổ trang / Kiếm hiệp (Tại hạ, Huynh - Đệ, Sư phụ, Các hạ)
           </option>
           <option value="workplace">
-            🏢 Tổng tài / Công sở (Sếp - Tôi/Em, Tôi - Cậu/Cô)
+            Tổng tài / Công sở (Sếp - Tôi/Em, Tôi - Cậu/Cô)
           </option>
           <option value="family">
-            👨‍👩‍👧 Gia đình / Đời sống (Bố/Mẹ - Con, Vợ - Chồng, Cháu)
+            Gia đình / Đời sống (Bố/Mẹ - Con, Vợ - Chồng, Cháu)
           </option>
           <option value="narration">
-            🎙️ Kể chuyện / Review phim / Tin tức (Tôi/Mình - Các bạn)
+            Kể chuyện / Review phim / Tin tức (Tôi/Mình - Các bạn)
           </option>
         </select>
         <p className="text-[10px] text-on-surface-variant/70">
@@ -387,17 +387,17 @@ export const TranslationSettingsCard: React.FC<TranslationSettingsCardProps> = (
             className="w-full bg-surface-variant/80 border border-cyan-500/40 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-cyan-400 font-medium text-cyan-300 cursor-pointer shadow-sm"
           >
             <option value="large-v3">
-              🌟 large-v3 (Mặc định - Bản lớn đầy đủ 1.55 Tỷ tham số • Chuẩn xác
+              large-v3 (Mặc định - Bản lớn đầy đủ 1.55 Tỷ tham số • Chuẩn xác
               cao nhất)
             </option>
             <option value="large-v3-turbo">
-              🚀 large-v3-turbo (Siêu tốc 8x, Nhẹ & Chuẩn 98% • Colab/Local)
+              large-v3-turbo (Siêu tốc 8x, Nhẹ & Chuẩn 98% • Colab/Local)
             </option>
             <option value="medium">
-              ⚡ medium (Cân bằng & Tốc độ cao - 769 Triệu tham số)
+              medium (Cân bằng & Tốc độ cao - 769 Triệu tham số)
             </option>
-            <option value="small">🚀 small (Nhẹ & Nhanh - 244 Triệu tham số)</option>
-            <option value="base">⏱️ base (Bản tối giản - 74 Triệu tham số)</option>
+            <option value="small">small (Nhẹ & Nhanh - 244 Triệu tham số)</option>
+            <option value="base">base (Bản tối giản - 74 Triệu tham số)</option>
           </select>
           <p className="text-[10px] text-on-surface-variant/70">
             ⚡ <strong>large-v3</strong> là mô hình lớn nhất với 1.55 tỷ tham số,

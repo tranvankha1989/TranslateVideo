@@ -942,7 +942,7 @@ export default function Library() {
                     ).length;
                     return (
                       <option key={p.id} value={p.id}>
-                        📁 {p.name} ({count})
+                        {p.name} ({count})
                       </option>
                     );
                   })}

@@ -966,7 +966,7 @@ export default function CloningVoice() {
                     onChange={(e) => setGuidedGender(e.target.value)}
                     className="bg-surface-dim border border-white/10 rounded-lg px-3 py-2 text-xs text-on-surface focus:border-secondary focus:outline-none transition-colors"
                   >
-                    <option value="random">🎲 Ngẫu nhiên (Random)</option>
+                    <option value="random">Ngẫu nhiên (Random)</option>
                     <option value="female">Nữ (Female)</option>
                     <option value="male">Nam (Male)</option>
                   </select>
@@ -981,7 +981,7 @@ export default function CloningVoice() {
                     onChange={(e) => setGuidedAge(e.target.value)}
                     className="bg-surface-dim border border-white/10 rounded-lg px-3 py-2 text-xs text-on-surface focus:border-secondary focus:outline-none transition-colors"
                   >
-                    <option value="random">🎲 Ngẫu nhiên (Random)</option>
+                    <option value="random">Ngẫu nhiên (Random)</option>
                     <option value="child">Trẻ em (Child)</option>
                     <option value="teenager">Thiếu niên (Teenager)</option>
                     <option value="young adult">Thanh niên (Young adult)</option>
@@ -999,7 +999,7 @@ export default function CloningVoice() {
                     onChange={(e) => setGuidedPitch(e.target.value)}
                     className="bg-surface-dim border border-white/10 rounded-lg px-3 py-2 text-xs text-on-surface focus:border-secondary focus:outline-none transition-colors"
                   >
-                    <option value="random">🎲 Ngẫu nhiên (Random)</option>
+                    <option value="random">Ngẫu nhiên (Random)</option>
                     <option value="very low pitch">Rất trầm (Very low pitch)</option>
                     <option value="low pitch">Trầm ấm (Low pitch)</option>
                     <option value="moderate pitch">Vừa phải (Moderate pitch)</option>
@@ -1017,7 +1017,7 @@ export default function CloningVoice() {
                     onChange={(e) => setGuidedStyle(e.target.value)}
                     className="bg-surface-dim border border-white/10 rounded-lg px-3 py-2 text-xs text-on-surface focus:border-secondary focus:outline-none transition-colors"
                   >
-                    <option value="random">🎲 Ngẫu nhiên (Random)</option>
+                    <option value="random">Ngẫu nhiên (Random)</option>
                     <option value="normal">Tự nhiên / Thường</option>
                     <option value="warm">Ấm áp (Warm)</option>
                     <option value="cheerful">Vui tươi (Cheerful)</option>

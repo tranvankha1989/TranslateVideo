@@ -236,3 +236,14 @@ html.vt-glass ::-webkit-scrollbar-thumb:hover {
   background: rgba(13, 19, 34, 0.96) !important;
   box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45) !important;
 }
+
+/* Danh sách xổ xuống (select): nền đặc tối, chữ sáng. Nền trong mờ của ô chọn làm Windows vẽ danh sách
+   thành màu xám nhạt, chữ màu khó đọc. :root để thắng các lớp màu nền/màu chữ gắn trên từng <option> */
+:root select {
+  color-scheme: dark;
+}
+:root select option,
+:root select optgroup {
+  background-color: #111827;
+  color: #e2e8f0;
+}

@@ -145,7 +145,7 @@ export function LibraryScriptModal({
               onChange={(e) => setSelectedProjectId(e.target.value)}
               className="px-3 py-2 rounded-xl bg-surface-variant/80 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/60 transition cursor-pointer"
             >
-              <option value="all">📁 Tất cả dự án ({history.length})</option>
+              <option value="all">Tất cả dự án ({history.length})</option>
               {projects.map((proj) => (
                 <option key={proj.id} value={proj.id}>
                   {proj.name}
