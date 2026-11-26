@@ -251,8 +251,10 @@ async function createMainWindow() {
     title: "VideoTranslate AI - OmniVoice Studio",
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     autoHideMenuBar: true,
-    backgroundColor: "#00000000",
-    backgroundMaterial: "mica",
+    // Nền tối đặc, không dùng mica (mica theo giao diện sáng của Windows làm thanh tiêu đề trắng);
+    // accentColor = màu thanh tiêu đề + viền cửa sổ trên Windows 11, Electron tự giữ màu khi đổi trạng thái cửa sổ
+    backgroundColor: "#090d16",
+    accentColor: "#090d16",
     show: false, // Ẩn cho đến khi sẵn sàng để tránh giật hình
     webPreferences: {
       nodeIntegration: false,
