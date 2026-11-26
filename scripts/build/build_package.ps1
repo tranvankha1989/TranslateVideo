@@ -67,6 +67,11 @@ New-Item -ItemType Directory -Path $staging -Force | Out-Null
 # Su dung robocopy native sieu toc thay cho Copy-Item
 robocopy "$Root\backend" $staging /E /XD venv .git .vscode __pycache__ logs outputs local_models /XF .env *.pyc /NDL /NFL /NJH /NJS /nc /ns /np | Out-Null
 
+# Uu tien python_runtime de .pyc khop dung phien ban Python se trien khai (tranh loi magic number)
+$pyExe = "$Root\python_runtime\python.exe"
+if (-not (Test-Path $pyExe)) { $pyExe = "$Root\backend\venv\Scripts\python.exe" }
+if (-not (Test-Path $pyExe)) { $pyExe = "python" }
+
 # Bien dich sang .pyc
 if (Test-Path $pyExe) {
     & $pyExe -O -m compileall -b $staging | Out-Null
