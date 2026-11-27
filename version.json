@@ -1,6 +1,6 @@
 {
-  "version": "3.14.13",
+  "version": "3.14.14",
   "name": "VideoTranslate AI",
   "release_date": "2026-11-27",
-  "description": "Nâng cấp V3.14.13: Nút Tạo giọng nói chuyển thành nút Dừng xử lý kèm tiến trình 1-100%; tiêu đề trang gọn sát phía trên"
+  "description": "Nâng cấp V3.14.14: Nút Dừng xử lý giữ nguyên % khi chuyển trang rồi quay lại, không chạy lại từ đầu"
 }
