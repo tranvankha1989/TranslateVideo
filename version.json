@@ -1,6 +1,6 @@
 {
-  "version": "3.14.14",
+  "version": "3.14.15",
   "name": "VideoTranslate AI",
   "release_date": "2026-11-27",
-  "description": "Nâng cấp V3.14.14: Nút Dừng xử lý giữ nguyên % khi chuyển trang rồi quay lại, không chạy lại từ đầu"
+  "description": "Nâng cấp V3.14.15: Nút Dừng xử lý dừng đúng cả khi đã chuyển trang, hết hiện 100% khi còn đang tạo; thêm công tắc bật/tắt giao diện trong suốt ở trang Cài đặt"
 }
