@@ -366,11 +366,18 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
 // % hiển thị trên nút Dừng (1-99). Máy chủ không báo % trong từng phân đoạn, chỉ biết số đoạn đã xong:
 // mốc thật = đoạn xong / tổng (tới 95%, phần còn lại là ghép file); giữa hai mốc tăng dần, chậm lại,
 // không vượt mốc kế tiếp (2 đoạn chạy song song, xem CONCURRENCY trong useStudioGenerate).
+// % đang hiện giữ NGOÀI nút: chuyển trang thì nút bị gỡ nhưng lượt tạo vẫn chạy (isLoading/tiến trình
+// nằm trong store chung) -> quay lại hiện tiếp từ % cũ, không chạy lại từ 1%. Hết lượt (xong/dừng) thì xóa.
+let savedGenPct = 0;
+useTTSStore.subscribe((s) => {
+  if (!s.isLoading) savedGenPct = 0;
+});
+
 const useGenerateProgressPct = (
   isLoading: boolean,
   progress?: { current: number; total: number },
 ) => {
-  const [pct, setPct] = useState(0);
+  const [pct, setPct] = useState(() => (isLoading ? savedGenPct : 0));
   const [finishing, setFinishing] = useState(false);
   const progressRef = useRef(progress);
   progressRef.current = progress;
@@ -398,7 +405,7 @@ const useGenerateProgressPct = (
       setPct(0);
       return;
     }
-    setPct(1);
+    setPct(Math.max(1, savedGenPct));
     const id = setInterval(() => {
       const total = Math.max(0, progressRef.current?.total || 0);
       const t = Math.max(1, total);
@@ -407,7 +414,9 @@ const useGenerateProgressPct = (
       const cap = total > 0 && done >= t ? 99 : (Math.min(t, done + 2) / t) * 95 - 1;
       setPct((p) => {
         const base = Math.max(p, floor);
-        return base < cap ? base + (cap - base) * 0.03 : base;
+        const next = base < cap ? base + (cap - base) * 0.03 : base;
+        if (useTTSStore.getState().isLoading) savedGenPct = next;
+        return next;
       });
     }, 250);
     return () => clearInterval(id);
