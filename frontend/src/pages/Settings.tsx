@@ -16,6 +16,7 @@ import { useTTSStore, type CheckUpdateResult } from "@/store/useTTSStore";
 import { APP_VERSION } from "@/constants/version";
 import { AppUpdateModal } from "@/components/AppUpdateModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
+import { GlassToggle } from "@/components/GlassToggle";
 import {
   HardwareTab,
   AdFilterTab,
@@ -83,6 +84,9 @@ export default function Settings() {
 
         {/* Header Action & Status Badge */}
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Công tắc giao diện trong suốt (chỉ hiện trên máy có kính mờ) */}
+          <GlassToggle />
+
           {/* Nút Góp Ý & Báo Lỗi */}
           <button
             type="button"
