@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { toast } from "sonner";
 
 import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
@@ -16,6 +15,16 @@ interface GenerateOptions {
 }
 
 let globalStudioTimer: NodeJS.Timeout | null = null;
+
+// Trạng thái lượt tạo đang chạy để NGOÀI hook (trước đây là useRef): chuyển trang thì Phòng thu bị gỡ,
+// quay lại là bản mới với ref rỗng -> nút Dừng không hủy được lượt cũ, lượt cũ chạy tiếp và ghi đè
+// tiến trình/trạng thái của lượt sau (nút hiện 100% trong khi các đoạn bên dưới vẫn đang render).
+const initialBlocksRef: { current: ScriptBlock[] } = { current: [] };
+const initialAudioUrlRef: { current: string | null } = { current: null };
+const initialElapsedTimeRef: { current: number } = { current: 0 };
+const abortControllerRef: { current: AbortController | null } = { current: null };
+const activeToastIdRef: { current: string | number | null } = { current: null };
+const currentSessionIdRef: { current: string | null } = { current: null };
 
 export function useStudioGenerate() {
   const { status: licenseStatus, openModal } = useGlobalLicense();
@@ -40,14 +49,6 @@ export function useStudioGenerate() {
     elapsedTime,
     setElapsedTime,
   } = useTTSStore();
-
-  const initialBlocksRef = useRef<ScriptBlock[]>([]);
-  const initialAudioUrlRef = useRef<string | null>(null);
-  const initialElapsedTimeRef = useRef<number>(0);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const isCancelledRef = useRef<boolean>(false);
-  const activeToastIdRef = useRef<string | number | null>(null);
-  const currentSessionIdRef = useRef<string | null>(null);
 
   const cleanupTimer = () => {
     if (globalStudioTimer) {
@@ -133,8 +134,10 @@ export function useStudioGenerate() {
     initialBlocksRef.current = [...useTTSStore.getState().studioBlocks];
     initialAudioUrlRef.current = useTTSStore.getState().audioUrl;
     initialElapsedTimeRef.current = useTTSStore.getState().elapsedTime;
-    isCancelledRef.current = false;
-    abortControllerRef.current = new AbortController();
+    // Mỗi lượt có bộ hủy riêng: lượt đã bị Dừng không còn đụng vào trạng thái của lượt sau
+    const runController = new AbortController();
+    abortControllerRef.current = runController;
+    const isCancelled = () => runController.signal.aborted;
 
     setIsLoading(true);
     setAudioUrl(null);
@@ -169,7 +172,7 @@ export function useStudioGenerate() {
         const response = await fetch(`${API_BASE_URL}/api/tts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          signal: abortControllerRef.current.signal,
+          signal: runController.signal,
           body: JSON.stringify({
             text: sentences[0]?.text || processedText,
             mode,
@@ -187,7 +190,7 @@ export function useStudioGenerate() {
           }),
         });
 
-        if (isCancelledRef.current) return;
+        if (isCancelled()) return;
 
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
@@ -195,7 +198,7 @@ export function useStudioGenerate() {
         }
 
         const data = await response.json();
-        if (isCancelledRef.current) return;
+        if (isCancelled()) return;
 
         setAudioUrl(data.audio_url);
         try {
@@ -278,13 +281,13 @@ export function useStudioGenerate() {
 
         const processSentenceWorker = async () => {
           while (nextIndex < sentences.length) {
-            if (isCancelledRef.current) break;
+            if (isCancelled()) break;
             const i = nextIndex++;
             try {
               const res = await fetch(`${API_BASE_URL}/api/tts`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                signal: abortControllerRef.current?.signal,
+                signal: runController.signal,
                 body: JSON.stringify({
                   text: sentences[i].text,
                   mode,
@@ -302,11 +305,11 @@ export function useStudioGenerate() {
                 }),
               });
 
-              if (isCancelledRef.current) break;
+              if (isCancelled()) break;
 
               if (res.ok) {
                 const bData = await res.json();
-                if (isCancelledRef.current) break;
+                if (isCancelled()) break;
                 completedBlocks = completedBlocks.map((b, bIdx) =>
                   bIdx === i
                     ? {
@@ -324,13 +327,13 @@ export function useStudioGenerate() {
                 );
               }
             } catch (e: any) {
-              if (isCancelledRef.current || e.name === "AbortError") break;
+              if (isCancelled() || e.name === "AbortError") break;
               completedBlocks = completedBlocks.map((b, bIdx) =>
                 bIdx === i ? { ...b, status: "error" as const, error: e.message } : b,
               );
             }
 
-            if (isCancelledRef.current) break;
+            if (isCancelled()) break;
 
             finishedCount++;
             setProgress({ current: finishedCount, total: sentences.length });
@@ -346,7 +349,7 @@ export function useStudioGenerate() {
         );
         await Promise.all(workers);
 
-        if (isCancelledRef.current) return;
+        if (isCancelled()) return;
 
         const readyBlocks = completedBlocks.filter(
           (b) => b.status === "ready" && (b.filename || b.audioUrl),
@@ -356,7 +359,7 @@ export function useStudioGenerate() {
           const stitchRes = await fetch(`${API_BASE_URL}/api/tts/stitch`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            signal: abortControllerRef.current?.signal,
+            signal: runController.signal,
             body: JSON.stringify({
               blocks: readyBlocks.map((b) => ({
                 filename: b.filename || b.audioUrl!.split("/").pop()!,
@@ -372,11 +375,11 @@ export function useStudioGenerate() {
             }),
           });
 
-          if (isCancelledRef.current) return;
+          if (isCancelled()) return;
 
           if (stitchRes.ok) {
             const stitchData = await stitchRes.json();
-            if (isCancelledRef.current) return;
+            if (isCancelled()) return;
             setAudioUrl(stitchData.audio_url);
             try {
               localStorage.setItem("tts_master_elapsed_time", String(elapsedTime));
@@ -438,14 +441,16 @@ export function useStudioGenerate() {
         }
       }
     } catch (err: any) {
-      if (isCancelledRef.current || err.name === "AbortError") {
+      if (isCancelled() || err.name === "AbortError") {
         return;
       }
       toast.error(`Tổng hợp thất bại: ${err.message}`, { id: toastId });
     } finally {
-      cleanupTimer();
-      setIsLoading(false);
-      if (!isCancelledRef.current) {
+      // Lượt đã bị Dừng thì nút Dừng đã dọn xong; không tắt trạng thái đang tạo của lượt mới
+      if (abortControllerRef.current === runController) {
+        abortControllerRef.current = null;
+        cleanupTimer();
+        setIsLoading(false);
         try {
           localStorage.setItem(
             "tts_master_elapsed_time",
@@ -460,7 +465,6 @@ export function useStudioGenerate() {
   const handleStopGenerate = (
     saveStudioBlocks?: (blocks: ScriptBlock[]) => void,
   ) => {
-    isCancelledRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
